@@ -353,7 +353,7 @@ internal sealed class ContextCompiler : IContextCompiler
     /// Loads rules from the graph, filtering tool rules by relevant toolbox domains. When
     /// <paramref name="headPrefixes"/> is non-empty (stage 1 pre-pruned), only rules under those subtrees
     /// plus standalone (non-git/upload) rules are loaded; otherwise all in-scope rules are loaded.
-    /// Non-tool rules (coding, security, world, ASPS, etc.) are always loaded; tool rules only when their
+    /// Non-tool rules (coding, security, world, etc.) are always loaded; tool rules only when their
     /// domain matches a resolved toolbox.
     /// </summary>
     /// <param name="context">Task context for scoping.</param>

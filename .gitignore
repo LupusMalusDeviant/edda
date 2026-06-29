@@ -16,9 +16,6 @@ unblock2.ps1
 _external/
 **/TestResults/
 
-# Eingebettetes ASPS-Prototyp-Repo (eigene .git-Historie + node_modules) — gehört nicht ins Haupt-Repo
-docs/ASPS-Tests/
-
 # Lokales Web-Host-Run-Log (Entwicklung)
 web-run.log
 

@@ -6,7 +6,7 @@
 (`Models/`), die alle übrigen Projekte teilen. Erzwingt die „Interface-First"-Regel — jede von außen
 genutzte Implementierung hat hier ihr Interface. Enthält keine Laufzeitlogik (Ausnahme: `Benchmark/RetrievalMetrics`, reine Berechnung). Core ist eine Ganzkopie der Core-Schicht aus dem Edda-Monorepo;
 **nur eine Teilmenge der Verträge ist in dieser Auskopplung implementiert** — die Chat-, Multi-Agent-,
-Channel-, ASPS- und Workflow-Verträge sind mitkopiert, aber ohne Implementierung.
+Channel- und Workflow-Verträge sind mitkopiert, aber ohne Implementierung.
 
 ## Dateien
 
@@ -50,7 +50,6 @@ Core enthält keine Laufzeitbeteiligung. Die Implementierungen liegen in `AKG`, 
 
 ## Offene Fragen / TODOs
 
-- Viele Verträge sind aus dem Monorepo geerbt, in Edda aber **ohne Implementierung** (z. B. `IModelClient`,
-  `IAgentRuntime`, `IWorkflowEngine`, `ICloneOrchestrator`, `IAspsOrchestrator`, Channel-/Prototype-/
-  Browser-Modelle). Kandidaten zum Entfernen, um die Vertrags-Oberfläche auf den tatsächlichen Umfang zu
-  reduzieren.
+- Einige Verträge sind aus dem Monorepo geerbt, in Edda aber **ohne Implementierung** (z. B. `IModelClient`,
+  `IAgentRuntime`, `IWorkflowEngine`, `ICloneOrchestrator`, Channel-/Browser-Modelle). Kandidaten zum
+  Entfernen, um die Vertrags-Oberfläche auf den tatsächlichen Umfang zu reduzieren.

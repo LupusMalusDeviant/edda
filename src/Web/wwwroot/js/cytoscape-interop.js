@@ -27,7 +27,6 @@ window.cytoscapeInterop = {
             'tools.devops':     '#e879f9',   // fuchsia
             'tools.files':      '#67e8f9',   // light cyan
             'tools.security':   '#f472b6',   // pink
-            'asps':             '#fb923c',   // orange
             'world':            '#a3e635',   // lime
             'security':         '#f87171',   // red
             'coding':           '#34d399',   // emerald
@@ -102,7 +101,7 @@ window.cytoscapeInterop = {
                 return c >= 0 ? rest.substring(c + 1) : rest;  // file -> path, repo -> slug
             }
             var parts = id.split('-');
-            var prefixes = ['tool','world','asps','rule','coding','security','learning'];
+            var prefixes = ['tool','world','rule','coding','security','learning'];
             if (parts.length > 1 && prefixes.indexOf(parts[0]) >= 0) {
                 parts = parts.slice(1);
             }
