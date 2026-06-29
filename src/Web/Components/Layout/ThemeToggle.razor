@@ -1,0 +1,46 @@
+@inject IJSRuntime JS
+@inject ILocalizationService Loc
+@implements IDisposable
+
+<button class="theme-toggle-btn" @onclick="ToggleAsync"
+        title="@(_isDark ? Loc["theme.tolight"] : Loc["theme.todark"])">
+    <span class="toggle-icon" aria-hidden="true">@(_isDark ? "☀" : "🌙")</span>
+    <span class="toggle-label">@(_isDark ? Loc["theme.light"] : Loc["theme.dark"])</span>
+</button>
+
+@code {
+    private bool _isDark = false; // matches the default theme set in App.razor (light)
+
+    /// <summary>
+    /// Reads the active theme from the DOM on first render to synchronise the icon state.
+    /// Wrapped in try/catch because JS files may not be loaded yet during pre-rendering.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var theme = await JS.InvokeAsync<string>("themeManager.getTheme");
+            _isDark = theme == "dark";
+            StateHasChanged();
+        }
+        catch { /* JS not yet available during pre-render — default _isDark=false (light) is correct */ }
+    }
+
+    /// <summary>Toggles the theme via JS and updates the button icon.</summary>
+    private async Task ToggleAsync()
+    {
+        try
+        {
+            var next = await JS.InvokeAsync<string>("themeManager.toggle");
+            _isDark = next == "dark";
+        }
+        catch { _isDark = !_isDark; }
+    }
+
+    /// <summary>Subscribes to locale changes so button labels re-render.</summary>
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    /// <summary>Unsubscribes to prevent memory leaks.</summary>
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+}

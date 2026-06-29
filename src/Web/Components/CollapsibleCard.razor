@@ -1,0 +1,32 @@
+@* Settings card whose body collapses when the header is clicked. State is per-instance and client-side. *@
+<div class="card mb-3" style="max-width:700px;">
+    <div class="card-body">
+        <h6 class="card-title d-flex align-items-center gap-2 @(_collapsed ? "mb-0" : "")"
+            role="button" tabindex="0" style="cursor:pointer;user-select:none;" @onclick="Toggle">
+            <span style="font-size:0.7rem;opacity:0.65;width:0.8rem;display:inline-block;">@(_collapsed ? "▶" : "▼")</span>
+            <span>@Title</span>
+        </h6>
+        @if (!_collapsed)
+        {
+            @ChildContent
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The card heading, always visible in the clickable header.</summary>
+    [Parameter] public string Title { get; set; } = "";
+
+    /// <summary>The collapsible body content.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>When <see langword="true"/>, the card renders collapsed initially.</summary>
+    [Parameter] public bool InitiallyCollapsed { get; set; }
+
+    private bool _collapsed;
+
+    /// <inheritdoc />
+    protected override void OnInitialized() => _collapsed = InitiallyCollapsed;
+
+    private void Toggle() => _collapsed = !_collapsed;
+}

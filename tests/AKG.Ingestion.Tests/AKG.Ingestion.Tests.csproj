@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AKG.Ingestion\AKG.Ingestion.csproj" />
+    <!-- AKG is referenced only by tests, to round-trip serialized Markdown through the real parser. -->
+    <ProjectReference Include="..\..\src\AKG\AKG.csproj" />
+  </ItemGroup>
+
+</Project>

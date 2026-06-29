@@ -1,0 +1,25 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Agent/Agent.csproj" />
+    <Project Path="src/AKG.Ingestion/AKG.Ingestion.csproj" />
+    <Project Path="src/AKG.Mcp/AKG.Mcp.csproj" />
+    <Project Path="src/AKG/AKG.csproj" />
+    <Project Path="src/Core/Core.csproj" />
+    <Project Path="src/Edda.Hosting/Edda.Hosting.csproj" />
+    <Project Path="src/Edda.Mcp.Stdio/Edda.Mcp.Stdio.csproj" />
+    <Project Path="src/Embeddings/Embeddings.csproj" />
+    <Project Path="src/Sandboxing/Sandboxing.csproj" />
+    <Project Path="src/Security/Security.csproj" />
+    <Project Path="src/Web/Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Agent.Tests/Agent.Tests.csproj" />
+    <Project Path="tests/AKG.Ingestion.Tests/AKG.Ingestion.Tests.csproj" />
+    <Project Path="tests/AKG.Mcp.Tests/AKG.Mcp.Tests.csproj" />
+    <Project Path="tests/AKG.Tests/AKG.Tests.csproj" />
+    <Project Path="tests/Core.Tests/Core.Tests.csproj" />
+    <Project Path="tests/Embeddings.Tests/Embeddings.Tests.csproj" />
+    <Project Path="tests/Sandboxing.Tests/Sandboxing.Tests.csproj" />
+    <Project Path="tests/Security.Tests/Security.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,29 @@
+bin/
+obj/
+.vs/
+.claude/
+*.user
+.env
+.env.bak
+*.db
+*.db-shm
+*.db-wal
+/data/
+_claude_memory/
+*.zip
+unblock.ps1
+unblock2.ps1
+_external/
+**/TestResults/
+
+# Eingebettetes ASPS-Prototyp-Repo (eigene .git-Historie + node_modules) — gehört nicht ins Haupt-Repo
+docs/ASPS-Tests/
+
+# Lokales Web-Host-Run-Log (Entwicklung)
+web-run.log
+
+# Aus externen Quellen ingestierter Wissens-Output (generiert, repo-/kundenspezifisch)
+knowledge/ingested/
+
+# Implementation-Pläne — lokale Arbeitsdokumente, bewusst nicht versioniert
+docs/plans/

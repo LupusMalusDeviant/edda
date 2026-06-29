@@ -1,0 +1,138 @@
+@page "/import"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Forms
+@inject IKnowledgeImporter Importer
+@inject IActivityTracker Activity
+
+<PageTitle>Import</PageTitle>
+
+<h3 class="mb-3">Wissen importieren</h3>
+
+<div class="card mb-3" style="max-width:700px;">
+    <div class="card-body">
+        <p class="form-text mt-0">
+            Importiere Markdown (<code>.md</code> / <code>.zip</code>-Sammlung), <code>.pdf</code>,
+            <code>.html</code> (z. B. Confluence/Notion-Export), Datensätze (<code>.csv</code>,
+            <code>.jsonl</code>, JSON-Array — auch Vektor-DB-Dumps) oder ein <code>.json</code>-Wissensbündel
+            (verlustfrei, Gegenstück zu <code>GET /api/knowledge/export</code>). Die Inhalte werden wie eine
+            Git-Ingestion strukturiert abgebildet — eine Wurzel je Quelle, darunter verbundene Einträge mit
+            Pfad-Domänen und aufgelösten Querverweisen, keine flachen Einzelknoten. Fremd-Vektoren werden nie
+            übernommen; Embeddings berechnet Edda lokal neu.
+        </p>
+
+        <div class="mb-2">
+            <label class="form-label" for="imp-domain">Bezeichnung der Quelle (optional)</label>
+            <input id="imp-domain" class="form-control form-control-sm" @bind="_domain"
+                   placeholder="leer = Dateiname" />
+        </div>
+
+        <div class="mb-2">
+            <label class="form-label" for="imp-chunk">Chunking-Stil</label>
+            <select id="imp-chunk" class="form-select form-select-sm" @bind="_chunkStyle">
+                <option value="auto">Automatisch (nach Inhalt erkennen)</option>
+                <option value="prose">Prosa</option>
+                <option value="markdown">Markdown</option>
+                <option value="code">Code</option>
+                <option value="table">Tabelle</option>
+            </select>
+            <div class="form-text">
+                Erzwingt die Zerlegungsart beim Embedden; „Automatisch" erkennt sie je Dokument selbst.
+            </div>
+        </div>
+
+        <div class="mb-2">
+            <label class="form-label" for="imp-file">Datei</label>
+            <InputFile id="imp-file" class="form-control form-control-sm" OnChange="OnFile"
+                       accept=".md,.markdown,.zip,.pdf,.html,.htm,.json,.jsonl,.csv" />
+            @if (_fileName is not null)
+            {
+                <div class="form-text">Ausgewählt: <code>@_fileName</code> (@_fileSize Bytes)</div>
+            }
+        </div>
+
+        <button class="btn btn-sm btn-primary" @onclick="ImportAsync" disabled="@(_busy || _fileName is null)">
+            @(_busy ? "Importiert…" : "Importieren")
+        </button>
+
+        @if (_result is not null)
+        {
+            <div class="alert @(_ok ? "alert-success" : "alert-danger") mt-2 mb-0 py-1">@_result</div>
+        }
+
+        <div class="form-text mt-2">
+            Nach dem Import ggf. unter „Embeddings“ neu berechnen, damit die neuen Regeln semantisch
+            durchsuchbar sind.
+        </div>
+    </div>
+</div>
+
+@code {
+    private const long MaxBytes = 50L * 1024 * 1024;
+
+    private string _domain = "";
+    private string _chunkStyle = "auto";
+    private string? _fileName;
+    private long _fileSize;
+    private IBrowserFile? _file;
+    private bool _busy;
+    private bool _ok;
+    private string? _result;
+
+    private void OnFile(InputFileChangeEventArgs e)
+    {
+        _file = e.File;
+        _fileName = e.File.Name;
+        _fileSize = e.File.Size;
+        _result = null;
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_file is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _result = null;
+        using var cts = new CancellationTokenSource();
+        Activity.Report(ActivityKind.Import, ActivityState.Running, _fileName, onCancel: () => cts.Cancel());
+        try
+        {
+            byte[] bytes;
+            await using (var stream = _file.OpenReadStream(MaxBytes))
+            using (var buffer = new MemoryStream())
+            {
+                await stream.CopyToAsync(buffer, cts.Token);
+                bytes = buffer.ToArray();
+            }
+
+            var domain = string.IsNullOrWhiteSpace(_domain) ? null : _domain.Trim();
+            var style = _chunkStyle == "auto" ? null : _chunkStyle;
+            var result = await Importer.ImportAsync(_file.Name, bytes, domain, style, cts.Token);
+
+            _ok = result.Failed == 0;
+            _result = _ok
+                ? $"✓ {result.Imported} importiert, {result.Updated} aktualisiert, {result.Skipped} übersprungen."
+                : $"✗ {result.Imported} importiert, {result.Failed} Fehler — "
+                  + string.Join("; ", result.Errors.Select(x => x.Message));
+            Activity.Report(ActivityKind.Import, _ok ? ActivityState.Succeeded : ActivityState.Failed, _fileName);
+        }
+        catch (OperationCanceledException)
+        {
+            _ok = true;
+            _result = "⊘ Import abgebrochen.";
+            Activity.Report(ActivityKind.Import, ActivityState.Succeeded, "abgebrochen");
+        }
+        catch (Exception ex)
+        {
+            _ok = false;
+            _result = $"✗ Import fehlgeschlagen: {ex.Message}";
+            Activity.Report(ActivityKind.Import, ActivityState.Failed, _fileName);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

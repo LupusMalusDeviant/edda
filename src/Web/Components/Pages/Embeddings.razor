@@ -1,0 +1,421 @@
+@page "/embeddings"
+@rendermode InteractiveServer
+@using Edda.Security.Credentials
+@inject IEmbeddingService EmbeddingService
+@inject IKnowledgeGraph KnowledgeGraph
+@inject ISettingsService SettingsService
+@inject ICredentialStore Credentials
+@inject IIdentityContext Identity
+@inject IAuditLog Audit
+@inject IProviderProbe Probe
+@implements IDisposable
+
+<PageTitle>Embeddings</PageTitle>
+
+<h3 class="mb-3">Embeddings</h3>
+
+<div class="card mb-3" style="max-width:700px;">
+    <div class="card-body">
+        <h6 class="card-title">Status</h6>
+        <table class="table table-sm mb-0">
+            <tbody>
+                <tr>
+                    <td style="width:40%;">Aktiver Provider</td>
+                    <td><code>@(_provider)</code></td>
+                </tr>
+                <tr>
+                    <td>Verfügbar</td>
+                    <td>@(EmbeddingService.IsAvailable ? "✓ ja" : "— nein (NullEmbeddingService)")</td>
+                </tr>
+                <tr>
+                    <td>Dimensionen</td>
+                    <td>@EmbeddingService.Dimensions</td>
+                </tr>
+                @if (_stats is not null)
+                {
+                    <tr>
+                        <td>Eingebettete Regeln</td>
+                        <td>@_stats.RulesWithEmbeddings / @_stats.TotalRules</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mb-3" style="max-width:700px;">
+    <div class="card-body">
+        <h6 class="card-title">Konfiguration</h6>
+        <p class="form-text mt-0">
+            Ein Embedding-Modell dient sowohl der DB-Indexierung als auch der Query-/Agent-Prompt-Einbettung
+            — beide müssen denselben Vektorraum teilen, daher ein gemeinsames Modell. Query-Einbettung greift
+            sofort; gespeicherte DB-Embeddings bleiben bis zur Neuberechnung.
+        </p>
+
+        <div class="mb-2">
+            <label class="form-label" for="emb-provider">Provider</label>
+            <select id="emb-provider" class="form-select form-select-sm" @bind="_cfgProvider" @bind:after="RefreshKeyStatusAsync">
+                <option value="null">— deaktiviert (null)</option>
+                <option value="openai">OpenAI</option>
+                <option value="google">Google</option>
+                <option value="voyage">Voyage</option>
+                <option value="ollama">Ollama</option>
+                <option value="custom">Custom (OpenAI-kompatibel)</option>
+                <option value="bedrock">AWS Bedrock</option>
+            </select>
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="emb-model">Modell</label>
+            <input id="emb-model" class="form-control form-control-sm" @bind="_cfgModel" list="emb-models"
+                   placeholder="leer = Provider-Default" />
+            @if (_embModels.Count > 0)
+            {
+                <datalist id="emb-models">
+                    @foreach (var m in _embModels)
+                    {
+                        <option value="@m" />
+                    }
+                </datalist>
+            }
+            <div class="form-text">
+                Starke offene Modelle (lokal via Ollama/Custom): <code>bge-m3</code>, <code>nomic-embed-text</code>,
+                <code>mxbai-embed-large</code>, <code>e5-large-v2</code>. Details: <code>docs/chunking.md</code>.
+            </div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="emb-baseurl">Base-URL</label>
+            <input id="emb-baseurl" class="form-control form-control-sm" @bind="_cfgBaseUrl" placeholder="leer = Provider-Default" />
+            @if (_cfgProvider == "ollama")
+            {
+                <div class="form-text">
+                    Lokal: <code>http://ollama:11434</code> · Remote/Tailscale: <code>http://ollama-prod:11434</code>
+                    (http/https) · Cloud-API: Host + Token.
+                </div>
+            }
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="emb-dims">Dimensionen</label>
+            <input id="emb-dims" type="number" class="form-control form-control-sm" @bind="_cfgDimensions"
+                   placeholder="leer = Provider-Default" />
+        </div>
+        @if (_cfgProvider == "bedrock")
+        {
+            <div class="mb-2">
+                <label class="form-label" for="emb-region">AWS Region</label>
+                <input id="emb-region" class="form-control form-control-sm" @bind="_cfgRegion" placeholder="us-east-1" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label" for="emb-access">AWS Access Key ID</label>
+                <input id="emb-access" class="form-control form-control-sm" @bind="_cfgAccessKey"
+                       placeholder="@(_accessKeyStored ? "••• gespeichert — neuen Wert zum Ersetzen" : "leer = AWS-Default-Credential-Chain (Env/Profil/Instanz-Rolle)")" />
+            </div>
+        }
+        <div class="mb-2">
+            <label class="form-label" for="emb-key">@KeyLabel</label>
+            <input id="emb-key" type="password" class="form-control form-control-sm" @bind="_cfgKey"
+                   placeholder="@KeyPlaceholder" />
+        </div>
+
+        <div class="alert alert-warning py-2" style="font-size:0.85rem;">
+            ⚠️ Ändern von <strong>Provider</strong>, <strong>Modell</strong> oder <strong>Dimensionen</strong> macht die
+            gespeicherten DB-Embeddings veraltet — das Retrieval verschlechtert sich, bis du unten
+            <em>„Embeddings neu berechnen"</em> ausführst.
+        </div>
+
+        <button class="btn btn-sm btn-primary" @onclick="SaveConfigAsync" disabled="@_savingConfig">
+            @(_savingConfig ? "Speichert…" : "Speichern")
+        </button>
+        <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="TestEmbeddingAsync" disabled="@_testingEmb">
+            @(_testingEmb ? "Testet…" : "Verbindung testen")
+        </button>
+        @if (_configSaved)
+        {
+            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+        }
+        @if (_embTestResult is not null)
+        {
+            <div class="alert @(_embTestOk ? "alert-success" : "alert-danger") mt-2 mb-0 py-1">@_embTestResult</div>
+        }
+    </div>
+</div>
+
+<div class="card mb-3" style="max-width:700px;">
+    <div class="card-body">
+        <h6 class="card-title">Chunking</h6>
+        <p class="form-text mt-0">
+            Große Dokumente werden für die semantische Suche in mehrere Chunks zerlegt — adaptiv nach Stil
+            (Prosa, Markdown, Code, Tabellen). Chunks sind nur ein Retrieval-Artefakt: im Wissensgraphen
+            bleibt das Dokument ein einzelner Knoten.
+        </p>
+
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="chunk-enabled" @bind="_chunkEnabled" />
+            <label class="form-check-label" for="chunk-enabled">Chunking aktiv</label>
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="chunk-max">Maximale Chunk-Größe (Zeichen)</label>
+            <input id="chunk-max" type="number" class="form-control form-control-sm" @bind="_chunkMaxChars"
+                   placeholder="@ChunkingOptions.DefaultMaxChars (Standard)" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="chunk-overlap">Überlappung (Zeichen)</label>
+            <input id="chunk-overlap" type="number" class="form-control form-control-sm" @bind="_chunkOverlap"
+                   placeholder="@ChunkingOptions.DefaultOverlapChars (Standard)" />
+        </div>
+
+        <div class="alert alert-warning py-2" style="font-size:0.85rem;">
+            ⚠️ Änderungen wirken sich erst nach <em>„Embeddings neu berechnen"</em> auf bereits gespeicherte
+            Dokumente aus.
+        </div>
+
+        <button class="btn btn-sm btn-primary" @onclick="SaveChunkingAsync" disabled="@_savingChunking">
+            @(_savingChunking ? "Speichert…" : "Speichern")
+        </button>
+        @if (_chunkingSaved)
+        {
+            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+        }
+    </div>
+</div>
+
+@if (_stats is { EmbeddingRebuildRunning: true })
+{
+    <div class="mb-3" style="max-width:700px;">
+        <div style="font-size:0.85rem;color:#fbbf24;" class="mb-1">
+            ⏳ Rebuild @_stats.EmbeddingRebuildDone / @_stats.EmbeddingRebuildTotal
+            @if (_stats.EmbeddingRebuildCurrentRule is not null)
+            {
+                <span style="opacity:0.6;"> — @_stats.EmbeddingRebuildCurrentRule</span>
+            }
+        </div>
+        <div style="height:8px;background:#1e293b;border-radius:4px;overflow:hidden;">
+            <div style="width:@(Percent)%;height:100%;background:#fbbf24;border-radius:4px;transition:width 0.5s;"></div>
+        </div>
+        <button class="btn btn-sm btn-outline-danger mt-2" @onclick="CancelRebuild">Abbrechen</button>
+    </div>
+}
+
+@if (_stats is not null)
+{
+    <div class="mb-3" style="font-size:0.85rem;color:#94a3b8;max-width:700px;">
+        Coverage: <strong style="color:#e2e8f0;">@_stats.RulesWithEmbeddings</strong> / @_stats.TotalRules Regeln embedded
+        @if (_stats.PendingEmbeddingCount > 0)
+        {
+            <span> · @_stats.PendingEmbeddingCount ausstehend</span>
+        }
+        @if (_stats.FailedEmbeddingCount > 0)
+        {
+            <span class="text-danger"> · @_stats.FailedEmbeddingCount fehlgeschlagen</span>
+        }
+        @if (_stats.TotalHeads > 0)
+        {
+            <div class="mt-1">Head-Vektoren: <strong style="color:#e2e8f0;">@_stats.HeadsWithVectors</strong> / @_stats.TotalHeads Repos</div>
+        }
+    </div>
+}
+
+<button class="btn btn-sm btn-primary" @onclick="Rebuild"
+        disabled="@(_stats is { EmbeddingRebuildRunning: true } || !EmbeddingService.IsAvailable)">
+    Embeddings neu berechnen
+</button>
+@if (!EmbeddingService.IsAvailable)
+{
+    <div class="mt-2" style="font-size:0.8rem;color:#94a3b8;">
+        Kein Embedding-Provider aktiv. Wähle oben einen Provider (openai | google | voyage | ollama | custom | bedrock)
+        samt API-Key und speichere.
+    </div>
+}
+
+@code {
+    private GraphStats? _stats;
+    private string _provider = "null";
+    private System.Threading.Timer? _timer;
+
+    private string _cfgProvider = "null";
+    private string _cfgModel = "";
+    private string _cfgBaseUrl = "";
+    private int? _cfgDimensions;
+    private string _cfgKey = "";
+    private string _cfgRegion = "";
+    private string _cfgAccessKey = "";
+    private bool _keyStored;
+    private bool _accessKeyStored;
+    private bool _savingConfig;
+    private bool _configSaved;
+    private bool _testingEmb;
+    private bool _embTestOk;
+    private string? _embTestResult;
+    private IReadOnlyList<string> _embModels = [];
+
+    private bool _chunkEnabled = true;
+    private int? _chunkMaxChars;
+    private int? _chunkOverlap;
+    private bool _savingChunking;
+    private bool _chunkingSaved;
+
+    private string UserId => Identity.UserId ?? "local";
+
+    private string KeyLabel => _cfgProvider switch
+    {
+        "bedrock" => "AWS Secret Access Key",
+        "ollama" => "Token (optional)",
+        _ => "API-Key",
+    };
+
+    private string KeyPlaceholder => _keyStored
+        ? "••• gespeichert — neuen Wert zum Ersetzen"
+        : _cfgProvider switch
+        {
+            "bedrock" => "leer = AWS-Default-Credential-Chain",
+            "ollama" => "Token (optional — Cloud/abgesicherte Instanz)",
+            _ => "Key eingeben…",
+        };
+
+    private int Percent => _stats is { EmbeddingRebuildTotal: > 0 }
+        ? (int)(100.0 * _stats.EmbeddingRebuildDone / _stats.EmbeddingRebuildTotal)
+        : 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var embedding = (await SettingsService.ReloadAsync()).Embedding;
+        _cfgProvider = string.IsNullOrWhiteSpace(embedding.Provider) ? "null" : embedding.Provider;
+        _cfgModel = embedding.Model ?? "";
+        _cfgBaseUrl = embedding.BaseUrl ?? "";
+        _cfgDimensions = embedding.Dimensions;
+        _cfgRegion = embedding.Region ?? "";
+        _provider = _cfgProvider;
+
+        var chunking = SettingsService.Current.Chunking;
+        _chunkEnabled = chunking.Enabled ?? true;
+        _chunkMaxChars = chunking.MaxChars;
+        _chunkOverlap = chunking.OverlapChars;
+
+        await RefreshKeyStatusAsync();
+        await LoadStatsAsync();
+
+        // Poll stats every 5s to reflect live rebuild progress.
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            await LoadStatsAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadStatsAsync()
+    {
+        try { _stats = await KnowledgeGraph.GetStatsAsync(); }
+        catch { /* best-effort */ }
+    }
+
+    private async Task RefreshKeyStatusAsync()
+    {
+        var all = await Credentials.ListAsync();
+        _keyStored = all.Contains(CredentialKeyScheme.Scope(UserId, $"embed:{_cfgProvider}"), StringComparer.Ordinal);
+        _accessKeyStored = all.Contains(
+            CredentialKeyScheme.Scope(UserId, $"embed:{_cfgProvider}:accesskey"), StringComparer.Ordinal);
+    }
+
+    private async Task SaveConfigAsync()
+    {
+        _savingConfig = true;
+        _configSaved = false;
+        try
+        {
+            var current = SettingsService.Current;
+            var updated = current with
+            {
+                Embedding = new EmbeddingSettings
+                {
+                    Provider = _cfgProvider,
+                    Model = string.IsNullOrWhiteSpace(_cfgModel) ? null : _cfgModel,
+                    BaseUrl = string.IsNullOrWhiteSpace(_cfgBaseUrl) ? null : _cfgBaseUrl,
+                    Dimensions = _cfgDimensions,
+                    Region = string.IsNullOrWhiteSpace(_cfgRegion) ? null : _cfgRegion,
+                }
+            };
+            await SettingsService.SaveAsync(updated);
+
+            if (!string.IsNullOrEmpty(_cfgKey))
+            {
+                await Credentials.StoreAsync(CredentialKeyScheme.Scope(UserId, $"embed:{_cfgProvider}"), _cfgKey);
+                _cfgKey = "";
+            }
+
+            if (_cfgProvider == "bedrock" && !string.IsNullOrEmpty(_cfgAccessKey))
+            {
+                await Credentials.StoreAsync(
+                    CredentialKeyScheme.Scope(UserId, $"embed:{_cfgProvider}:accesskey"), _cfgAccessKey);
+                _cfgAccessKey = "";
+            }
+
+            await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, $"Embedding settings updated via UI (provider {_cfgProvider})");
+            _provider = _cfgProvider;
+            await RefreshKeyStatusAsync();
+            await LoadStatsAsync();
+            _configSaved = true;
+        }
+        finally
+        {
+            _savingConfig = false;
+        }
+    }
+
+    private async Task TestEmbeddingAsync()
+    {
+        _testingEmb = true;
+        _embTestResult = null;
+        try
+        {
+            var apiKey = !string.IsNullOrEmpty(_cfgKey)
+                ? _cfgKey
+                : await Credentials.RetrieveAsync(CredentialKeyScheme.Scope(UserId, $"embed:{_cfgProvider}"));
+            var baseUrl = string.IsNullOrWhiteSpace(_cfgBaseUrl) ? null : _cfgBaseUrl;
+
+            var result = await Probe.ProbeAsync(_cfgProvider, baseUrl, apiKey);
+            _embTestOk = result.Ok;
+            _embTestResult = result.Message;
+            _embModels = result.Models;
+        }
+        finally
+        {
+            _testingEmb = false;
+        }
+    }
+
+    private async Task SaveChunkingAsync()
+    {
+        _savingChunking = true;
+        _chunkingSaved = false;
+        try
+        {
+            var current = SettingsService.Current;
+            var updated = current with
+            {
+                Chunking = new ChunkingSettings
+                {
+                    Enabled = _chunkEnabled,
+                    MaxChars = _chunkMaxChars,
+                    OverlapChars = _chunkOverlap,
+                }
+            };
+            await SettingsService.SaveAsync(updated);
+            await Audit.LogAsync(
+                AuditEvent.ConfigChanged, UserId, $"Chunking settings updated via UI (enabled {_chunkEnabled})");
+            _chunkingSaved = true;
+        }
+        finally
+        {
+            _savingChunking = false;
+        }
+    }
+
+    private void Rebuild()
+    {
+        // Re-embedding can take minutes on CPU — run in the background, the poller shows progress.
+        _ = Task.Run(() => KnowledgeGraph.ResetAndRebuildEmbeddingsAsync(CancellationToken.None));
+    }
+
+    private void CancelRebuild() => KnowledgeGraph.CancelEmbeddingRebuild();
+
+    public void Dispose() => _timer?.Dispose();
+}

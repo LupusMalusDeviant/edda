@@ -1,0 +1,225 @@
+@inject ILocalizationService Loc
+@inject IKnowledgeGraph KnowledgeGraph
+@inject IIdentityContext Identity
+@implements IDisposable
+
+<div class="rule-editor card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <strong>@(IsNew ? Loc["knowledge.rule.new"] : Rule?.Id)</strong>
+    </div>
+    <div class="card-body">
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger mb-3">@_error</div>
+        }
+        @if (_success)
+        {
+            <div class="alert alert-success mb-3">@Loc[_isDelete ? "knowledge.rule.deleted" : "knowledge.rule.saved"]</div>
+        }
+
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.id"]</label>
+            <input class="form-control form-control-sm" @bind="_id" disabled="@(!IsNew)" />
+        </div>
+        <div class="row mb-2">
+            <div class="col">
+                <label class="form-label">@Loc["knowledge.rule.domain"]</label>
+                <input class="form-control form-control-sm" @bind="_domain" />
+            </div>
+            <div class="col">
+                <label class="form-label">@Loc["knowledge.rule.type"]</label>
+                <input class="form-control form-control-sm" @bind="_type" />
+            </div>
+            <div class="col">
+                <label class="form-label">@Loc["knowledge.rule.priority"]</label>
+                <select class="form-select form-select-sm" @bind="_priority">
+                    @foreach (var p in Enum.GetNames<RulePriority>())
+                    {
+                        <option value="@p">@p</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.body"]</label>
+            <textarea class="form-control form-control-sm font-monospace" rows="6" @bind="_body" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.tags"]</label>
+            <input class="form-control form-control-sm" @bind="_tags" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.rel.implies"]</label>
+            <input class="form-control form-control-sm" @bind="_implies" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.rel.conflicts"]</label>
+            <input class="form-control form-control-sm" @bind="_conflictsWith" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.rel.exception"]</label>
+            <input class="form-control form-control-sm" @bind="_exceptionFor" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.rel.requires"]</label>
+            <input class="form-control form-control-sm" @bind="_requires" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">@Loc["knowledge.rule.rel.supersedes"]</label>
+            <input class="form-control form-control-sm" @bind="_supersedes" />
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@_saving">
+                @(_saving ? "..." : Loc["knowledge.rule.save"])
+            </button>
+            @if (!IsNew)
+            {
+                <button class="btn btn-sm btn-danger" @onclick="DeleteAsync" disabled="@_saving">
+                    @Loc["knowledge.rule.delete"]
+                </button>
+            }
+            <button class="btn btn-sm btn-outline-secondary" @onclick="() => OnCancel.InvokeAsync()">
+                @Loc["knowledge.rule.cancel"]
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The rule being edited, or <c>null</c> when creating a new rule.</summary>
+    [Parameter] public KnowledgeRule? Rule { get; set; }
+
+    /// <summary>Whether this editor is creating a new rule.</summary>
+    [Parameter] public bool IsNew { get; set; }
+
+    /// <summary>Raised after a successful save with the persisted rule.</summary>
+    [Parameter] public EventCallback<KnowledgeRule> OnSaved { get; set; }
+
+    /// <summary>Raised after a successful delete.</summary>
+    [Parameter] public EventCallback OnDeleted { get; set; }
+
+    /// <summary>Raised when the user cancels the edit.</summary>
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string _id          = string.Empty;
+    private string _domain      = string.Empty;
+    private string _type        = "Rule";
+    private string _priority    = RulePriority.Medium.ToString();
+    private string _body        = string.Empty;
+    private string _tags        = string.Empty;
+    private string _implies     = string.Empty;
+    private string _conflictsWith = string.Empty;
+    private string _exceptionFor  = string.Empty;
+    private string _requires    = string.Empty;
+    private string _supersedes  = string.Empty;
+    private bool   _saving;
+    private bool   _success;
+    private bool   _isDelete;
+    private string? _error;
+
+    /// <summary>Subscribes to locale changes.</summary>
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    /// <summary>Unsubscribes to prevent memory leaks.</summary>
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Rule is not null)
+        {
+            _id            = Rule.Id;
+            _domain        = Rule.Domain;
+            _type          = Rule.Type;
+            _priority      = Rule.Priority.ToString();
+            _body          = Rule.Body;
+            _tags          = string.Join(", ", Rule.Tags);
+            _implies       = string.Join(", ", Rule.RelatesTo?.Implies ?? []);
+            _conflictsWith = string.Join(", ", Rule.RelatesTo?.ConflictsWith ?? []);
+            _exceptionFor  = string.Join(", ", Rule.RelatesTo?.ExceptionFor ?? []);
+            _requires      = string.Join(", ", Rule.RelatesTo?.Requires ?? []);
+            _supersedes    = string.Join(", ", Rule.RelatesTo?.Supersedes ?? []);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving  = true;
+        _success = false;
+        _error   = null;
+        _isDelete = false;
+
+        try
+        {
+            var rule = new KnowledgeRule
+            {
+                Id       = _id.Trim(),
+                Domain   = _domain.Trim(),
+                Type     = _type.Trim(),
+                Priority = Enum.TryParse<RulePriority>(_priority, out var p) ? p : RulePriority.Medium,
+                Body     = _body,
+                Tags     = SplitCsv(_tags),
+                OwnerId  = Identity.UserId,
+                RelatesTo = new RuleRelations
+                {
+                    Implies       = SplitCsv(_implies),
+                    ConflictsWith = SplitCsv(_conflictsWith),
+                    ExceptionFor  = SplitCsv(_exceptionFor),
+                    Requires      = SplitCsv(_requires),
+                    Supersedes    = SplitCsv(_supersedes),
+                },
+            };
+
+            var saved = await KnowledgeGraph.UpsertRuleAsync(rule);
+            _success = true;
+            await OnSaved.InvokeAsync(saved);
+        }
+        catch (Exception ex)
+        {
+            _error = $"{Loc["knowledge.rule.error"]}: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!await ConfirmAsync()) return;
+
+        _saving  = true;
+        _success = false;
+        _error   = null;
+        _isDelete = true;
+
+        try
+        {
+            await KnowledgeGraph.DeleteRuleAsync(
+                _id, Identity.UserId!, Identity.IsAdmin);
+            _success = true;
+            await OnDeleted.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"{Loc["knowledge.rule.error"]}: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    // JS confirm is not available in SSR; use a simple in-state flag approach instead.
+    private Task<bool> ConfirmAsync()
+    {
+        // For now always confirm — a modal could be added later.
+        return Task.FromResult(true);
+    }
+
+    private static IReadOnlyList<string> SplitCsv(string raw) =>
+        raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+           .Where(s => !string.IsNullOrEmpty(s))
+           .ToList();
+}

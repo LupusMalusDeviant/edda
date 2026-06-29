@@ -1,0 +1,125 @@
+services:
+
+  # ── AKG + TDK + Embeddings standalone service (Web-UI + MCP über HTTP/SSE) ──
+  edda:
+    image: edda:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: edda
+    ports:
+      - "${EDDA_BIND:-127.0.0.1}:${EDDA_PORT:-8080}:8080"   # Web-UI + REST + MCP (/mcp); Bind/Port via .env
+    volumes:
+      - ./data:/app/data
+      - ./knowledge:/app/knowledge
+      - /var/run/docker.sock:/var/run/docker.sock   # TDK-Sandbox (Docker)
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - ASPNETCORE_HTTP_PORTS=8080
+      - GRAPH_PROVIDER=${GRAPH_PROVIDER:-neo4j}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_AUTH=${NEO4J_AUTH:-none}
+      # Embeddings — openai | google | voyage | ollama | custom | bedrock | null
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-null}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - VOYAGE_API_KEY=${VOYAGE_API_KEY:-}
+      - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-}
+      - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-}
+      # Bedrock (provider=bedrock): EMBEDDING_API_KEY = AWS Secret Access Key. Leere Keys => AWS-Default-Chain.
+      - EMBEDDING_REGION=${EMBEDDING_REGION:-}
+      - EMBEDDING_ACCESS_KEY_ID=${EMBEDDING_ACCESS_KEY_ID:-}
+      # Chunking — grosse Dokumente werden vor dem Embedding adaptiv zerlegt; Chunks bleiben im Graph unsichtbar.
+      - CHUNKING_ENABLED=${CHUNKING_ENABLED:-true}
+      - CHUNKING_MAX_CHARS=${CHUNKING_MAX_CHARS:-1200}
+      - CHUNKING_OVERLAP_CHARS=${CHUNKING_OVERLAP_CHARS:-150}
+      # LLM-Enrichment (optional; aktiv bei INGESTION_ENRICHER=llm). Keys werden zur Laufzeit aufgeloest.
+      - INGESTION_ENRICHER=${INGESTION_ENRICHER:-}
+      - INGESTION_LLM_PROVIDER=${INGESTION_LLM_PROVIDER:-}
+      - INGESTION_LLM_MODEL=${INGESTION_LLM_MODEL:-}
+      - INGESTION_LLM_BASE_URL=${INGESTION_LLM_BASE_URL:-}
+      - INGESTION_LLM_API_KEY=${INGESTION_LLM_API_KEY:-}
+      # MCP server (intern → extern). Opt-in; exposes only the allow-listed tools.
+      - MCP_SERVER_ENABLED=${MCP_SERVER_ENABLED:-true}
+      - MCP_EXPOSED_TOOLS=${MCP_EXPOSED_TOOLS:-search_memory,list_memory}
+      # Schreib-Tools (manage_*) sind ueber MCP standardmaessig gesperrt (read-only); true = erlauben.
+      - MCP_ALLOW_WRITE_TOOLS=${MCP_ALLOW_WRITE_TOOLS:-}
+      # Optional shared bearer token for /api/akg/* and /mcp (empty = loopback, no auth).
+      - EDDA_AUTH_TOKEN=${EDDA_AUTH_TOKEN:-}
+      # TDK sandbox: docker (needs the mounted socket) | wasm (local python) | null
+      - TDK_SANDBOX_TYPE=${TDK_SANDBOX_TYPE:-docker}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    networks:
+      - edda-net
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5.19
+    container_name: edda-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    environment:
+      - TZ=${TZ:-Europe/Berlin}
+      - NEO4J_AUTH=${NEO4J_AUTH:-none}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+    security_opt:
+      - seccomp:unconfined
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:7474/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - edda-net
+
+  # ── Optionale Alternative: Memgraph (leichter; nutzt App-seitigen Cosine-Fallback) ──
+  # Aktivieren: GRAPH_PROVIDER=memgraph und NEO4J_URI=bolt://memgraph:7687 setzen,
+  # dann `docker compose --profile memgraph up`.
+  # memgraph:
+  #   image: memgraph/memgraph:latest
+  #   container_name: edda-memgraph
+  #   profiles: ["memgraph"]
+  #   ports:
+  #     - "7687:7687"
+  #   networks:
+  #     - edda-net
+
+  # ── Optionaler lokaler Embedding-Server (self-hosted, kein API-Key) ──
+  # Aktiv, wenn COMPOSE_PROFILES=local-embeddings gesetzt ist (das Install-Skript macht das).
+  # Modelle ziehen:  docker compose exec ollama ollama pull bge-m3
+  # In .env dann:    EMBEDDING_PROVIDER=ollama, EMBEDDING_MODEL=bge-m3, EMBEDDING_BASE_URL=http://ollama:11434
+  ollama:
+    image: ollama/ollama:latest
+    container_name: edda-ollama
+    profiles: ["local-embeddings"]
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - edda-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+networks:
+  edda-net:
+    name: edda-net
+    driver: bridge
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  ollama_models:

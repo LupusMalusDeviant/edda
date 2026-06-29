@@ -1,0 +1,354 @@
+@page "/sources"
+@rendermode InteractiveServer
+@using Edda.Security.Credentials
+@inject IConnectorRegistry Connectors
+@inject ISettingsService SettingsService
+@inject ICredentialStore Credentials
+@inject IIdentityContext Identity
+@inject IAuditLog Audit
+@inject IActivityTracker Activity
+
+<PageTitle>Wissensquellen</PageTitle>
+
+<h3 class="mb-3">Wissensquellen</h3>
+
+<div class="card mb-3" style="max-width:760px;">
+    <div class="card-body">
+        <h6 class="card-title">Konfigurierte Quellen</h6>
+        @if (_sources.Count == 0)
+        {
+            <p class="text-muted mb-0">Noch keine Quellen konfiguriert.</p>
+        }
+        else
+        {
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Name</th><th>Typ</th><th style="width:1%;"></th></tr></thead>
+                <tbody>
+                    @foreach (var source in _sources)
+                    {
+                        <tr>
+                            <td>@source.Name</td>
+                            <td><code>@source.TypeId</code></td>
+                            <td style="white-space:nowrap;">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => RunAsync(source)"
+                                        disabled="@_busy">Scrapen</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(source)"
+                                        disabled="@_busy">Bearbeiten</button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(source)"
+                                        disabled="@_busy">Löschen</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        @if (_runResult is not null)
+        {
+            <div class="alert @(_runOk ? "alert-success" : "alert-danger") mt-2 mb-0 py-1">@_runResult</div>
+        }
+    </div>
+</div>
+
+<div class="card mb-3" style="max-width:760px;">
+    <div class="card-body">
+        <h6 class="card-title">@(_editingId is null ? "Quelle hinzufügen" : "Quelle bearbeiten")</h6>
+
+        <div class="mb-2">
+            <label class="form-label" for="src-type">Typ</label>
+            <select id="src-type" class="form-select form-select-sm" @bind="_selectedType" @bind:after="OnTypeChanged"
+                    disabled="@(_editingId is not null)">
+                @foreach (var d in _descriptors)
+                {
+                    <option value="@d.TypeId">@d.DisplayName</option>
+                }
+            </select>
+            @if (Descriptor?.Description is { Length: > 0 } desc)
+            {
+                <div class="form-text">@desc</div>
+            }
+        </div>
+
+        <div class="mb-2">
+            <label class="form-label" for="src-name">Name</label>
+            <input id="src-name" class="form-control form-control-sm" @bind="_name" placeholder="z. B. Intern-Docs" />
+        </div>
+
+        @if (Descriptor is not null)
+        {
+            @foreach (var field in Descriptor.Fields)
+            {
+                <div class="mb-2">
+                    <label class="form-label" for="@($"f-{field.Key}")">
+                        @field.Label @(field.Required ? "*" : "")
+                    </label>
+                    @switch (field.Type)
+                    {
+                        case ConnectorFieldType.Boolean:
+                            <select id="@($"f-{field.Key}")" class="form-select form-select-sm"
+                                    value="@FieldValue(field.Key)" @onchange="e => SetField(field.Key, e.Value?.ToString())">
+                                <option value="false">Nein</option>
+                                <option value="true">Ja</option>
+                            </select>
+                            break;
+                        case ConnectorFieldType.TextList:
+                            <textarea id="@($"f-{field.Key}")" class="form-control form-control-sm font-monospace" rows="3"
+                                      value="@FieldValue(field.Key)"
+                                      @onchange="e => SetField(field.Key, e.Value?.ToString())"></textarea>
+                            break;
+                        case ConnectorFieldType.Secret:
+                            <input id="@($"f-{field.Key}")" type="password" class="form-control form-control-sm"
+                                   value="@FieldValue(field.Key)"
+                                   @onchange="e => SetField(field.Key, e.Value?.ToString())"
+                                   placeholder="@(_secretStored.Contains(field.Key) ? "••• gespeichert — neuen Wert zum Ersetzen" : "")" />
+                            break;
+                        default:
+                            <input id="@($"f-{field.Key}")"
+                                   type="@(field.Type == ConnectorFieldType.Url ? "url" : "text")"
+                                   class="form-control form-control-sm" value="@FieldValue(field.Key)"
+                                   @onchange="e => SetField(field.Key, e.Value?.ToString())" />
+                            break;
+                    }
+                    @if (field.Help is { Length: > 0 } help)
+                    {
+                        <div class="form-text">@help</div>
+                    }
+                </div>
+            }
+        }
+
+        <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@_busy">
+            @(_editingId is null ? "Hinzufügen" : "Speichern")
+        </button>
+        @if (_editingId is not null)
+        {
+            <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="ResetForm" disabled="@_busy">Abbrechen</button>
+        }
+        @if (_formError is not null)
+        {
+            <div class="alert alert-danger mt-2 mb-0 py-1">@_formError</div>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<ConnectorDescriptor> _descriptors = [];
+    private List<ConnectorInstanceConfig> _sources = [];
+
+    private string _selectedType = "";
+    private string? _editingId;
+    private string _name = "";
+    private readonly Dictionary<string, string> _fields = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _secretStored = new(StringComparer.Ordinal);
+
+    private bool _busy;
+    private string? _formError;
+    private string? _runResult;
+    private bool _runOk;
+
+    private string UserId => Identity.UserId ?? "local";
+    private ConnectorDescriptor? Descriptor => _descriptors.FirstOrDefault(d => d.TypeId == _selectedType);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _descriptors = Connectors.Describe();
+        _selectedType = _descriptors.Count > 0 ? _descriptors[0].TypeId : "";
+        await ReloadSourcesAsync();
+        OnTypeChanged();
+    }
+
+    private async Task ReloadSourcesAsync()
+        => _sources = (await SettingsService.ReloadAsync()).Sources.ToList();
+
+    private string FieldValue(string key) => _fields.TryGetValue(key, out var v) ? v : "";
+
+    private void SetField(string key, string? value) => _fields[key] = value ?? "";
+
+    private void OnTypeChanged()
+    {
+        _fields.Clear();
+        _secretStored.Clear();
+        foreach (var field in Descriptor?.Fields ?? [])
+        {
+            _fields[field.Key] = field.Default ?? "";
+        }
+    }
+
+    private void Edit(ConnectorInstanceConfig source)
+    {
+        _editingId = source.Id;
+        _selectedType = source.TypeId;
+        _name = source.Name;
+        _fields.Clear();
+        _secretStored.Clear();
+        foreach (var field in Descriptor?.Fields ?? [])
+        {
+            _fields[field.Key] = source.Values.TryGetValue(field.Key, out var v) ? v : (field.Default ?? "");
+            if (field.Type == ConnectorFieldType.Secret
+                && _knownSecretKeys.Contains(SourceSecretKey(source.Id, field.Key)))
+            {
+                _secretStored.Add(field.Key);
+            }
+        }
+
+        _formError = null;
+        _runResult = null;
+    }
+
+    private void ResetForm()
+    {
+        _editingId = null;
+        _name = "";
+        _formError = null;
+        OnTypeChanged();
+    }
+
+    private async Task SaveAsync()
+    {
+        _formError = null;
+        if (string.IsNullOrWhiteSpace(_name))
+        {
+            _formError = "Name darf nicht leer sein.";
+            return;
+        }
+
+        var descriptor = Descriptor;
+        if (descriptor is null)
+        {
+            _formError = "Unbekannter Quelltyp.";
+            return;
+        }
+
+        foreach (var field in descriptor.Fields)
+        {
+            if (field.Required && field.Type != ConnectorFieldType.Secret && string.IsNullOrWhiteSpace(FieldValue(field.Key)))
+            {
+                _formError = $"Feld „{field.Label}“ ist erforderlich.";
+                return;
+            }
+        }
+
+        _busy = true;
+        try
+        {
+            var id = _editingId ?? Guid.NewGuid().ToString("N");
+
+            // Non-secret values go into settings; secret fields go into the credential store.
+            var values = descriptor.Fields
+                .Where(f => f.Type != ConnectorFieldType.Secret)
+                .ToDictionary(f => f.Key, f => FieldValue(f.Key), StringComparer.Ordinal);
+
+            foreach (var field in descriptor.Fields.Where(f => f.Type == ConnectorFieldType.Secret))
+            {
+                var entered = FieldValue(field.Key);
+                if (!string.IsNullOrEmpty(entered))
+                {
+                    await Credentials.StoreAsync(SourceSecretKey(id, field.Key), entered);
+                }
+            }
+
+            var instance = new ConnectorInstanceConfig
+            {
+                Id = id,
+                TypeId = _selectedType,
+                Name = _name.Trim(),
+                Values = values,
+            };
+
+            var current = SettingsService.Current;
+            var sources = current.Sources.Where(s => s.Id != id).Append(instance).ToList();
+            await SettingsService.SaveAsync(current with { Sources = sources });
+            await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, $"Knowledge source saved via UI: {_name} ({_selectedType})");
+
+            await ReloadSourcesAsync();
+            ResetForm();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeleteAsync(ConnectorInstanceConfig source)
+    {
+        _busy = true;
+        try
+        {
+            var current = SettingsService.Current;
+            await SettingsService.SaveAsync(current with { Sources = current.Sources.Where(s => s.Id != source.Id).ToList() });
+
+            // Best-effort cleanup of any per-instance secrets.
+            var descriptor = _descriptors.FirstOrDefault(d => d.TypeId == source.TypeId);
+            foreach (var field in (descriptor?.Fields ?? []).Where(f => f.Type == ConnectorFieldType.Secret))
+            {
+                await Credentials.DeleteAsync(SourceSecretKey(source.Id, field.Key));
+            }
+
+            await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, $"Knowledge source deleted via UI: {source.Name}");
+            await ReloadSourcesAsync();
+            if (_editingId == source.Id)
+            {
+                ResetForm();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RunAsync(ConnectorInstanceConfig source)
+    {
+        _busy = true;
+        _runResult = null;
+        using var cts = new CancellationTokenSource();
+        Activity.Report(ActivityKind.Import, ActivityState.Running, source.Name, onCancel: () => cts.Cancel());
+        try
+        {
+            var result = await Connectors.RunAsync(source, cts.Token);
+            _runOk = result.Failed == 0 && result.Errors.Count == 0;
+            if (_runOk)
+            {
+                _runResult = $"✓ „{source.Name}“: {result.Imported} importiert, {result.Updated} aktualisiert, {result.Skipped} übersprungen.";
+                Activity.Report(ActivityKind.Import, ActivityState.Succeeded, source.Name);
+            }
+            else
+            {
+                var reason = result.Errors.Count > 0
+                    ? string.Join("; ", result.Errors.Select(e => e.Message))
+                    : $"{result.Failed} Fehler (kein Detail gemeldet)";
+                _runResult = $"✗ „{source.Name}“: {reason}";
+                Activity.Report(ActivityKind.Import, ActivityState.Failed, Truncate(reason));
+            }
+            await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, $"Knowledge source run via UI: {source.Name}");
+        }
+        catch (OperationCanceledException)
+        {
+            _runOk = true;
+            _runResult = $"⊘ „{source.Name}“: abgebrochen.";
+            Activity.Report(ActivityKind.Import, ActivityState.Succeeded, "abgebrochen");
+        }
+        catch (Exception ex)
+        {
+            _runOk = false;
+            _runResult = $"✗ „{source.Name}“: {ex.Message}";
+            Activity.Report(ActivityKind.Import, ActivityState.Failed, Truncate(ex.Message));
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // Keeps the activity-bar pill readable; the full reason stays in the on-page alert.
+    private static string Truncate(string text) =>
+        text.Length > 120 ? text[..120] + "…" : text;
+
+    private string SourceSecretKey(string id, string fieldKey)
+        => CredentialKeyScheme.Scope(UserId, $"source:{id}:{fieldKey}");
+
+    // Snapshot of stored credential keys, refreshed on edit to show the "stored" hint for secret fields.
+    private IReadOnlyCollection<string> _knownSecretKeys = [];
+
+    protected override async Task OnParametersSetAsync()
+        => _knownSecretKeys = await Credentials.ListAsync();
+}

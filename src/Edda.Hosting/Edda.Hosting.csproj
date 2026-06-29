@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Edda.Hosting</RootNamespace>
+    <AssemblyName>Edda.Hosting</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The lifted endpoint handlers rely on Results/IResult from the Web SDK's implicit usings;
+         a plain class library does not include them automatically. -->
+    <Using Include="Microsoft.AspNetCore.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Core\Core.csproj" />
+    <ProjectReference Include="..\AKG\AKG.csproj" />
+    <ProjectReference Include="..\AKG.Ingestion\AKG.Ingestion.csproj" />
+    <ProjectReference Include="..\Embeddings\Embeddings.csproj" />
+    <ProjectReference Include="..\Security\Security.csproj" />
+    <ProjectReference Include="..\Sandboxing\Sandboxing.csproj" />
+    <ProjectReference Include="..\Agent\Agent.csproj" />
+    <ProjectReference Include="..\AKG.Mcp\AKG.Mcp.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,8 @@
+# Force LF line endings on shell scripts — Bash on Linux containers
+# misinterprets CRLF in shebang lines as "#!/usr/bin/env bash\r" which
+# fails with `bad interpreter: no such file or directory`.
+*.sh        text eol=lf
+Dockerfile* text eol=lf
+
+# Default: let git auto-detect text vs binary
+*           text=auto

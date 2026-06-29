@@ -1,0 +1,129 @@
+@page "/tdk"
+@rendermode InteractiveServer
+@inject IKnowledgeGraph KnowledgeGraph
+@inject ITdkEngine TdkEngine
+@inject IIdentityContext Identity
+@implements IDisposable
+
+<PageTitle>TDK</PageTitle>
+
+<h3 class="mb-2">TDK — Test-Driven Knowledge</h3>
+<p style="font-size:0.85rem;color:#94a3b8;">
+    Validiert Code (oder eine Antwort mit Code-Blöcken) gegen die aktiven Regeln, die ein
+    Validator-Skript tragen. Der Kontext bestimmt, welche Regeln greifen; die Validatoren laufen
+    isoliert in der Sandbox.
+</p>
+
+<div class="mb-3" style="max-width:900px;">
+    <label class="form-label" style="font-size:0.8rem;">Aufgabe / Thema (für die Regel-Auswahl)</label>
+    <input class="form-control form-control-sm mb-2" @bind="_task"
+           placeholder="z. B. 'C# async method returning a list'" />
+
+    <label class="form-label" style="font-size:0.8rem;">Code / Antwort</label>
+    <textarea class="form-control form-control-sm" style="font-family:monospace;" rows="12"
+              @bind="_code" placeholder="Code hier einfügen…"></textarea>
+
+    <button class="btn btn-sm btn-primary mt-2" @onclick="ValidateAsync" disabled="@_running">
+        @(_running ? "Validiere…" : "Validieren")
+    </button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-danger" style="max-width:900px;">@_error</div>
+}
+
+@if (_result is not null)
+{
+    <div style="font-size:0.82rem;color:#94a3b8;" class="mb-2">
+        @_activeRuleCount aktive Regel(n) im Kontext geprüft.
+    </div>
+
+    @if (!_result.HasViolations)
+    {
+        <div class="alert alert-success" style="max-width:900px;">✓ Keine Verstöße erkannt.</div>
+    }
+    else
+    {
+        <table class="table table-sm" style="max-width:900px;">
+            <thead>
+                <tr><th>Regel</th><th>Schweregrad</th><th>Meldung</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var v in _result.Violations)
+                {
+                    <tr>
+                        <td><code>@v.RuleId</code></td>
+                        <td>@v.Severity</td>
+                        <td>@v.Message</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private string _task = "";
+    private string _code = "";
+    private bool _running;
+    private string? _error;
+    private TdkResult? _result;
+    private int _activeRuleCount;
+
+    private async Task ValidateAsync()
+    {
+        _running = true;
+        _error = null;
+        _result = null;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_code))
+            {
+                _error = "Bitte Code eingeben.";
+                return;
+            }
+
+            var query = string.IsNullOrWhiteSpace(_task) ? _code : _task;
+
+            var taskContext = new TaskContext
+            {
+                Task = query,
+                Concepts = ExtractConcepts(query),
+                UserId = Identity.UserId
+            };
+            var akgContext = await KnowledgeGraph.CompileContextAsync(taskContext);
+            _activeRuleCount = akgContext.ActiveRules.Count;
+
+            var request = new AgentRequest
+            {
+                UserMessage = query,
+                ConversationId = "ui-tdk",
+                Identity = Identity
+            };
+
+            _result = await TdkEngine.ValidateAsync(_code, akgContext.ActiveRules, request);
+        }
+        catch (Exception ex)
+        {
+            // Most likely a missing sandbox (no Docker / TDK_SANDBOX_TYPE) — surface it readably.
+            _error = $"Validierung fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+
+    /// <summary>Extracts concept tokens for AKG relevance scoring (mirrors the tdk_validate tool).</summary>
+    private static IReadOnlyList<string> ExtractConcepts(string message)
+        => message.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                  .Select(w => w.Trim('.', ',', '!', '?', '"', '\'').ToLowerInvariant())
+                  .Where(w => w.Length > 3)
+                  .Distinct()
+                  .Take(20)
+                  .ToList();
+
+    public void Dispose() { }
+}

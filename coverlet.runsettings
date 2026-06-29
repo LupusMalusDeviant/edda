@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura,opencover</Format>
+          <!-- Exclude test projects and auto-generated code from coverage -->
+          <Exclude>[*.Tests]*,[*.IntegrationTests]*</Exclude>
+          <ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <ExcludeByFile>**/Migrations/**/*.cs,**/obj/**/*.cs,**/wwwroot/**/*.cs</ExcludeByFile>
+          <!-- Hard-fail when coverage drops below 100% line coverage -->
+          <Threshold>100</Threshold>
+          <ThresholdType>line</ThresholdType>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

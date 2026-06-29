@@ -1,0 +1,96 @@
+@inject IActivityTracker Activity
+@inject TimeProvider Clock
+@implements IDisposable
+
+@* Global, cross-page progress indicator. Shows one pill per active background activity
+   (import / chunking / embedding): blue = running, green = done, red = failed.
+   Finished/failed pills auto-dismiss after a short grace period. *@
+@if (_visible.Count > 0)
+{
+    <div class="activity-bar" aria-live="polite">
+        @foreach (var a in _visible)
+        {
+            <div class="activity-pill @CssClass(a.State)">
+                <span class="activity-dot"></span>
+                <span class="activity-label">@Label(a.Kind) @StateText(a.State)</span>
+                @if (!string.IsNullOrWhiteSpace(a.Detail))
+                {
+                    <span class="activity-detail">@a.Detail</span>
+                }
+                @if (a.CanCancel)
+                {
+                    <button type="button" class="activity-cancel" title="Abbrechen"
+                            @onclick="() => Activity.Cancel(a.Kind)">×</button>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>How long a finished or failed pill stays visible before it disappears.</summary>
+    private const int DoneVisibleSeconds = 30;
+
+    private System.Threading.Timer? _timer;
+    private List<ActivitySnapshot> _visible = [];
+
+    protected override void OnInitialized()
+    {
+        Activity.Changed += OnChanged;
+        Refresh();
+        // Re-evaluate on a cadence so terminal pills disappear once their grace period elapses.
+        _timer = new System.Threading.Timer(
+            _ => InvokeAsync(Tick), null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    private void OnChanged() => InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    private void Tick()
+    {
+        var before = _visible.Count;
+        Refresh();
+        if (_visible.Count != before)
+            StateHasChanged();
+    }
+
+    private void Refresh()
+    {
+        var now = Clock.GetUtcNow();
+        _visible = Activity.Snapshots
+            .Where(s => s.State == ActivityState.Running
+                     || (now - s.UpdatedAt).TotalSeconds < DoneVisibleSeconds)
+            .OrderBy(s => s.Kind)
+            .ToList();
+    }
+
+    private static string CssClass(ActivityState state) => state switch
+    {
+        ActivityState.Running => "activity-running",
+        ActivityState.Succeeded => "activity-done",
+        _ => "activity-failed",
+    };
+
+    private static string Label(ActivityKind kind) => kind switch
+    {
+        ActivityKind.Import => "Import",
+        ActivityKind.Chunking => "Chunking",
+        _ => "Embedding",
+    };
+
+    private static string StateText(ActivityState state) => state switch
+    {
+        ActivityState.Running => "läuft",
+        ActivityState.Succeeded => "fertig",
+        _ => "fehlgeschlagen",
+    };
+
+    public void Dispose()
+    {
+        Activity.Changed -= OnChanged;
+        _timer?.Dispose();
+    }
+}

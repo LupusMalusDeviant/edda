@@ -1,0 +1,45 @@
+@inject ILocalizationService Loc
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="lang-toggle">
+    <span class="lang-label" aria-label="@Loc["lang.label"]">🌐</span>
+    <button class="lang-btn @(Loc.Language == "de" ? "lang-active" : "")"
+            @onclick='() => SwitchAsync("de")'
+            title="Deutsch">DE</button>
+    <span class="lang-sep">|</span>
+    <button class="lang-btn @(Loc.Language == "en" ? "lang-active" : "")"
+            @onclick='() => SwitchAsync("en")'
+            title="English">EN</button>
+</div>
+
+@code {
+    /// <summary>
+    /// Reads saved locale from localStorage on first render and syncs the service.
+    /// Wrapped in try/catch because JS files may not be loaded yet during pre-rendering.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var saved = await JS.InvokeAsync<string>("localeManager.getLocale");
+            if (saved != Loc.Language)
+                Loc.SetLanguage(saved);
+        }
+        catch { /* JS not yet available during pre-render — default language is used */ }
+    }
+
+    /// <summary>Switches the active language, persists to localStorage and re-renders.</summary>
+    private async Task SwitchAsync(string lang)
+    {
+        Loc.SetLanguage(lang);
+        await JS.InvokeVoidAsync("localeManager.setLocale", lang);
+    }
+
+    /// <summary>Subscribes to locale changes so the active indicator re-renders.</summary>
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    /// <summary>Unsubscribes to prevent memory leaks after the component is removed.</summary>
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+}

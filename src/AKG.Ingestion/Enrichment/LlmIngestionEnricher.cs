@@ -1,0 +1,149 @@
+using System.Text;
+using System.Text.Json;
+using Edda.AKG.Ingestion.Llm;
+using Edda.Core.Abstractions;
+using Edda.Core.Exceptions;
+using Edda.Core.Models;
+using Microsoft.Extensions.Logging;
+
+namespace Edda.AKG.Ingestion.Enrichment;
+
+/// <summary>
+/// Optional LLM-backed <see cref="IIngestionEnricher"/> (see ADR-0001): condenses an item's body into a
+/// concise note and proposes semantic relations. To keep the graph consistent it only ever proposes
+/// relations to ids already present in <c>knownIds</c> — never invents nodes. Best-effort: any LLM or
+/// parsing failure leaves the item unchanged so enrichment never breaks ingestion.
+/// </summary>
+public sealed class LlmIngestionEnricher : IIngestionEnricher
+{
+    private const int MaxBodyChars = 6000;
+
+    private const string SystemPrompt =
+        "You enrich knowledge-base documents. You receive one document (title + content) and a list of " +
+        "candidate ids of OTHER documents. Respond with ONLY a JSON object of the form " +
+        "{\"summary\": string, \"related\": [string]}. \"summary\" is a concise 1-3 sentence summary of the " +
+        "document. \"related\" lists the candidate ids that are semantically related — choose ONLY from the " +
+        "provided candidate ids and never invent ids. If unsure, use an empty array. Output JSON only.";
+
+    private readonly ILlmChatClient _chat;
+    private readonly ILogger<LlmIngestionEnricher> _logger;
+
+    /// <summary>Initializes a new instance of the <see cref="LlmIngestionEnricher"/> class.</summary>
+    /// <param name="chat">The chat client used for completions.</param>
+    /// <param name="logger">Logger for best-effort diagnostics.</param>
+    public LlmIngestionEnricher(ILlmChatClient chat, ILogger<LlmIngestionEnricher> logger)
+    {
+        _chat = chat;
+        _logger = logger;
+    }
+
+    /// <inheritdoc />
+    public async Task<IngestionItem> EnrichAsync(
+        IngestionItem item,
+        IReadOnlyCollection<string> knownIds,
+        CancellationToken cancellationToken = default)
+    {
+        var known = knownIds as IReadOnlySet<string> ?? knownIds.ToHashSet(StringComparer.Ordinal);
+        var candidates = known.Where(id => !string.Equals(id, item.Id, StringComparison.Ordinal)).ToList();
+
+        string response;
+        try
+        {
+            response = await _chat
+                .CompleteAsync(SystemPrompt, BuildUserPrompt(item, candidates), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (ProviderException ex)
+        {
+            _logger.LogWarning("Enrichment skipped for '{RuleId}' — LLM unavailable ({Message}) | AKG", item.Id, ex.Message);
+            return item;
+        }
+
+        if (!TryParse(response, out var summary, out var related))
+        {
+            _logger.LogWarning("Enrichment skipped for '{RuleId}' — unparseable LLM response | AKG", item.Id);
+            return item;
+        }
+
+        var proposedLinks = related
+            .Where(known.Contains)
+            .Where(id => !string.Equals(id, item.Id, StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .Where(id => item.NativeLinks.All(link => !string.Equals(link.TargetRef, id, StringComparison.Ordinal)))
+            .Select(id => new IngestionLink { Kind = "related", TargetRef = id });
+
+        return item with
+        {
+            Body = string.IsNullOrWhiteSpace(summary) ? item.Body : summary.Trim(),
+            NativeLinks = item.NativeLinks.Concat(proposedLinks).ToList(),
+        };
+    }
+
+    private static string BuildUserPrompt(IngestionItem item, IReadOnlyList<string> candidateIds)
+    {
+        var body = item.Body.Length > MaxBodyChars ? item.Body[..MaxBodyChars] : item.Body;
+        var sb = new StringBuilder();
+        sb.Append("Document id: ").Append(item.Id).Append('\n');
+        sb.Append("Title: ").Append(item.Title).Append('\n').Append('\n');
+        sb.Append("Content:\n").Append(body).Append('\n').Append('\n');
+        sb.Append("Candidate ids:\n");
+        foreach (var id in candidateIds)
+            sb.Append(id).Append('\n');
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Extracts <c>summary</c> and <c>related</c> from the model response, tolerating surrounding prose or
+    /// code fences. Internal for unit testing. Returns false when no JSON object can be parsed.
+    /// </summary>
+    internal static bool TryParse(string response, out string summary, out IReadOnlyList<string> related)
+    {
+        summary = string.Empty;
+        related = [];
+
+        if (string.IsNullOrWhiteSpace(response))
+            return false;
+
+        var start = response.IndexOf('{');
+        var end = response.LastIndexOf('}');
+        if (start < 0 || end <= start)
+            return false;
+
+        try
+        {
+            using var document = JsonDocument.Parse(response[start..(end + 1)]);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return false;
+
+            if (root.TryGetProperty("summary", out var summaryElement)
+                && summaryElement.ValueKind == JsonValueKind.String)
+            {
+                summary = summaryElement.GetString() ?? string.Empty;
+            }
+
+            if (root.TryGetProperty("related", out var relatedElement)
+                && relatedElement.ValueKind == JsonValueKind.Array)
+            {
+                var ids = new List<string>();
+                foreach (var element in relatedElement.EnumerateArray())
+                {
+                    if (element.ValueKind == JsonValueKind.String)
+                    {
+                        var id = element.GetString();
+                        if (!string.IsNullOrWhiteSpace(id))
+                            ids.Add(id);
+                    }
+                }
+
+                related = ids;
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+}

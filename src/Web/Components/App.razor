@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <!--
+        Flash-prevention: apply saved theme before any CSS renders so the page
+        never flickers from the default colour scheme to the user's preference.
+        Intentionally inline — must run synchronously before stylesheets paint.
+    -->
+    <script>
+        (function () {
+            var t = localStorage.getItem('ag-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', t);
+            document.documentElement.setAttribute('data-bs-theme', t);
+            var l = localStorage.getItem('ag-locale') || 'de';
+            document.documentElement.setAttribute('data-locale', l);
+        })();
+    </script>
+    <ResourcePreloader />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["Edda.Web.styles.css"]" />
+    <ImportMap />
+    <meta name="theme-color" content="#0D2A46" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <ReconnectModal />
+    <script src="@Assets["lib/cytoscape/cytoscape.min.js"]"></script>
+    <script src="@Assets["js/cytoscape-interop.js"]"></script>
+    <script src="@Assets["js/theme.js"]"></script>
+    <script src="@Assets["js/locale.js"]"></script>
+    <script src="@Assets["js/auth.js"]"></script>
+    <script>
+        // Reload when restored from the back/forward cache. The cached page
+        // keeps Blazor's renderer-1 interop already attached; without this,
+        // blazor.web.js throws "Interop methods are already registered for
+        // renderer 1" on the next attachWebRendererInterop call.
+        window.addEventListener("pageshow", function (e) {
+            if (e.persisted) location.reload();
+        });
+    </script>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>

@@ -1,0 +1,31 @@
+@inherits LayoutComponentBase
+@inject ILocalizationService Loc
+@implements IDisposable
+
+<BackgroundActivityBar />
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    @Loc["layout.error"]
+    <a href="." class="reload">@Loc["layout.reload"]</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    /// <summary>Subscribes to locale changes so the layout chrome re-renders.</summary>
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    /// <summary>Unsubscribes to prevent memory leaks.</summary>
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+}

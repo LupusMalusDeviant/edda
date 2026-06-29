@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Edda.Mcp.Stdio</RootNamespace>
+    <AssemblyName>Edda.Mcp.Stdio</AssemblyName>
+    <!-- Resolve data/ and knowledge/ relative to the repo root, not the project folder. -->
+    <RunWorkingDirectory>$(MSBuildThisFileDirectory)..\..</RunWorkingDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- McpProtocolHandlers (via Hosting) depends on IHttpContextAccessor, which lives in the
+         ASP.NET Core shared framework. A console app must reference it explicitly so the runtime
+         assemblies are present, even though no web server is started. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Edda.Hosting\Edda.Hosting.csproj" />
+    <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
+  </ItemGroup>
+
+</Project>

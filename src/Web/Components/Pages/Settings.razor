@@ -1,0 +1,649 @@
+@page "/settings"
+@rendermode InteractiveServer
+@using Edda.Security.Credentials
+@using Edda.AKG.Mcp.Server
+@inject ISettingsService SettingsService
+@inject ICredentialStore Credentials
+@inject IIdentityContext Identity
+@inject IAuditLog Audit
+@inject IProviderProbe Probe
+@inject IToolRegistry ToolRegistry
+@inject IMcpTokenStore McpTokens
+@inject NavigationManager Nav
+
+<PageTitle>Einstellungen</PageTitle>
+
+<h3 class="mb-3">Einstellungen</h3>
+
+<CollapsibleCard Title="Allgemein">
+        <div class="mb-2">
+            <label class="form-label" for="enable-ingestion">Wissens-Ingestion</label>
+            <select id="enable-ingestion" class="form-select form-select-sm" @bind="_enableIngestion">
+                <option value="">Standard (Umgebungsvariable)</option>
+                <option value="true">Aktiviert</option>
+                <option value="false">Deaktiviert</option>
+            </select>
+            <div class="form-text">
+                Steuert den <code>/api/akg/ingest</code>-Endpoint. „Standard“ nutzt die
+                <code>ENABLE_INGESTION</code>-Variable. Änderungen greifen sofort, ohne Neustart.
+            </div>
+        </div>
+        <button class="btn btn-sm btn-primary" @onclick="SaveGeneralAsync" disabled="@_savingGeneral">
+            @(_savingGeneral ? "Speichert…" : "Speichern")
+        </button>
+        @if (_generalSaved)
+        {
+            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+        }
+</CollapsibleCard>
+
+<CollapsibleCard Title="LLM-Enrichment">
+        <p class="form-text mt-0">
+            Optionale LLM-Anreicherung beim Wissens-Import (Verdichtung + Relationsvorschläge).
+            Provider und Key greifen sofort, ohne Neustart.
+        </p>
+
+        <div class="mb-2">
+            <label class="form-label" for="llm-enabled">Anreicherung</label>
+            <select id="llm-enabled" class="form-select form-select-sm" @bind="_llmEnabled">
+                <option value="">Standard (Umgebungsvariable)</option>
+                <option value="true">Aktiviert</option>
+                <option value="false">Deaktiviert</option>
+            </select>
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="llm-provider">Provider</label>
+            <select id="llm-provider" class="form-select form-select-sm"
+                    @bind="_llmProvider" @bind:after="RefreshLlmKeyStatusAsync">
+                <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
+                <option value="ollama">Ollama</option>
+                <option value="bedrock">AWS Bedrock</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="custom">Custom (OpenAI-kompatibel)</option>
+            </select>
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="llm-model">Modell</label>
+            <input id="llm-model" class="form-control form-control-sm" @bind="_llmModel" list="llm-models"
+                   placeholder="leer = Provider-Default" />
+            @if (_llmModels.Count > 0)
+            {
+                <datalist id="llm-models">
+                    @foreach (var m in _llmModels)
+                    {
+                        <option value="@m" />
+                    }
+                </datalist>
+                <div class="form-text">@_llmModels.Count Modell(e) von der Quelle — im Feld auswählbar.</div>
+            }
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="llm-baseurl">Base-URL</label>
+            <input id="llm-baseurl" class="form-control form-control-sm" @bind="_llmBaseUrl"
+                   placeholder="leer = Provider-Default" />
+            @if (_llmProvider == "ollama")
+            {
+                <div class="form-text">
+                    Lokal: <code>http://ollama:11434</code> · Remote/Tailscale: <code>http://ollama-prod:11434</code>
+                    (http/https) · Cloud-API: Host + Token.
+                </div>
+            }
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="llm-key">
+                @(_llmProvider == "bedrock" ? "AWS Secret Access Key" : "API-Key")
+            </label>
+            <input id="llm-key" type="password" class="form-control form-control-sm" @bind="_llmKey"
+                   placeholder="@(_llmKeyStored ? "••• gespeichert — neuen Wert zum Ersetzen" : "Key eingeben…")" />
+        </div>
+        @if (_llmProvider == "bedrock")
+        {
+            <div class="mb-2">
+                <label class="form-label" for="llm-access">AWS Access Key ID</label>
+                <input id="llm-access" class="form-control form-control-sm" @bind="_llmAccessKey"
+                       placeholder="@(_llmAccessStored ? "••• gespeichert" : "Access Key ID…")" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label" for="llm-region">AWS Region</label>
+                <input id="llm-region" class="form-control form-control-sm" @bind="_llmRegion" placeholder="us-east-1" />
+            </div>
+        }
+
+        <button class="btn btn-sm btn-primary" @onclick="SaveLlmAsync" disabled="@_savingLlm">
+            @(_savingLlm ? "Speichert…" : "Speichern")
+        </button>
+        <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="TestLlmAsync" disabled="@_testingLlm">
+            @(_testingLlm ? "Testet…" : "Testen")
+        </button>
+        @if (_llmSaved)
+        {
+            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+        }
+        @if (_llmTestResult is not null)
+        {
+            <div class="alert @(_llmTestOk ? "alert-success" : "alert-danger") mt-2 mb-0 py-1">@_llmTestResult</div>
+        }
+</CollapsibleCard>
+
+<CollapsibleCard Title="MCP-Server (Anbindung externer LLMs)">
+        <p class="form-text mt-0">
+            Steuert, welche Tools externe LLMs über MCP nutzen dürfen. Standard: nur Lese-Tools (read-only).
+            Änderungen greifen sofort, ohne Neustart.
+        </p>
+
+        <div class="mb-2">
+            <label class="form-label" for="mcp-enabled">Exposition</label>
+            <select id="mcp-enabled" class="form-select form-select-sm" @bind="_mcpEnabled">
+                <option value="">Standard (Tools exponieren)</option>
+                <option value="true">Aktiviert</option>
+                <option value="false">Deaktiviert (keine Tools)</option>
+            </select>
+        </div>
+
+        <div class="mb-2">
+            <label class="form-label">Exponierte Tools</label>
+            @if (_availableTools.Count == 0)
+            {
+                <p class="text-muted mb-0" style="font-size:0.85rem;">Keine Tools registriert.</p>
+            }
+            @foreach (var tool in _availableTools)
+            {
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="@($"mcp-tool-{tool}")"
+                           checked="@_exposedTools.Contains(tool)" @onchange="e => ToggleTool(tool, e)" />
+                    <label class="form-check-label" for="@($"mcp-tool-{tool}")">
+                        <code>@tool</code>
+                        @if (McpWriteTools.Contains(tool))
+                        {
+                            <span class="text-warning" style="font-size:0.78rem;"> (Schreibzugriff)</span>
+                        }
+                    </label>
+                </div>
+            }
+            <div class="form-text">Lese-Tools sind sicher. Schreib-Tools wirken nur mit aktiviertem Schreibzugriff.</div>
+        </div>
+
+        <div class="mb-2">
+            <label class="form-label" for="mcp-write">Schreibzugriff über MCP</label>
+            <select id="mcp-write" class="form-select form-select-sm" @bind="_mcpAllowWrite">
+                <option value="">Standard (blockiert / read-only)</option>
+                <option value="false">Blockiert (read-only)</option>
+                <option value="true">Erlauben (nur vertrauenswürdige Setups)</option>
+            </select>
+        </div>
+
+        <button class="btn btn-sm btn-primary" @onclick="SaveMcpAsync" disabled="@_savingMcp">
+            @(_savingMcp ? "Speichert…" : "Speichern")
+        </button>
+        @if (_mcpSaved)
+        {
+            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+        }
+</CollapsibleCard>
+
+<CollapsibleCard Title="MCP-Zugriffstokens (HTTP)">
+        <p class="form-text mt-0">
+            Über HTTP (<code>/mcp</code>) gilt: <strong>ohne gültiges Token kein Zugriff</strong>. Jedes Token trägt
+            seine Rechte — nur die hier angehakten Tools sind damit nutzbar. Tokens werden nur als Hash gespeichert
+            und genau einmal angezeigt.
+        </p>
+
+        @if (_createdToken is not null)
+        {
+            <div class="alert alert-success py-2">
+                <div class="mb-1"><strong>Neues Token — jetzt kopieren, danach nicht mehr abrufbar:</strong></div>
+                <code style="word-break:break-all;">@_createdToken</code>
+            </div>
+        }
+
+        @if (_mcpTokens.Count > 0)
+        {
+            <table class="table table-sm align-middle">
+                <tbody>
+                    @foreach (var t in _mcpTokens)
+                    {
+                        <tr>
+                            <td>
+                                <code>@t.Id</code> — @t.Label
+                                <div class="form-text">
+                                    @t.Tools.Count Tool(s)@(t.AllowWrite ? " · Schreibzugriff" : "")
+                                </div>
+                            </td>
+                            <td style="width:1%;white-space:nowrap;">
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeTokenAsync(t.Id)">
+                                    Widerrufen
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p class="text-muted mb-2" style="font-size:0.85rem;">Noch kein Token — ohne Token kein HTTP-MCP-Zugriff.</p>
+        }
+
+        <div class="mb-2">
+            <label class="form-label" for="tok-label">Neues Token — Bezeichnung</label>
+            <input id="tok-label" class="form-control form-control-sm" @bind="_newTokenLabel"
+                   placeholder="z. B. Claude Desktop (read-only)" />
+        </div>
+        <div class="mb-2">
+            <label class="form-label">Erlaubte Tools</label>
+            @foreach (var tool in _availableTools)
+            {
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="@($"tok-tool-{tool}")"
+                           checked="@_newTokenTools.Contains(tool)" @onchange="e => ToggleTokenTool(tool, e)" />
+                    <label class="form-check-label" for="@($"tok-tool-{tool}")">
+                        <code>@tool</code>
+                        @if (McpWriteTools.Contains(tool))
+                        {
+                            <span class="text-warning" style="font-size:0.78rem;"> (Schreibzugriff)</span>
+                        }
+                    </label>
+                </div>
+            }
+        </div>
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="tok-write" @bind="_newTokenAllowWrite" />
+            <label class="form-check-label" for="tok-write">Schreib-Tools für dieses Token erlauben</label>
+        </div>
+        <button class="btn btn-sm btn-primary" @onclick="CreateTokenAsync"
+                disabled="@(_savingToken || _newTokenTools.Count == 0)">
+            @(_savingToken ? "Erstellt…" : "Token erstellen")
+        </button>
+
+        <hr class="my-3" />
+        <label class="form-label">Beispiel-Konfiguration (Claude Desktop / <code>mcp-remote</code>)</label>
+        <pre style="background:rgba(0,0,0,0.28);padding:0.6rem 0.75rem;border-radius:6px;font-size:0.72rem;overflow-x:auto;margin-bottom:0.5rem;"><code>@McpConfigSnippet()</code></pre>
+        <div class="form-text">
+            URL automatisch aus dieser Instanz (<code>@McpUrl</code>); Token nach dem Erstellen oben eingesetzt.
+            <code>cmd /c</code> ist Windows — unter macOS/Linux <code>"command": "npx"</code> ohne <code>/c</code>.
+            Claude Code: <code>claude mcp add --transport http edda @McpUrl --header "Authorization: Bearer TOKEN"</code>.
+        </div>
+</CollapsibleCard>
+
+<CollapsibleCard Title="Zugangsdaten (verschlüsselt)">
+        <p class="form-text mt-0">
+            API-Keys und Tokens werden AES-verschlüsselt gespeichert und nie im Klartext angezeigt.
+        </p>
+
+        @if (_keys.Count == 0)
+        {
+            <p class="text-muted mb-2">Noch keine Zugangsdaten hinterlegt.</p>
+        }
+        else
+        {
+            <table class="table table-sm align-middle">
+                <tbody>
+                    @foreach (var key in _keys)
+                    {
+                        <tr>
+                            <td><code>@key</code></td>
+                            <td style="width:1%;white-space:nowrap;">
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(key)">
+                                    Löschen
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <div class="row g-2 align-items-end">
+            <div class="col">
+                <label class="form-label" for="cred-name">Name</label>
+                <input id="cred-name" class="form-control form-control-sm" @bind="_newName"
+                       placeholder="z. B. llm:anthropic" />
+            </div>
+            <div class="col">
+                <label class="form-label" for="cred-value">Wert</label>
+                <input id="cred-value" type="password" class="form-control form-control-sm" @bind="_newValue"
+                       placeholder="Secret eingeben…" />
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-sm btn-primary" @onclick="AddAsync" disabled="@_savingCred">
+                    Hinzufügen
+                </button>
+            </div>
+        </div>
+        @if (_credError is not null)
+        {
+            <div class="alert alert-danger mt-2 mb-0 py-1">@_credError</div>
+        }
+</CollapsibleCard>
+
+@code {
+    private string _enableIngestion = "";
+    private bool _savingGeneral;
+    private bool _generalSaved;
+
+    private string _llmEnabled = "";
+    private string _llmProvider = "anthropic";
+    private string _llmModel = "";
+    private string _llmBaseUrl = "";
+    private string _llmRegion = "";
+    private string _llmKey = "";
+    private string _llmAccessKey = "";
+    private bool _llmKeyStored;
+    private bool _llmAccessStored;
+    private bool _savingLlm;
+    private bool _llmSaved;
+    private bool _testingLlm;
+    private bool _llmTestOk;
+    private string? _llmTestResult;
+    private IReadOnlyList<string> _llmModels = [];
+
+    private string _mcpEnabled = "";
+    private string _mcpAllowWrite = "";
+    private IReadOnlyList<string> _availableTools = [];
+    private readonly HashSet<string> _exposedTools = new(StringComparer.Ordinal);
+    private static readonly HashSet<string> McpWriteTools = new(McpExposurePolicy.WriteToolNames, StringComparer.Ordinal);
+    private bool _savingMcp;
+    private bool _mcpSaved;
+
+    private IReadOnlyList<McpTokenInfo> _mcpTokens = [];
+    private string _newTokenLabel = "";
+    private readonly HashSet<string> _newTokenTools = new(StringComparer.Ordinal);
+    private bool _newTokenAllowWrite;
+    private string? _createdToken;
+    private bool _savingToken;
+
+    private List<string> _keys = [];
+    private string _newName = "";
+    private string _newValue = "";
+    private bool _savingCred;
+    private string? _credError;
+
+    private string UserId => Identity.UserId ?? "local";
+
+    private string _baseUri = "";
+
+    /// <summary>The MCP HTTP endpoint URL of this running instance (base URL + <c>/mcp</c>).</summary>
+    private string McpUrl => _baseUri.TrimEnd('/') + "/mcp";
+
+    /// <summary>
+    /// Builds an example MCP client configuration (Claude Desktop / mcp-remote) with this instance's URL.
+    /// Uses the freshly created token if one is currently shown, otherwise a placeholder.
+    /// </summary>
+    private string McpConfigSnippet()
+    {
+        var token = string.IsNullOrEmpty(_createdToken) ? "DEIN_TOKEN" : _createdToken;
+        return $$"""
+        {
+          "mcpServers": {
+            "edda": {
+              "command": "cmd",
+              "args": ["/c", "npx", "-y", "mcp-remote", "{{McpUrl}}?token={{token}}"]
+            }
+          }
+        }
+        """;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _baseUri = Nav.BaseUri;
+        var settings = await SettingsService.ReloadAsync();
+        _enableIngestion = settings.General.EnableIngestion switch
+        {
+            true => "true",
+            false => "false",
+            null => ""
+        };
+
+        var llm = settings.LlmEnrichment;
+        _llmEnabled = llm.Enabled switch { true => "true", false => "false", null => "" };
+        _llmProvider = string.IsNullOrWhiteSpace(llm.Provider) ? "anthropic" : llm.Provider;
+        _llmModel = llm.Model ?? "";
+        _llmBaseUrl = llm.BaseUrl ?? "";
+        _llmRegion = llm.Region ?? "";
+
+        var mcp = settings.Mcp;
+        _mcpEnabled = mcp.Enabled switch { true => "true", false => "false", null => "" };
+        _mcpAllowWrite = mcp.AllowWriteTools switch { true => "true", false => "false", null => "" };
+        _availableTools = ToolRegistry.GetAvailableTools()
+            .Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal).ToList();
+        var exposed = mcp.ExposedTools is { Count: > 0 } configured
+            ? configured
+            : McpExposurePolicy.DefaultExposedTools;
+        foreach (var tool in exposed)
+            _exposedTools.Add(tool);
+        _mcpTokens = await McpTokens.ListAsync();
+
+        await LoadKeysAsync();
+        await RefreshLlmKeyStatusAsync();
+    }
+
+    private async Task LoadKeysAsync()
+    {
+        var prefix = UserId + ":";
+        var all = await Credentials.ListAsync();
+        _keys = all
+            .Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(k => k[prefix.Length..])
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private async Task RefreshLlmKeyStatusAsync()
+    {
+        var all = await Credentials.ListAsync();
+        _llmKeyStored = all.Contains(CredentialKeyScheme.Scope(UserId, $"llm:{_llmProvider}"), StringComparer.Ordinal);
+        _llmAccessStored = all.Contains(CredentialKeyScheme.Scope(UserId, $"llm:{_llmProvider}:accesskey"), StringComparer.Ordinal);
+    }
+
+    private async Task SaveGeneralAsync()
+    {
+        _savingGeneral = true;
+        _generalSaved = false;
+        try
+        {
+            bool? enable = _enableIngestion switch
+            {
+                "true" => true,
+                "false" => false,
+                _ => null
+            };
+            var current = SettingsService.Current;
+            var updated = current with { General = current.General with { EnableIngestion = enable } };
+            await SettingsService.SaveAsync(updated);
+            await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, "General settings updated via UI");
+            _generalSaved = true;
+        }
+        finally
+        {
+            _savingGeneral = false;
+        }
+    }
+
+    private async Task SaveLlmAsync()
+    {
+        _savingLlm = true;
+        _llmSaved = false;
+        _llmTestResult = null;
+        try
+        {
+            bool? enabled = _llmEnabled switch { "true" => true, "false" => false, _ => null };
+            var current = SettingsService.Current;
+            var updated = current with
+            {
+                LlmEnrichment = new LlmEnrichmentSettings
+                {
+                    Enabled = enabled,
+                    Provider = _llmProvider,
+                    Model = string.IsNullOrWhiteSpace(_llmModel) ? null : _llmModel,
+                    BaseUrl = string.IsNullOrWhiteSpace(_llmBaseUrl) ? null : _llmBaseUrl,
+                    Region = string.IsNullOrWhiteSpace(_llmRegion) ? null : _llmRegion,
+                }
+            };
+            await SettingsService.SaveAsync(updated);
+
+            if (!string.IsNullOrEmpty(_llmKey))
+            {
+                await Credentials.StoreAsync(CredentialKeyScheme.Scope(UserId, $"llm:{_llmProvider}"), _llmKey);
+                _llmKey = "";
+            }
+
+            if (_llmProvider == "bedrock" && !string.IsNullOrEmpty(_llmAccessKey))
+            {
+                await Credentials.StoreAsync(
+                    CredentialKeyScheme.Scope(UserId, $"llm:{_llmProvider}:accesskey"), _llmAccessKey);
+                _llmAccessKey = "";
+            }
+
+            await Audit.LogAsync(
+                AuditEvent.ConfigChanged, UserId, $"LLM enrichment settings updated via UI (provider {_llmProvider})");
+            await RefreshLlmKeyStatusAsync();
+            _llmSaved = true;
+        }
+        finally
+        {
+            _savingLlm = false;
+        }
+    }
+
+    private async Task TestLlmAsync()
+    {
+        _testingLlm = true;
+        _llmTestResult = null;
+        try
+        {
+            var apiKey = !string.IsNullOrEmpty(_llmKey)
+                ? _llmKey
+                : await Credentials.RetrieveAsync(CredentialKeyScheme.Scope(UserId, $"llm:{_llmProvider}"));
+            var baseUrl = string.IsNullOrWhiteSpace(_llmBaseUrl) ? null : _llmBaseUrl;
+
+            var result = await Probe.ProbeAsync(_llmProvider, baseUrl, apiKey);
+            _llmTestOk = result.Ok;
+            _llmTestResult = result.Message;
+            _llmModels = result.Models;
+        }
+        finally
+        {
+            _testingLlm = false;
+        }
+    }
+
+    private void ToggleTool(string tool, ChangeEventArgs e)
+    {
+        if (e.Value is bool isChecked && isChecked)
+            _exposedTools.Add(tool);
+        else
+            _exposedTools.Remove(tool);
+    }
+
+    private async Task SaveMcpAsync()
+    {
+        _savingMcp = true;
+        _mcpSaved = false;
+        try
+        {
+            bool? enabled = _mcpEnabled switch { "true" => true, "false" => false, _ => null };
+            bool? allowWrite = _mcpAllowWrite switch { "true" => true, "false" => false, _ => null };
+            var current = SettingsService.Current;
+            var updated = current with
+            {
+                Mcp = new McpSettings
+                {
+                    Enabled = enabled,
+                    ExposedTools = _exposedTools.OrderBy(t => t, StringComparer.Ordinal).ToList(),
+                    AllowWriteTools = allowWrite,
+                }
+            };
+            await SettingsService.SaveAsync(updated);
+            await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, "MCP settings updated via UI");
+            _mcpSaved = true;
+        }
+        finally
+        {
+            _savingMcp = false;
+        }
+    }
+
+    private void ToggleTokenTool(string tool, ChangeEventArgs e)
+    {
+        if (e.Value is bool isChecked && isChecked)
+            _newTokenTools.Add(tool);
+        else
+            _newTokenTools.Remove(tool);
+    }
+
+    private async Task CreateTokenAsync()
+    {
+        if (_newTokenTools.Count == 0)
+            return;
+
+        _savingToken = true;
+        _createdToken = null;
+        try
+        {
+            var created = await McpTokens.CreateAsync(
+                _newTokenLabel,
+                _newTokenTools.OrderBy(t => t, StringComparer.Ordinal).ToList(),
+                _newTokenAllowWrite);
+            _createdToken = created.Token;
+            await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, $"MCP token created ({created.Info.Id})");
+            _newTokenLabel = "";
+            _newTokenTools.Clear();
+            _newTokenAllowWrite = false;
+            _mcpTokens = await McpTokens.ListAsync();
+        }
+        finally
+        {
+            _savingToken = false;
+        }
+    }
+
+    private async Task RevokeTokenAsync(string id)
+    {
+        await McpTokens.DeleteAsync(id);
+        await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, $"MCP token revoked ({id})");
+        _createdToken = null;
+        _mcpTokens = await McpTokens.ListAsync();
+    }
+
+    private async Task AddAsync()
+    {
+        _credError = null;
+        if (!CredentialKeyScheme.IsValidName(_newName))
+        {
+            _credError = "Ungültiger Name. Erlaubt: a–z, 0–9, '-', '_', '.', ':'.";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(_newValue))
+        {
+            _credError = "Wert darf nicht leer sein.";
+            return;
+        }
+
+        _savingCred = true;
+        try
+        {
+            await Credentials.StoreAsync(CredentialKeyScheme.Scope(UserId, _newName), _newValue);
+            await Audit.LogAsync(AuditEvent.CredentialAccess, UserId, $"Credential stored via UI: {_newName}");
+            _newName = "";
+            _newValue = "";
+            await LoadKeysAsync();
+            await RefreshLlmKeyStatusAsync();
+        }
+        finally
+        {
+            _savingCred = false;
+        }
+    }
+
+    private async Task DeleteAsync(string name)
+    {
+        await Credentials.DeleteAsync(CredentialKeyScheme.Scope(UserId, name));
+        await Audit.LogAsync(AuditEvent.CredentialAccess, UserId, $"Credential deleted via UI: {name}");
+        await LoadKeysAsync();
+        await RefreshLlmKeyStatusAsync();
+    }
+}

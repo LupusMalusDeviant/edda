@@ -1,0 +1,15 @@
+@page "/not-found"
+@layout MainLayout
+@inject ILocalizationService Loc
+@implements IDisposable
+
+<h3>@Loc["notfound.heading"]</h3>
+<p>@Loc["notfound.text"]</p>
+
+@code {
+    /// <summary>Subscribes to locale changes so the page text re-renders.</summary>
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    /// <summary>Unsubscribes to prevent memory leaks.</summary>
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+}

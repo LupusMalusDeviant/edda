@@ -1,0 +1,88 @@
+@inject ILocalizationService Loc
+@implements IDisposable
+
+<div class="rule-detail card h-100">
+    @if (Rule is null)
+    {
+        <div class="card-body text-muted d-flex align-items-center justify-content-center">
+            <span>@Loc["knowledge.rule.select"]</span>
+        </div>
+    }
+    else
+    {
+        <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+            <strong>@Rule.Id</strong>
+            <span class="badge bg-info">@Rule.Domain</span>
+            <span class="badge bg-secondary">@Rule.Priority</span>
+            @if (!string.IsNullOrEmpty(Rule.Type))
+            {
+                <span class="badge bg-warning text-dark">@Rule.Type</span>
+            }
+            @if (OnEditRequested.HasDelegate)
+            {
+                <button class="btn btn-sm btn-outline-primary ms-auto"
+                        @onclick="() => OnEditRequested.InvokeAsync(Rule)">
+                    @Loc["knowledge.rule.edit"]
+                </button>
+            }
+        </div>
+        <div class="card-body">
+            @if (!string.IsNullOrWhiteSpace(Rule.Body))
+            {
+                <div class="mb-3">
+                    <strong>@Loc["knowledge.rule.body"]</strong>
+                    <div class="rule-body mt-1 p-2 rounded" style="background:#1a1a2e;color:#e2e8f0;font-size:0.85rem;white-space:pre-wrap;max-height:300px;overflow-y:auto;">@Rule.Body</div>
+                </div>
+            }
+
+            @RenderRelationList(Rule.ImpliedRuleIds, "knowledge.rule.implies", "text-success")
+            @RenderRelationList(Rule.ConflictsWithIds, "knowledge.rule.conflicts", "text-danger")
+            @RenderRelationList(Rule.ExceptionForIds, "knowledge.rule.exception", "text-warning")
+            @RenderRelationList(Rule.RequiresIds, "knowledge.rule.requires", "text-info")
+            @RenderRelationList(Rule.SupersedesIds, "knowledge.rule.supersedes", "text-muted")
+
+            @if (!HasAnyRelations())
+            {
+                <p class="text-muted">@Loc["knowledge.rule.noimplied"]</p>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>The rule to display, or <c>null</c> to show a placeholder.</summary>
+    [Parameter] public KnowledgeGraphView.KnowledgeRuleDto? Rule { get; set; }
+
+    /// <summary>
+    /// Raised when the user clicks "Edit". The parent page is responsible for showing the editor.
+    /// </summary>
+    [Parameter] public EventCallback<KnowledgeGraphView.KnowledgeRuleDto> OnEditRequested { get; set; }
+
+    /// <summary>Subscribes to locale changes so labels re-render.</summary>
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    /// <summary>Unsubscribes to prevent memory leaks.</summary>
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+
+    private bool HasAnyRelations() =>
+        Rule is not null && (
+            (Rule.ImpliedRuleIds?.Count > 0) ||
+            (Rule.ConflictsWithIds?.Count > 0) ||
+            (Rule.ExceptionForIds?.Count > 0) ||
+            (Rule.RequiresIds?.Count > 0) ||
+            (Rule.SupersedesIds?.Count > 0));
+
+    private RenderFragment RenderRelationList(IReadOnlyList<string>? ids, string labelKey, string cssClass) => __builder =>
+    {
+        if (ids?.Count > 0)
+        {
+            <p><strong class="@cssClass">@Loc[labelKey]</strong></p>
+            <ul>
+                @foreach (var id in ids)
+                {
+                    <li><code>@id</code></li>
+                }
+            </ul>
+        }
+    };
+}

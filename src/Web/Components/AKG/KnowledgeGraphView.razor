@@ -1,0 +1,142 @@
+@inject IJSRuntime JS
+@inject ILocalizationService Loc
+@implements IDisposable
+
+<div class="knowledge-graph-wrapper">
+    <div @ref="_container"
+         id="cy-container"
+         style="width:100%;height:75vh;min-height:500px;border:1px solid #2a2a4e;border-radius:8px;background:#12121f;">
+    </div>
+    @if (Rules.Count == 0)
+    {
+        <p class="text-muted mt-2 text-center">
+            @Loc["knowledge.empty"]
+        </p>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<KnowledgeRuleDto> Rules { get; set; } = [];
+    [Parameter] public EventCallback<KnowledgeRuleDto> OnRuleSelected { get; set; }
+    [Parameter] public EventCallback<int> OnSelectionCountChanged { get; set; }
+
+    private const string ContainerId = "cy-container";
+    private ElementReference _container;
+    private DotNetObjectReference<KnowledgeGraphView>? _selfRef;
+    private bool _rendered;
+
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    public void Dispose()
+    {
+        Loc.OnLanguageChanged -= StateHasChanged;
+        _selfRef?.Dispose();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Rules.Count > 0 && !_rendered)
+        {
+            _rendered = true;
+            await RenderAsync();
+        }
+    }
+
+    private async Task RenderAsync()
+    {
+        // Rule nodes (kind = "rule"). Referenced non-rule targets (tool-*, world-*, …)
+        // are promoted to their own typed nodes below, so their relations render with a
+        // distinct style instead of being dropped — this makes tool/world links visible.
+        var nodes = Rules.Select(r => (object)new
+        {
+            data = new { id = r.Id, label = r.Id, domain = r.Domain, priority = r.Priority, type = r.Type, kind = "rule" }
+        }).ToList();
+
+        var ruleIds = Rules.Select(r => r.Id).ToHashSet();
+        var referenced = new HashSet<string>(StringComparer.Ordinal);
+        var edges = new List<object>();
+
+        foreach (var r in Rules)
+        {
+            AddEdges(edges, referenced, r.Id, "implies", r.ImpliedRuleIds);
+            AddEdges(edges, referenced, r.Id, "conflicts", r.ConflictsWithIds);
+            AddEdges(edges, referenced, r.Id, "exception", r.ExceptionForIds);
+            AddEdges(edges, referenced, r.Id, "requires", r.RequiresIds);
+            AddEdges(edges, referenced, r.Id, "supersedes", r.SupersedesIds);
+            AddEdges(edges, referenced, r.Id, "related", r.RelatedRuleIds);
+        }
+
+        // Promote every referenced target that is not itself a rule to a typed node,
+        // so Cytoscape can draw the edge and the node renders with its own kind style.
+        foreach (var target in referenced)
+        {
+            if (ruleIds.Contains(target)) continue;
+            nodes.Add(new
+            {
+                data = new { id = target, label = target, domain = "", priority = "", type = "", kind = NodeKind(target) }
+            });
+        }
+
+        _selfRef ??= DotNetObjectReference.Create(this);
+
+        await JS.InvokeVoidAsync("cytoscapeInterop.init", _container,
+            new { nodes = nodes.ToArray(), edges = edges.ToArray() }, _selfRef);
+    }
+
+    private static void AddEdges(
+        List<object> edges, HashSet<string> referenced, string sourceId, string relType, IReadOnlyList<string>? targetIds)
+    {
+        if (targetIds is null || targetIds.Count == 0) return;
+        foreach (var target in targetIds)
+        {
+            referenced.Add(target);
+            edges.Add(new
+            {
+                data = new { id = $"{sourceId}_{relType}_{target}", source = sourceId, target, type = relType }
+            });
+        }
+    }
+
+    /// <summary>Classifies a non-rule node id by its id prefix for distinct graph styling.</summary>
+    private static string NodeKind(string id) =>
+        id.StartsWith("tool-", StringComparison.OrdinalIgnoreCase) ? "tool"
+        : id.StartsWith("world-", StringComparison.OrdinalIgnoreCase) ? "world"
+        : "external";
+
+    [JSInvokable]
+    public async Task OnNodeClicked(string nodeId)
+    {
+        var rule = Rules.FirstOrDefault(r =>
+            string.Equals(r.Id, nodeId, StringComparison.OrdinalIgnoreCase));
+        if (rule is not null)
+            await OnRuleSelected.InvokeAsync(rule);
+    }
+
+    /// <summary>Invoked from JS whenever the box/click selection changes; forwards the count to the parent.</summary>
+    [JSInvokable]
+    public async Task OnSelectionChanged(int count) => await OnSelectionCountChanged.InvokeAsync(count);
+
+    /// <summary>Enables/disables box-selection mode (rubber-band multi-select) on the graph.</summary>
+    public async Task SetSelectModeAsync(bool enabled)
+        => await JS.InvokeVoidAsync("cytoscapeInterop.setSelectMode", ContainerId, enabled);
+
+    /// <summary>Returns the ids of the currently selected nodes.</summary>
+    public async Task<string[]> GetSelectedIdsAsync()
+        => await JS.InvokeAsync<string[]>("cytoscapeInterop.getSelectedIds", ContainerId);
+
+    /// <summary>
+    /// DTO carrying all display-relevant rule data for the Wissensgraph visualization.
+    /// </summary>
+    public record KnowledgeRuleDto(
+        string Id,
+        string Domain,
+        string Priority,
+        string Type,
+        string Body,
+        IReadOnlyList<string>? ImpliedRuleIds,
+        IReadOnlyList<string>? ConflictsWithIds,
+        IReadOnlyList<string>? ExceptionForIds,
+        IReadOnlyList<string>? RequiresIds,
+        IReadOnlyList<string>? SupersedesIds,
+        IReadOnlyList<string>? RelatedRuleIds);
+}

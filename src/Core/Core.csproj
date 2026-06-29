@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Edda.Core</RootNamespace>
+    <AssemblyName>Edda.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

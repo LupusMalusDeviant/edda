@@ -1,0 +1,349 @@
+@page "/"
+@page "/knowledge"
+@rendermode InteractiveServer
+@inject ILocalizationService Loc
+@inject IKnowledgeGraph KnowledgeGraph
+@inject IIdentityContext Identity
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>@Loc["page.knowledge"]</PageTitle>
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="mb-0">@Loc["knowledge.heading"]</h3>
+    @if (_mode == PageMode.View)
+    {
+        <div class="d-flex gap-2 align-items-center">
+            @if (_selectMode)
+            {
+                <span class="text-muted" style="font-size:.85rem;">@_selectedCount markiert</span>
+                <button class="btn btn-sm btn-danger" @onclick="DeleteSelectedAsync"
+                        disabled="@(_selectedCount == 0 || _deleting)">
+                    @(_deleting ? "Lösche…" : "Auswahl löschen")
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleSelectModeAsync" disabled="@_deleting">
+                    Fertig
+                </button>
+            }
+            else
+            {
+                @if (Identity.IsAdmin)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ReloadBaselineAsync"
+                            disabled="@_seeding" title="Basiswissen aus knowledge/ (neu) in den Graphen laden">
+                        @(_seeding ? "Lade…" : "Basiswissen laden")
+                    </button>
+                }
+                <button class="btn btn-sm btn-outline-primary" @onclick="ToggleSelectModeAsync">
+                    Mehrere Knoten bearbeiten
+                </button>
+                <button class="btn btn-sm btn-success" @onclick="StartCreate">
+                    @Loc["knowledge.rule.new"]
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@if (_mode == PageMode.Edit || _mode == PageMode.Create)
+{
+    <RuleEditor Rule="@_editRule"
+                IsNew="@(_mode == PageMode.Create)"
+                OnSaved="OnRuleSaved"
+                OnDeleted="OnRuleDeleted"
+                OnCancel="CancelEdit" />
+}
+else
+{
+    @if (_stats is not null)
+    {
+        <div class="d-flex gap-3 align-items-center mb-2 px-1" style="font-size:0.82rem;color:#94a3b8;">
+            <span>📊 @_rules.Count Kopfknoten · @_stats.TotalRules Regeln gesamt</span>
+            <span>🔗 @_stats.TotalEdges Kanten</span>
+            @if (_stats.EmbeddingRebuildRunning)
+            {
+                <span style="color:#fbbf24;">
+                    ⏳ Embedding @_stats.EmbeddingRebuildDone / @_stats.EmbeddingRebuildTotal
+                    @if (_stats.EmbeddingRebuildCurrentRule is not null)
+                    {
+                        <span style="opacity:0.6;"> — @_stats.EmbeddingRebuildCurrentRule</span>
+                    }
+                </span>
+                <div style="flex:1;max-width:200px;height:6px;background:#1e293b;border-radius:3px;overflow:hidden;">
+                    <div style="width:@(EmbeddingPercent)%;height:100%;background:#fbbf24;border-radius:3px;transition:width 0.5s;"></div>
+                </div>
+            }
+            else
+            {
+                <span style="color:@(_stats.RulesWithEmbeddings >= _stats.TotalRules ? "#22c55e" : "#94a3b8");">
+                    🧠 @_stats.RulesWithEmbeddings / @_stats.TotalRules embedded
+                </span>
+            }
+        </div>
+    }
+
+    @if (_selectMode)
+    {
+        <div class="alert alert-info py-1 px-2 mb-2" style="font-size:.82rem;">
+            Mit gedrückter Maustaste einen Rahmen über die Knoten ziehen, um mehrere zu markieren
+            (Klick = einzeln). Dann „Auswahl löschen".
+        </div>
+    }
+    @if (_deleteError is not null)
+    {
+        <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:.82rem;">@_deleteError</div>
+    }
+    @if (_seedMessage is not null)
+    {
+        <div class="alert alert-info py-1 px-2 mb-2" style="font-size:.82rem;">@_seedMessage</div>
+    }
+
+    <div class="knowledge-layout">
+        <div class="knowledge-graph-col">
+            <KnowledgeGraphView @ref="_graphView" @key="@_graphKey" Rules="@_rules"
+                                OnRuleSelected="OnRuleSelected" OnSelectionCountChanged="OnSelectionCountChanged" />
+        </div>
+        <div class="knowledge-detail-col @(_selectedRule is not null ? "detail-visible" : "")">
+            <RuleDetail Rule="@_selectedRule" OnEditRequested="StartEdit" />
+            @if (_selectedRule is not null)
+            {
+                <button class="btn btn-sm btn-outline-secondary d-md-none mt-2 w-100"
+                        @onclick="() => _selectedRule = null">
+                    @Loc["knowledge.rule.close"]
+                </button>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private enum PageMode { View, Edit, Create }
+
+    private IReadOnlyList<KnowledgeGraphView.KnowledgeRuleDto> _rules = [];
+    private KnowledgeGraphView.KnowledgeRuleDto? _selectedRule;
+    private KnowledgeRule? _editRule;
+    private PageMode _mode = PageMode.View;
+    private int _graphKey;
+    private GraphStats? _stats;
+    private System.Threading.Timer? _statsTimer;
+    private int _lastKnownRuleCount;
+
+    private bool _selectMode;
+    private int _selectedCount;
+    private bool _deleting;
+    private string? _deleteError;
+    private bool _seeding;
+    private string? _seedMessage;
+    private KnowledgeGraphView? _graphView;
+
+    private int EmbeddingPercent => _stats is { EmbeddingRebuildTotal: > 0 }
+        ? (int)(100.0 * _stats.EmbeddingRebuildDone / _stats.EmbeddingRebuildTotal)
+        : 0;
+
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    public void Dispose()
+    {
+        Loc.OnLanguageChanged -= StateHasChanged;
+        _statsTimer?.Dispose();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRulesAsync();
+        await LoadStatsAsync();
+        _lastKnownRuleCount = _stats?.TotalRules ?? 0;
+
+        // Poll every 5s for live embedding progress, and auto-refresh the graph when the rule count
+        // changed (e.g. while an import runs). Only re-render on change so the user's zoom/pan/selection
+        // isn't reset on every tick.
+        _statsTimer = new System.Threading.Timer(async _ =>
+        {
+            await LoadStatsAsync();
+
+            var current = _stats?.TotalRules ?? 0;
+            if (_mode == PageMode.View && current != _lastKnownRuleCount)
+            {
+                _lastKnownRuleCount = current;
+                var beforeHeads = _rules.Count;
+                await LoadRulesAsync();
+                // Only re-render when the head set actually changed (e.g. a new repo) — importing files
+                // into existing repos must not reset the user's zoom/pan every tick.
+                if (_rules.Count != beforeHeads)
+                    _graphKey++;
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadStatsAsync()
+    {
+        try { _stats = await KnowledgeGraph.GetStatsAsync(); }
+        catch { /* Stats are best-effort — UI still works without them */ }
+    }
+
+    private async Task LoadRulesAsync()
+    {
+        try
+        {
+            // Only head nodes (structure + repos + standalone rules); file leaves stay collapsed so a
+            // large knowledge base (tens of thousands of files) does not freeze the graph.
+            var allRules = await KnowledgeGraph.GetRuleHeadsAsync();
+            var rules = allRules.Select(r => new KnowledgeGraphView.KnowledgeRuleDto(
+                r.Id,
+                r.Domain,
+                r.Priority.ToString(),
+                r.Type,
+                r.Body,
+                r.RelatesTo?.Implies,
+                r.RelatesTo?.ConflictsWith,
+                r.RelatesTo?.ExceptionFor,
+                r.RelatesTo?.Requires,
+                r.RelatesTo?.Supersedes,
+                r.RelatesTo?.Related)).ToList();
+
+            _rules = rules;
+        }
+        catch
+        {
+            _rules = [];
+        }
+    }
+
+    private void OnRuleSelected(KnowledgeGraphView.KnowledgeRuleDto rule) =>
+        _selectedRule = rule;
+
+    private async Task ToggleSelectModeAsync()
+    {
+        _selectMode = !_selectMode;
+        _selectedCount = 0;
+        _deleteError = null;
+        if (_selectMode)
+            _selectedRule = null;
+        if (_graphView is not null)
+            await _graphView.SetSelectModeAsync(_selectMode);
+    }
+
+    private void OnSelectionCountChanged(int count) => _selectedCount = count;
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (_graphView is null)
+            return;
+
+        var ids = await _graphView.GetSelectedIdsAsync();
+        if (ids.Length == 0)
+            return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"{ids.Length} Knoten endgültig löschen?"))
+            return;
+
+        _deleting = true;
+        _deleteError = null;
+        var failed = 0;
+        try
+        {
+            foreach (var id in ids)
+            {
+                try
+                {
+                    // Deleting a head node removes its whole subtree (e.g. a repo + all its files).
+                    await KnowledgeGraph.DeleteSubtreeAsync(id, Identity.UserId!, Identity.IsAdmin);
+                }
+                catch
+                {
+                    failed++;
+                }
+            }
+        }
+        finally
+        {
+            _deleting = false;
+            _selectMode = false;
+            _selectedCount = 0;
+            if (failed > 0)
+                _deleteError = $"{failed} von {ids.Length} Knoten konnten nicht gelöscht werden.";
+            _graphKey++;
+            await LoadRulesAsync();
+            await LoadStatsAsync();
+        }
+    }
+
+    private async Task ReloadBaselineAsync()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm",
+            "Basiswissen aus dem knowledge/-Verzeichnis (neu) in den Graphen laden? " +
+            "Vorhandene Knoten bleiben erhalten (idempotenter Merge)."))
+            return;
+
+        _seeding = true;
+        _seedMessage = null;
+        try
+        {
+            await KnowledgeGraph.ReloadAsync();
+            var world = await KnowledgeGraph.ReloadWorldKnowledgeAsync();
+            _graphKey++;
+            await LoadRulesAsync();
+            await LoadStatsAsync();
+            _seedMessage = $"Basiswissen geladen: {_stats?.TotalRules ?? 0} Regeln, {world} Welt-Knoten.";
+        }
+        catch (Exception ex)
+        {
+            _seedMessage = $"Laden fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            _seeding = false;
+        }
+    }
+
+    private void StartCreate()
+    {
+        _editRule = null;
+        _mode = PageMode.Create;
+    }
+
+    private void StartEdit(KnowledgeGraphView.KnowledgeRuleDto dto)
+    {
+        _editRule = new KnowledgeRule
+        {
+            Id       = dto.Id,
+            Domain   = dto.Domain,
+            Type     = dto.Type,
+            Priority = Enum.TryParse<RulePriority>(dto.Priority, out var p) ? p : RulePriority.Medium,
+            Body     = dto.Body,
+            RelatesTo = new RuleRelations
+            {
+                Implies       = dto.ImpliedRuleIds ?? [],
+                ConflictsWith = dto.ConflictsWithIds ?? [],
+                ExceptionFor  = dto.ExceptionForIds ?? [],
+                Requires      = dto.RequiresIds ?? [],
+                Supersedes    = dto.SupersedesIds ?? [],
+            },
+        };
+        _mode = PageMode.Edit;
+    }
+
+    private async Task OnRuleSaved(KnowledgeRule _)
+    {
+        _mode = PageMode.View;
+        _editRule = null;
+        _graphKey++;
+        await LoadRulesAsync();
+    }
+
+    private async Task OnRuleDeleted()
+    {
+        _mode = PageMode.View;
+        _editRule = null;
+        _selectedRule = null;
+        _graphKey++;
+        await LoadRulesAsync();
+    }
+
+    private void CancelEdit()
+    {
+        _mode = PageMode.View;
+        _editRule = null;
+    }
+}
