@@ -39,6 +39,16 @@ im privaten/lokalen .NET-Umfeld und beim sicherheitskritischen Agent-Zugriff.
 | 1.2 | **Quell-Connectoren** pragmatisch (Dateisystem/Git/Markdown/PDF zuerst) | mittel | M | `AKG.Ingestion` / `IIngestionSource` | ≥3 Connectoren produktiv |
 | 1.3 | **Entity-Layer-Retrieval** ausbauen (LightRAG-Stil ist angelegt) | mittel | M | `ContextCompiler.BuildEntityContextAsync` | Entitäts-Nachbarschaft fließt in den Kontext |
 
+**M2-Umsetzungsstand (2026-07-01):** Der LLM-Ingestion-Enricher **und** die Quell-Connectoren
+waren bereits aus dem Monorepo vorhanden und in `Edda.Hosting` verdrahtet (Default AUS,
+provider-pluggable) — die Plan-Annahme „dormant/nicht verdrahtet" traf nicht zu. **Geschlossen:**
+die einzige echte Sicherheitslücke in 1.1 — Sanitization/Redaction **vor jedem LLM-Call**
+(FR-07/Risiko R6): `LlmIngestionEnricher` wendet nun `ISecretRedactor` + `IInputSanitizer` auf
+Titel und Body an; Unit-Tests ohne echten LLM grün. **Offen (im Loop):** Default-Provider
+(Ollama/openrouter bleiben beide first-class, per Config), Verifikation Entity-Layer-Feed (1.3)
++ Idempotenz/Bulk (1.2), Betriebs-/Datenschutz-Doku. Reale Extraktionsqualität ist nur mit
+lokalem Ollama abnehmbar (M4).
+
 ## Track 2 — Episodisches Agent-Gedächtnis  *(M2 → M3)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |

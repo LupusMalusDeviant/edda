@@ -4,6 +4,8 @@
     <ProjectReference Include="..\..\src\AKG.Ingestion\AKG.Ingestion.csproj" />
     <!-- AKG is referenced only by tests, to round-trip serialized Markdown through the real parser. -->
     <ProjectReference Include="..\..\src\AKG\AKG.csproj" />
+    <!-- Security is referenced to exercise the real InputSanitizer/SecretRedactor in enricher tests. -->
+    <ProjectReference Include="..\..\src\Security\Security.csproj" />
   </ItemGroup>
 
 </Project>

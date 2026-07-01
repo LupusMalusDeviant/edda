@@ -2,6 +2,8 @@ using Edda.AKG.Ingestion.Enrichment;
 using Edda.AKG.Ingestion.Llm;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
+using Edda.Security.OutputFilter;
+using Edda.Security.Sanitization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -35,7 +37,8 @@ public sealed class ResolvingIngestionEnricherTests
         chat.Setup(c => c.CompleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("""{ "summary": "s", "related": [] }""");
 
-        var inner = new LlmIngestionEnricher(chat.Object, NullLogger<LlmIngestionEnricher>.Instance);
+        var inner = new LlmIngestionEnricher(
+            chat.Object, new InputSanitizer(), new SecretRedactor(), NullLogger<LlmIngestionEnricher>.Instance);
         var sut = new ResolvingIngestionEnricher(settings.Object, configuration.Object, inner);
         return (sut, chat);
     }

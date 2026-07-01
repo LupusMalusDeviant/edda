@@ -4,6 +4,8 @@ using Edda.AKG.Ingestion.Llm;
 using Edda.Core.Abstractions;
 using Edda.Core.Exceptions;
 using Edda.Core.Models;
+using Edda.Security.OutputFilter;
+using Edda.Security.Sanitization;
 using Microsoft.Extensions.Logging;
 
 namespace Edda.AKG.Ingestion.Enrichment;
@@ -26,14 +28,24 @@ public sealed class LlmIngestionEnricher : IIngestionEnricher
         "provided candidate ids and never invent ids. If unsure, use an empty array. Output JSON only.";
 
     private readonly ILlmChatClient _chat;
+    private readonly IInputSanitizer _sanitizer;
+    private readonly ISecretRedactor _redactor;
     private readonly ILogger<LlmIngestionEnricher> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="LlmIngestionEnricher"/> class.</summary>
     /// <param name="chat">The chat client used for completions.</param>
+    /// <param name="sanitizer">Neutralizes prompt-injection patterns in ingested content before it reaches the model.</param>
+    /// <param name="redactor">Redacts secrets from ingested content before it reaches the model.</param>
     /// <param name="logger">Logger for best-effort diagnostics.</param>
-    public LlmIngestionEnricher(ILlmChatClient chat, ILogger<LlmIngestionEnricher> logger)
+    public LlmIngestionEnricher(
+        ILlmChatClient chat,
+        IInputSanitizer sanitizer,
+        ISecretRedactor redactor,
+        ILogger<LlmIngestionEnricher> logger)
     {
         _chat = chat;
+        _sanitizer = sanitizer;
+        _redactor = redactor;
         _logger = logger;
     }
 
@@ -79,18 +91,29 @@ public sealed class LlmIngestionEnricher : IIngestionEnricher
         };
     }
 
-    private static string BuildUserPrompt(IngestionItem item, IReadOnlyList<string> candidateIds)
+    private string BuildUserPrompt(IngestionItem item, IReadOnlyList<string> candidateIds)
     {
-        var body = item.Body.Length > MaxBodyChars ? item.Body[..MaxBodyChars] : item.Body;
+        var truncated = item.Body.Length > MaxBodyChars ? item.Body[..MaxBodyChars] : item.Body;
+        var title = Clean(item.Title);
+        var body = Clean(truncated);
         var sb = new StringBuilder();
         sb.Append("Document id: ").Append(item.Id).Append('\n');
-        sb.Append("Title: ").Append(item.Title).Append('\n').Append('\n');
+        sb.Append("Title: ").Append(title).Append('\n').Append('\n');
         sb.Append("Content:\n").Append(body).Append('\n').Append('\n');
         sb.Append("Candidate ids:\n");
         foreach (var id in candidateIds)
             sb.Append(id).Append('\n');
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Redacts secrets and neutralizes prompt-injection patterns in ingested free text before it is
+    /// embedded into a prompt and sent to the language model (see PRD-0001 FR-07). Secrets are redacted
+    /// first so they never reach the model, then injection markers are filtered from the result.
+    /// </summary>
+    /// <param name="raw">The raw ingested text (title or body).</param>
+    /// <returns>The redacted and sanitized text safe to include in a prompt.</returns>
+    private string Clean(string raw) => _sanitizer.Sanitize(_redactor.Redact(raw)).Text;
 
     /// <summary>
     /// Extracts <c>summary</c> and <c>related</c> from the model response, tolerating surrounding prose or
