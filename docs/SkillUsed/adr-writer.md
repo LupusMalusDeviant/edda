@@ -1,5 +1,24 @@
 # Skill-Log: adr-writer
 
+## 2026-07-01 15:15 — Run
+
+**Aufgabe:** ADR für M2 (Auto-Wissensgraph-Ingestion) — LLM-Provider-Default + Aktivierung der Auto-Extraktion im light-Build. Folge-Entscheidung aus ADR-0001, plan-first.
+
+**Entscheidungen:**
+- Nummer: 0010
+- Supersede: nein (verfeinert ADR-0001, ersetzt es nicht)
+- Provider-Default: Ollama-lokal + pluggable, Enricher opt-in im light-Build (Optionen Cloud-Default / rein-kuratiert / volle Chat-Runtime verworfen)
+- Status: Vorgeschlagen (plan-first, Review durch Repo-Eigner offen)
+- Index `docs/adr/README.md`: aktualisiert
+
+**Artefakte:**
+- docs/adr/0010-llm-provider-auto-extraktion.md
+- docs/adr/README.md
+
+**Status:** abgeschlossen
+
+---
+
 ## 2026-06-19 09:03 — Run
 
 **Aufgabe:** ADR für die Retrieval-Architektur-Umstellung — hierarchisches Coarse-to-Fine-Retrieval mit Centroid-basierten Head-Vektoren (Pre-Pruning gegen die ~19k-Node-Masse).
