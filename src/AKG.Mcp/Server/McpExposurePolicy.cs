@@ -35,7 +35,9 @@ public sealed class McpExposurePolicy
     [
         "manage_memory",
         "manage_userdata",
-        "manage_learnings"
+        "manage_learnings",
+        "remember",
+        "forget"
     ];
 
     private static readonly HashSet<string> WriteTools = new(WriteToolNames, StringComparer.OrdinalIgnoreCase);

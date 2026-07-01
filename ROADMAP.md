@@ -76,6 +76,14 @@ offene Position ist die reale Extraktionsqualität, nur mit lokalem Ollama abneh
 | 2.2 | **`remember` / `recall` / `forget`** als abgesicherte Tools | hoch | M | Agent `ToolRegistry`, MCP-Exposure | persistierbar/abrufbar/vergessbar; über MCP weiterhin default-deny |
 | 2.3 | **Vergessens-Policy** (Decay aus 0.2 integrieren) | mittel | S | `RuleFeedbackService` | Decay steuert Konsolidierung/Forget |
 
+**M3-Fortschritt — episodisches Gedächtnis (2026-07-01):** Audit: die 5 vorhandenen memory-Tools sind NICHT
+episodisch (`manage_memory`=Datei, `manage_learnings`=1 Aggregat-Knoten/User, `search_memory`=global).
+**WP4 umgesetzt (2.2):** `remember`/`recall`/`forget` als eigenständige Tools über pro-Fakt-Knoten
+(`SourceType=memory`, `OwnerId=userId`, Content-Hash-ID → idempotent) auf bestehendem `IKnowledgeGraph`;
+`recall` = user-/memory-gefilterter Abruf + Keyword-Ranking (kein neues Retrieval-System, ADR-0011). MCP:
+`remember`/`forget` in der Write-default-deny-Liste, `recall` opt-in (nicht in den Defaults). Tests grün
+(Mock-Graph). **Offen:** WP5 (2.1/2.3) = Sitzungs-Konsolidierung + Decay auf Gedächtnis-Knoten.
+
 ## Track 3 — Mandantenfähigkeit  *(M3)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |

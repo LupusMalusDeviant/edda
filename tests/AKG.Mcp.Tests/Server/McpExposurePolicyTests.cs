@@ -78,4 +78,38 @@ public class McpExposurePolicyTests
             "docker_management"
         ]);
     }
+
+    [Theory]
+    [InlineData("remember")]
+    [InlineData("forget")]
+    public void IsExposed_EpisodicWriteTools_BlockedByDefault_EvenWhenAllowListed(string toolName)
+    {
+        // Episodic-memory write tools stay default-deny over MCP (M3 / ADR-0011 safety-first).
+        var policy = new McpExposurePolicy([toolName], allowWriteTools: false);
+        policy.IsExposed(toolName).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("remember")]
+    [InlineData("forget")]
+    public void IsExposed_EpisodicWriteTools_Exposed_WhenWriteAccessEnabledAndAllowListed(string toolName)
+    {
+        var policy = new McpExposurePolicy([toolName], allowWriteTools: true);
+        policy.IsExposed(toolName).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsExposed_Recall_ReadOnly_Exposed_WhenAllowListed_WithoutWriteAccess()
+    {
+        // recall is read-only + opt-in: exposable when allow-listed, no write access required.
+        var policy = new McpExposurePolicy(["recall"], allowWriteTools: false);
+        policy.IsExposed("recall").Should().BeTrue();
+    }
+
+    [Fact]
+    public void DefaultExposedTools_DoNotIncludeRecall_OptInOnly()
+    {
+        // ADR-0011: recall is opt-in, never in the default read allow-list.
+        McpExposurePolicy.DefaultExposedTools.Should().NotContain("recall");
+    }
 }

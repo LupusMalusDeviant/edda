@@ -1,6 +1,6 @@
 # ADR-0011: Design des episodischen Agent-Gedächtnisses (M3)
 
-- **Status:** Vorgeschlagen
+- **Status:** Akzeptiert
 - **Datum:** 2026-07-01
 - **Autor:** LupusMalusDeviant
 - **Konsultiert:** —
