@@ -20,8 +20,14 @@ Ein schlanker Wissensgraph-Dienst, den **jeder beliebige Agent** über MCP anbin
 
 **Bewusst NICHT enthalten** (im Gegensatz zum Edda-Monorepo): Chat-LLM-Runtime,
 Multi-Agent, Scheduling, Web-/Code-/Docker-/Browser-Tools, Kanäle (Telegram/Matrix).
-Daher gibt es **kein** `compile_knowledge`, `analyze_codebase` oder Auto-Entity-Ingestion
-(diese bräuchten einen Chat-`IModelClient`).
+Daher gibt es **kein** `compile_knowledge` und **kein** `analyze_codebase` (diese bräuchten
+eine Chat-Runtime / einen Agent-Loop).
+
+**Ausnahme seit M2 (ADR-0010):** eine reine *Ingest-Zeit*-LLM-Extraktion ist **opt-in**
+zuschaltbar — der Enricher (`INGESTION_ENRICHER=llm`) und die Entity-Extraktion
+(`INGESTION_ENTITY_EXTRACTION=true`), beide getrennt schaltbar, Default AUS. Das ist kein
+Chat/Agent-Loop, sondern ein einmaliger Extraktions-Client; ohne Aktivierung bleibt der
+Betrieb local-only.
 
 Stack: **.NET 10 | C# 13 | Neo4j 5 (oder Memgraph) | Blazor Server | xUnit | ModelContextProtocol 1.4**
 

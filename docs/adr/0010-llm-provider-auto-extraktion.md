@@ -1,6 +1,6 @@
 # ADR-0010: LLM-Provider und Aktivierung der Auto-Extraktion (M2)
 
-- **Status:** Vorgeschlagen
+- **Status:** Akzeptiert
 - **Datum:** 2026-07-01
 - **Autor:** LupusMalusDeviant
 - **Konsultiert:** —
@@ -111,6 +111,12 @@ Ausschlaggebend war, dass der Default-Pfad unverändert local-only bleibt und di
 ohne externen Anbieter auskommt — das M2-Ziel wird erreicht, ohne die local-first-Positionierung
 aufzugeben. Bewusst in Kauf genommen: variable Extraktionsqualität bei kleinen lokalen Modellen und der
 Betrieb eines lokalen Ollama-Dienstes.
+
+**Umsetzungshinweis (Akzeptanz 2026-07-01):** Beide Wege bleiben *first-class* (Repo-Eigner-Wunsch
+„flexibel"): Ollama ist die local-first-*Empfehlung* (`INGESTION_LLM_PROVIDER=ollama`), der technische
+Code-Fallback bei nicht gesetztem Provider ist `openrouter`. Aktivierung über zwei getrennte, per Default
+abgeschaltete Toggles: `INGESTION_ENRICHER=llm` (Enricher) und `INGESTION_ENTITY_EXTRACTION=true`
+(Entity-Extraktion, M2-WP3, LightRAG-Stil). Beide nutzen denselben `ILlmChatClient`-Provider-Mechanismus.
 
 ## Konsequenzen
 

@@ -58,8 +58,15 @@ best-effort, Sanitization/Redaction vor dem LLM, verwirft Relationen zu unbekann
 bewusste „entity ingestion omitted"-Auslassung opt-in um (ADR-0010). **Scheibe B umgesetzt:** Auto-Extraktion
 in der Ingestion-Pipeline als opt-in Stufe (`INGESTION_ENTITY_EXTRACTION=true`, getrennt vom Enricher,
 Default AUS); pro Item wird der Rohtext extrahiert und user-scoped (Identity/„local") in den Entity-Layer
-persistiert; Pipeline-Tests grün. **Offen:** WP2 (Idempotenz/Bulk — vermutlich vorhanden, nur verifizieren),
-WP5 (Betriebs-Doku + ADR-0010 „beide first-class" + CLAUDE.md präzisieren).
+persistiert; Pipeline-Tests grün.
+
+**WP2 verifiziert (2026-07-01):** Idempotenz ist bereits garantiert — deterministische Rule-IDs +
+`MERGE (r:Rule {id})`-Upsert → Re-Ingest erzeugt keine Duplikate (FR-08-MUST erfüllt); `BeginBulkIngestion`
+vorhanden. Ein Content-Hash-*Skip* (Re-Embedding Unveränderter vermeiden) ist nur optionale Optimierung,
+kein MUST-Gap. **WP5 umgesetzt (2026-07-01):** `docs/betrieb.md` (Ollama-Setup + Aktivierung + Datenschutz),
+ADR-0010 → Akzeptiert (beide Provider first-class), `CLAUDE.md` präzisiert (Ingest-LLM ist opt-in, kein
+Chat-Loop), `.env.example`-Toggles. **→ M2 ist damit funktional & mock-getestet abgeschlossen; die einzige
+offene Position ist die reale Extraktionsqualität, nur mit lokalem Ollama abnehmbar (M4).**
 
 ## Track 2 — Episodisches Agent-Gedächtnis  *(M2 → M3)*
 
