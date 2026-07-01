@@ -21,6 +21,9 @@ internal static class MemoryNodes
     /// <summary>Provenance label for episodic memories (a known <see cref="KnowledgeRule.SourceType"/>).</summary>
     internal const string MemorySourceType = "memory";
 
+    /// <summary>Default forgetting half-life (days): a memory's recall weight halves after this many days.</summary>
+    internal const double DefaultDecayHalfLifeDays = 90.0;
+
     /// <summary>
     /// Builds the deterministic node id for a user's memory of <paramref name="content"/>. The id is derived
     /// from the owner and a hash of the trimmed content, so the same fact always maps to the same node
@@ -59,4 +62,22 @@ internal static class MemoryNodes
             OwnerId = userId,
             SourceType = MemorySourceType,
         };
+
+    /// <summary>
+    /// Time-decay weight for a memory in recall ranking (M3 / ADR-0011 forgetting curve): 1.0 when just
+    /// created, halving every <paramref name="halfLifeDays"/> days of age. A non-positive half-life or a
+    /// memory without a creation date disables decay (returns 1.0). Reinforcing a memory (remembering it
+    /// again) refreshes its creation date and therefore its recall weight.
+    /// </summary>
+    /// <param name="created">The memory's creation date, or null.</param>
+    /// <param name="now">The current time from the injected <see cref="TimeProvider"/>.</param>
+    /// <param name="halfLifeDays">Half-life in days; a non-positive value disables decay.</param>
+    /// <returns>A recency weight in the range (0, 1].</returns>
+    internal static double RecencyFactor(DateOnly? created, DateTimeOffset now, double halfLifeDays)
+    {
+        if (halfLifeDays <= 0 || created is not { } createdDate)
+            return 1.0;
+        var ageDays = Math.Max(0.0, (now.UtcDateTime.Date - createdDate.ToDateTime(TimeOnly.MinValue)).TotalDays);
+        return Math.Pow(2, -ageDays / halfLifeDays);
+    }
 }

@@ -52,4 +52,33 @@ public class MemoryNodesTests
         rule.Created.Should().Be(new DateOnly(2026, 3, 1));
         rule.Tags.Should().Contain("memory").And.Contain("user-7");
     }
+
+    [Fact]
+    public void RecencyFactor_JustCreated_IsOne()
+    {
+        var now = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        MemoryNodes.RecencyFactor(new DateOnly(2026, 3, 1), now, 90).Should().BeApproximately(1.0, 0.001);
+    }
+
+    [Fact]
+    public void RecencyFactor_AfterOneHalfLife_IsAboutHalf()
+    {
+        var now = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        // 2025-12-01 to 2026-03-01 is exactly 90 days.
+        MemoryNodes.RecencyFactor(new DateOnly(2025, 12, 1), now, 90).Should().BeApproximately(0.5, 0.02);
+    }
+
+    [Fact]
+    public void RecencyFactor_NonPositiveHalfLife_DisablesDecay()
+    {
+        var now = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        MemoryNodes.RecencyFactor(new DateOnly(2020, 1, 1), now, 0).Should().Be(1.0);
+    }
+
+    [Fact]
+    public void RecencyFactor_NullCreated_ReturnsOne()
+    {
+        var now = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        MemoryNodes.RecencyFactor(null, now, 90).Should().Be(1.0);
+    }
 }

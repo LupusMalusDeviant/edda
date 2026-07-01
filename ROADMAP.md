@@ -82,7 +82,10 @@ episodisch (`manage_memory`=Datei, `manage_learnings`=1 Aggregat-Knoten/User, `s
 (`SourceType=memory`, `OwnerId=userId`, Content-Hash-ID → idempotent) auf bestehendem `IKnowledgeGraph`;
 `recall` = user-/memory-gefilterter Abruf + Keyword-Ranking (kein neues Retrieval-System, ADR-0011). MCP:
 `remember`/`forget` in der Write-default-deny-Liste, `recall` opt-in (nicht in den Defaults). Tests grün
-(Mock-Graph). **Offen:** WP5 (2.1/2.3) = Sitzungs-Konsolidierung + Decay auf Gedächtnis-Knoten.
+(Mock-Graph). **WP5.2 (Decay, 2.3) umgesetzt:** `recall` gewichtet Treffer mit einer Vergessenskurve
+(`RecencyFactor`, Halbwertszeit 90 Tage): veraltete Erinnerungen sinken im Ranking, erneutes `remember`
+frischt eine Erinnerung auf. **Offen:** WP5.1 Sitzungs-Konsolidierung — Trigger ist eine offene
+Design-Entscheidung (→ Rückfrage).
 
 ## Track 3 — Mandantenfähigkeit  *(M3)*
 

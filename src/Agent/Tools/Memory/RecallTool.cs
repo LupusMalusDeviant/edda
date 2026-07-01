@@ -14,6 +14,7 @@ internal sealed class RecallTool : IAgentTool
     private const int MaxResults = 10;
 
     private readonly IKnowledgeGraph _graph;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<RecallTool> _logger;
 
     /// <inheritdoc />
@@ -35,10 +36,12 @@ internal sealed class RecallTool : IAgentTool
 
     /// <summary>Initializes a new <see cref="RecallTool"/>.</summary>
     /// <param name="knowledgeGraph">Graph the memory nodes are read from.</param>
+    /// <param name="timeProvider">Provides the current time for the recall forgetting curve.</param>
     /// <param name="logger">Structured logger.</param>
-    public RecallTool(IKnowledgeGraph knowledgeGraph, ILogger<RecallTool> logger)
+    public RecallTool(IKnowledgeGraph knowledgeGraph, TimeProvider timeProvider, ILogger<RecallTool> logger)
     {
         _graph = knowledgeGraph;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -64,10 +67,16 @@ internal sealed class RecallTool : IAgentTool
                 return ToolResult.Ok(call.Id, Definition.Name, "No memories found.");
 
             var terms = ExtractTerms(query);
+            var now = _timeProvider.GetUtcNow();
             var ranked = owned
-                .Select(m => (Memory: m, Score: RelevanceScore(m, terms)))
-                .OrderByDescending(x => x.Score)
-                .ThenByDescending(x => x.Memory.Created ?? DateOnly.MinValue)
+                .Select(m => new
+                {
+                    Memory = m,
+                    Recency = MemoryNodes.RecencyFactor(m.Created, now, MemoryNodes.DefaultDecayHalfLifeDays),
+                    Keyword = RelevanceScore(m, terms),
+                })
+                .OrderByDescending(x => x.Keyword * x.Recency)
+                .ThenByDescending(x => x.Recency)
                 .Take(MaxResults)
                 .Select(x => $"- {x.Memory.Body}")
                 .ToList();
