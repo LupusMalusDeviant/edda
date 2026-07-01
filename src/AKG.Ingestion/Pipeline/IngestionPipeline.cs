@@ -2,6 +2,7 @@ using Edda.AKG.Ingestion.Mapping;
 using Edda.AKG.Ingestion.Markdown;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
+using Microsoft.Extensions.Configuration;
 
 namespace Edda.AKG.Ingestion.Pipeline;
 
@@ -16,10 +17,20 @@ public sealed class IngestionPipeline : IIngestionPipeline
     /// <summary>Default root directory for generated Markdown when the request does not specify one.</summary>
     public const string DefaultTargetDirectory = "knowledge/ingested";
 
+    /// <summary>
+    /// Environment/config key that opts the auto entity-extraction stage in (separate from the enricher).
+    /// When set to <c>true</c>, each ingested item's raw body is run through the entity extractor and the
+    /// resulting entities/relations are persisted into the LightRAG-style entity layer (M2 / ADR-0010).
+    /// </summary>
+    private const string EntityExtractionEnvKey = "INGESTION_ENTITY_EXTRACTION";
+
     private readonly IReadOnlyList<IIngestionSource> _sources;
     private readonly IIngestionEnricher _enricher;
     private readonly IFileSystem _fileSystem;
     private readonly IKnowledgeGraph _graph;
+    private readonly IEntityIngestionService _entityIngestion;
+    private readonly IIdentityContext _identity;
+    private readonly IConfiguration _configuration;
     private readonly IngestionItemMapper _mapper = new();
     private readonly FrontmatterSerializer _serializer = new();
 
@@ -28,16 +39,25 @@ public sealed class IngestionPipeline : IIngestionPipeline
     /// <param name="enricher">Optional enricher (applied only when a request enables it).</param>
     /// <param name="fileSystem">File system used to write the generated Markdown.</param>
     /// <param name="graph">Knowledge graph used to upsert the resulting rules and relations.</param>
+    /// <param name="entityIngestion">Service that extracts and persists entities per item when opted in.</param>
+    /// <param name="identity">Identity context that owns the entities extracted during a run (Regel 6).</param>
+    /// <param name="configuration">Configuration source for the entity-extraction opt-in toggle.</param>
     public IngestionPipeline(
         IEnumerable<IIngestionSource> sources,
         IIngestionEnricher enricher,
         IFileSystem fileSystem,
-        IKnowledgeGraph graph)
+        IKnowledgeGraph graph,
+        IEntityIngestionService entityIngestion,
+        IIdentityContext identity,
+        IConfiguration configuration)
     {
         _sources = sources.ToList();
         _enricher = enricher;
         _fileSystem = fileSystem;
         _graph = graph;
+        _entityIngestion = entityIngestion;
+        _identity = identity;
+        _configuration = configuration;
     }
 
     /// <inheritdoc />
@@ -90,6 +110,12 @@ public sealed class IngestionPipeline : IIngestionPipeline
         var failed = 0;
         var errors = new List<IngestionError>();
 
+        // Auto entity-extraction is opt-in and separate from the enricher: resolve the toggle and the owning
+        // user once per run (Regel 6 — the owner is the ingesting identity, never a request field).
+        var extractEntities = string.Equals(
+            _configuration[EntityExtractionEnvKey], "true", StringComparison.OrdinalIgnoreCase);
+        var entityOwner = _identity.UserId ?? "local";
+
         // Bulk mode: upsert every item without the per-rule synchronous inline embedding, so the import is
         // not serialised behind a (possibly slow) embedding provider. One background rebuild embeds the whole
         // batch when the scope closes.
@@ -116,6 +142,16 @@ public sealed class IngestionPipeline : IIngestionPipeline
 
                     await _graph.UpsertRuleAsync(rule, cancellationToken).ConfigureAwait(false);
                     imported++;
+
+                    // Opt-in, separate from the enricher (M2 / ADR-0010): extract entities from the raw body
+                    // and persist them into the user-scoped entity layer. Best-effort — the service never
+                    // throws, so entity extraction never fails a document import.
+                    if (extractEntities)
+                    {
+                        await _entityIngestion
+                            .IngestTextAsync(raw.Body, rule.Domain, entityOwner, request.SourceKind, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
                 }
                 catch (OperationCanceledException)
                 {

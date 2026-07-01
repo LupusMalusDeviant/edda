@@ -55,8 +55,11 @@ leere Interfaces, der Store wurde nie befüllt). **Scheibe A umgesetzt:** `LlmEn
 best-effort, Sanitization/Redaction vor dem LLM, verwirft Relationen zu unbekannten Entitäten) +
 `EntityIngestionService` + opt-in Admin-Endpoint `POST /api/akg/entities/ingest` (gated via
 `ENABLE_INGESTION`, userId aus Identity/Regel 6) + DI-Registrierung; Tests mit Mock-LLM grün. Kehrt die
-bewusste „entity ingestion omitted"-Auslassung opt-in um (ADR-0010). **Offen:** Scheibe B = Auto-Extraktion
-in der Ingestion-Pipeline (opt-in, separater Toggle, getrennt vom Enricher).
+bewusste „entity ingestion omitted"-Auslassung opt-in um (ADR-0010). **Scheibe B umgesetzt:** Auto-Extraktion
+in der Ingestion-Pipeline als opt-in Stufe (`INGESTION_ENTITY_EXTRACTION=true`, getrennt vom Enricher,
+Default AUS); pro Item wird der Rohtext extrahiert und user-scoped (Identity/„local") in den Entity-Layer
+persistiert; Pipeline-Tests grün. **Offen:** WP2 (Idempotenz/Bulk — vermutlich vorhanden, nur verifizieren),
+WP5 (Betriebs-Doku + ADR-0010 „beide first-class" + CLAUDE.md präzisieren).
 
 ## Track 2 — Episodisches Agent-Gedächtnis  *(M2 → M3)*
 

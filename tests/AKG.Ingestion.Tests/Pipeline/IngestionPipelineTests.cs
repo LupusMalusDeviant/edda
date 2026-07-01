@@ -3,6 +3,7 @@ using Edda.AKG.Ingestion.Pipeline;
 using Edda.AKG.Ingestion.Tests.TestUtilities;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
+using Microsoft.Extensions.Configuration;
 using Moq;
 
 namespace Edda.AKG.Ingestion.Tests.Pipeline;
@@ -13,6 +14,9 @@ public sealed class IngestionPipelineTests
     private readonly Mock<IKnowledgeGraph> _graph = new();
     private readonly InMemoryFileSystem _fs = new();
     private readonly List<KnowledgeRule> _upserted = [];
+    private readonly Mock<IEntityIngestionService> _entityIngestion = new();
+    private readonly Mock<IIdentityContext> _identity = new();
+    private readonly Mock<IConfiguration> _configuration = new();
 
     public IngestionPipelineTests()
     {
@@ -23,6 +27,12 @@ public sealed class IngestionPipelineTests
                 _upserted.Add(rule);
                 return rule;
             });
+        _identity.SetupGet(i => i.UserId).Returns("local");
+        _configuration.Setup(c => c[It.IsAny<string>()]).Returns((string?)null);
+        _entityIngestion
+            .Setup(e => e.IngestTextAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(EntityIngestionResult.Empty);
     }
 
     private static IngestionItem Item(
@@ -40,7 +50,9 @@ public sealed class IngestionPipelineTests
         };
 
     private IngestionPipeline CreatePipeline(IIngestionEnricher enricher, params IngestionItem[] items)
-        => new([new FakeIngestionSource("git", items)], enricher, _fs, _graph.Object);
+        => new(
+            [new FakeIngestionSource("git", items)], enricher, _fs, _graph.Object,
+            _entityIngestion.Object, _identity.Object, _configuration.Object);
 
     private static IngestionRequest Request(bool enrich = false, string? target = null)
         => new() { SourceKind = "git", Source = new IngestionSourceConfig(), EnableEnrichment = enrich, TargetDirectory = target };
@@ -90,7 +102,8 @@ public sealed class IngestionPipelineTests
     public async Task IngestAsync_SourceThrows_ReportsFailureWithReason()
     {
         var pipeline = new IngestionPipeline(
-            [new ThrowingIngestionSource()], new NullIngestionEnricher(), _fs, _graph.Object);
+            [new ThrowingIngestionSource()], new NullIngestionEnricher(), _fs, _graph.Object,
+            _entityIngestion.Object, _identity.Object, _configuration.Object);
 
         var result = await pipeline.IngestAsync(Request());
 
@@ -175,5 +188,31 @@ public sealed class IngestionPipelineTests
         await pipeline.IngestAsync(Request(target: "custom/out"));
 
         _fs.FileExists("custom/out/docs/git-r-docs-x.md").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task IngestAsync_EntityExtractionDisabled_DoesNotInvokeEntityIngestion()
+    {
+        var pipeline = CreatePipeline(new NullIngestionEnricher(), Item("git:r:x", "x.md"));
+
+        await pipeline.IngestAsync(Request());
+
+        _entityIngestion.Verify(
+            e => e.IngestTextAsync(
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task IngestAsync_EntityExtractionEnabled_IngestsEntitiesPerItem_ScopedToIdentity()
+    {
+        _configuration.Setup(c => c["INGESTION_ENTITY_EXTRACTION"]).Returns("true");
+        var pipeline = CreatePipeline(new NullIngestionEnricher(), Item("git:r:a", "a.md"), Item("git:r:b", "b.md"));
+
+        await pipeline.IngestAsync(Request());
+
+        _entityIngestion.Verify(
+            e => e.IngestTextAsync("Body", It.IsAny<string?>(), "local", "git", It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
     }
 }
