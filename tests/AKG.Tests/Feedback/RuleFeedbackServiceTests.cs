@@ -257,4 +257,17 @@ public sealed class RuleFeedbackServiceTests : IDisposable
         stats.ConfidenceMultiplier.Should().BeGreaterThan(1.0);
         stats.ConfidenceMultiplier.Should().BeLessThan(1.10);
     }
+
+    [Fact]
+    public async Task GetAllStats_AfterEvents_ReturnsRowsWithLastFeedbackAt()
+    {
+        await _sut.RecordTdkOutcomeAsync("rule-all-1", passed: true);
+        await _sut.RecordTdkOutcomeAsync("rule-all-2", passed: false);
+
+        var all = await _sut.GetAllStatsAsync();
+
+        all.Should().Contain(s => s.RuleId == "rule-all-1");
+        all.Should().Contain(s => s.RuleId == "rule-all-2");
+        all.Single(s => s.RuleId == "rule-all-1").LastFeedbackAt.Should().NotBeNull();
+    }
 }

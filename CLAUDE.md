@@ -54,6 +54,7 @@ Edits). Nur die neuen Host-/Hosting-Teile nutzen `Edda.*`.
 |------|-------|-------------------|
 | `search_memory` | Langzeitgedächtnis (Wissensgraph) zu einer Anfrage durchsuchen — vor dem Scan des Dateisystems aufrufen | ✓ |
 | `list_memory` | Gespeicherte Gedächtnis-Einträge durchstöbern/auflisten (optional nach Domain/Typ/Tag gefiltert) | ✓ |
+| `analyze_coverage` | Wissensgraph auf Abdeckungslücken prüfen (dünne Domains, kaputte Referenzen, Konflikte, Low-Confidence, veraltete Regeln) — read-only | — (via `MCP_EXPOSED_TOOLS`) |
 | `tdk_validate` | Code gegen TDK-Validatoren prüfen | — (via `MCP_EXPOSED_TOOLS`) |
 | `manage_memory` / `manage_userdata` / `manage_learnings` | Nutzer-Stores (user-scoped) | — (via `MCP_EXPOSED_TOOLS`) |
 

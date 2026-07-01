@@ -18,11 +18,11 @@ Nur der Transport unterscheidet sich (`WithHttpTransport` vs. `WithStdioServerTr
 
 Nur erlaubte Tools werden via `tools/list` angekündigt und sind über `tools/call` aufrufbar.
 Die Default-Allowlist umfasst **genau die zwei Lese-Tools** `search_memory` und `list_memory`.
-`tdk_validate` ist standardmäßig **nicht** exponiert, lässt sich aber bei Bedarf über
-`MCP_EXPOSED_TOOLS` (Komma-getrennt) freischalten:
+`analyze_coverage` (read-only Coverage-Report) und `tdk_validate` sind standardmäßig **nicht**
+exponiert, lassen sich aber bei Bedarf über `MCP_EXPOSED_TOOLS` (Komma-getrennt) freischalten:
 
 ```
-MCP_EXPOSED_TOOLS=search_memory,list_memory,tdk_validate
+MCP_EXPOSED_TOOLS=search_memory,list_memory,analyze_coverage,tdk_validate
 ```
 
 Defense-in-depth: Ein nicht-gelistetes Tool wird auch dann abgelehnt, wenn ein Client einen Call

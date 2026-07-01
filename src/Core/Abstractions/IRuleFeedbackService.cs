@@ -70,6 +70,15 @@ public interface IRuleFeedbackService
     Task<RuleFeedbackStats> GetStatsAsync(string ruleId, CancellationToken ct = default);
 
     /// <summary>
+    /// Returns feedback statistics for every rule that has accumulated feedback or usage. Rules with no
+    /// recorded events are omitted (treated as neutral). Useful for coverage/health analysis such as
+    /// finding low-confidence or stale rules.
+    /// </summary>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Feedback statistics for all rules with recorded data.</returns>
+    Task<IReadOnlyList<RuleFeedbackStats>> GetAllStatsAsync(CancellationToken ct = default);
+
+    /// <summary>
     /// Returns the confidence multipliers for a set of rules, keyed by rule ID.
     /// Used by the context compiler to adjust keyword scores during AKG compilation.
     /// Missing entries default to 1.0 (no adjustment).

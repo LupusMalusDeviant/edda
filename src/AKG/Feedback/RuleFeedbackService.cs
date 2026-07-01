@@ -137,6 +137,10 @@ internal sealed class RuleFeedbackService : IRuleFeedbackService
         => await _store.GetStatsForRuleAsync(ruleId, ct).ConfigureAwait(false);
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<RuleFeedbackStats>> GetAllStatsAsync(CancellationToken ct = default)
+        => await _store.GetAllStatsAsync(ct).ConfigureAwait(false);
+
+    /// <inheritdoc />
     public async Task<IReadOnlyDictionary<string, double>> GetMultipliersAsync(
         IEnumerable<string> ruleIds, string? userId = null, CancellationToken ct = default)
     {
