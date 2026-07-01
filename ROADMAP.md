@@ -26,7 +26,7 @@ im privaten/lokalen .NET-Umfeld und beim sicherheitskritischen Agent-Zugriff.
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
 |---|----------|-------|---------|-------------|--------------------|
-| 0.1 | **Zero-Infra-Dev-Modus** (eingebetteter Graph+Vektor, kein Docker) | hoch | M | `AddAkgServices`, app-seitiges Cosine-Fallback ausbauen | `dotnet run` ohne Neo4j startbar; Tests ohne Infra grün |
+| 0.1 | **Zero-Infra-Dev-Modus** `GRAPH_PROVIDER=memory` 🚧 | hoch | L (2–3 Sessions) | neuer `MemoryGraphDatabaseProvider` + `InMemoryCypherExecutor` (String-Dispatch der ~40 Cypher-Shapes); DI-Switch in `AddAkgServices` | **Stage 1/3 ✅** (KnowledgeGraph-Cypher-Shapes + Provider + DI-Arm, 22 Tests). Offen: Stage 2 (Seeding/Domains/Validator/ContextCompiler), Stage 3 (Embedding-Cache/Head-Vektoren/Entities) → erst dann bootet `dotnet run` ohne Neo4j |
 | 0.2 | **Confidence-Decay / Vergessenskurve** ✅ | mittel | S | `ConfidenceAdjuster`, `RuleFeedbackService` | **Umgesetzt:** Multiplier fällt zeitbasiert Richtung neutral (`FEEDBACK_DECAY_HALFLIFE_DAYS`, Default 90). Stale-Liste via `analyze_coverage` (0.3) ✅ |
 | 0.3 | **Proaktive Gap-Analyse** (read-only MCP-Tool `analyze_coverage`) ✅ | mittel-hoch | M | `Agent/Tools/Knowledge`, `IRuleFeedbackService` | **Umgesetzt:** meldet dünne Domains, kaputte Referenzen, offene Konflikte, Low-Confidence & veraltete ("stale") Regeln; opt-in über `MCP_EXPOSED_TOOLS`, default-deny bleibt |
 | 0.4 | **Produktnarrativ** (README „für wen / wofür") ✅ | niedrig | S | `README.md` | **Umgesetzt:** „Für wen & wofür"-Abschnitt (privat / Team / Standards-Wächter; Safety-MCP; kein großes LLM) |

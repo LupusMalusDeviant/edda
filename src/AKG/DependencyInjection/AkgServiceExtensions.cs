@@ -74,6 +74,7 @@ public static class AkgServiceExtensions
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
             return providerName.ToLowerInvariant() switch
             {
+                "memory" => new MemoryGraphDatabaseProvider(loggerFactory),
                 "memgraph" => new MemgraphGraphDatabaseProvider(config, loggerFactory),
                 _ => new Neo4jGraphDatabaseProvider(config, loggerFactory),
             };
