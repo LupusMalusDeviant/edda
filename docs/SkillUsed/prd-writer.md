@@ -1,5 +1,21 @@
 # prd-writer — Nutzungslog
 
+## 2026-07-01 15:35 — Run
+
+**Aufgabe:** PRDs für M3 (episodisches Gedächtnis + Mandantenfähigkeit), plan-first.
+
+**Entscheidungen:**
+- Zwei PRDs (ein PRD pro Feature): 0002 (episodisches Gedächtnis), 0003 (Mandantenfähigkeit).
+- Direkt nach Template erstellt (Skill-Konventionen wiederverwendet), da alle Templates in dieser Session bereits geladen.
+
+**Artefakte:**
+- docs/prd/0002-m3-episodisches-agent-gedaechtnis.md
+- docs/prd/0003-m3-mandantenfaehigkeit.md
+
+**Status:** abgeschlossen
+
+---
+
 ## 2026-07-01 — Run
 
 **Aufgabe:** PRD für M2 (Auto-Wissensgraph-Ingestion) im Rahmen der Plan-first-Umsetzung der Roadmap-Stufe M2.

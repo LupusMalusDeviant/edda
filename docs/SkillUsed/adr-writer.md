@@ -1,5 +1,24 @@
 # Skill-Log: adr-writer
 
+## 2026-07-01 15:40 — Run
+
+**Aufgabe:** ADRs für M3 — Design episodisches Gedächtnis + Mandanten-/Rollen-Modell, plan-first.
+
+**Entscheidungen:**
+- Nummern: 0011 (episodisch: user-skopierte AKG-Knoten + dünne API + Decay), 0012 (Mandanten: Single-Graph mit Tenant-/Rollen-Scoping + Default-Tenant).
+- Supersede: nein.
+- Status: beide Vorgeschlagen (Review offen).
+- Index `docs/adr/README.md`: aktualisiert (zwei Einträge).
+
+**Artefakte:**
+- docs/adr/0011-episodisches-gedaechtnis-design.md
+- docs/adr/0012-mandanten-rollen-modell.md
+- docs/adr/README.md
+
+**Status:** abgeschlossen
+
+---
+
 ## 2026-07-01 15:15 — Run
 
 **Aufgabe:** ADR für M2 (Auto-Wissensgraph-Ingestion) — LLM-Provider-Default + Aktivierung der Auto-Extraktion im light-Build. Folge-Entscheidung aus ADR-0001, plan-first.
