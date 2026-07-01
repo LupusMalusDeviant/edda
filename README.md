@@ -8,6 +8,23 @@ Stack: .NET 10 · C# 13 · Neo4j 5 (oder Memgraph) · Blazor Server · ModelCont
 
 ---
 
+## Für wen & wofür
+
+Edda ist ein **lokales Langzeitgedächtnis für Coding-Agenten** — kuratiertes, projektübergreifendes
+Wissen, das jeder MCP-fähige Agent (Claude Code, Cursor, …) read-only anzapfen kann. Drei typische
+Einsätze:
+
+- **Privater Dev-Speicher** — persönliche Coding-Konventionen, Architektur-Entscheidungen und
+  „Lessons Learned", lokal und ohne Cloud.
+- **Team-Wissensbasis** — geteilte Standards und Domänenwissen, die Agenten konsistent anwenden.
+- **Coding-Standards-Wächter** — mit **TDK** prüfen Regeln generierten Code aktiv, nicht nur beratend.
+
+Bewusst anders als generische Memory-Frameworks: **Safety-First-MCP** (read-only, default-deny — gefahrlos
+für fremde Agenten exponierbar), **kein großes LLM nötig** (kuratiertes Wissen statt LLM-Extraktion, läuft
+auf schwacher Hardware) und **.NET-nativ**.
+
+---
+
 ## Voraussetzungen
 
 - **Docker** + **Docker Compose v2** (für den Betrieb)
