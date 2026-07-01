@@ -31,6 +31,10 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     private readonly Dictionary<string, Dictionary<string, object?>> _domains = new(StringComparer.Ordinal);
     private readonly List<(string Parent, string Child)> _domainEdges = [];
 
+    // Entity layer (F49). Keyed by "ownerId\0normalizedName"; RELATES_TO edges are treated as undirected.
+    private readonly Dictionary<string, Dictionary<string, object?>> _entities = new(StringComparer.Ordinal);
+    private readonly List<(string SourceNorm, string TargetNorm, string? OwnerId)> _entityEdges = [];
+
     /// <inheritdoc />
     public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> QueryAsync(
         string cypher, object? parameters = null, CancellationToken ct = default)
@@ -83,6 +87,19 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         if (q.Contains("[:IMPLIES*2..]")) return Single("cycles", CountImpliesCycles());
         if (q.Contains("r.implies AS implies")) return DanglingImplies();
         if (q.Contains("MATCH (r:Rule) RETURN r.id AS id")) return AllRuleIds();
+        // Entity layer (F49) + coverage + embedding reads (Stage 3). Checked before the generic rule/head/stats
+        // reads they resemble (several share tokens like "size(split(r.id" or "count(r) AS total").
+        if (q.Contains("toLower(e.name) CONTAINS term")) return FindEntities(p);
+        if (q.Contains("RELATES_TO]-(other:Entity)")) return RelatedEntities(p);
+        if (q.Contains("AS embedded")) return EmbeddingCoverage();
+        if (q.Contains("AS totalHeads")) return HeadCoverage();
+        if (q.Contains("db.index.vector.queryNodes")) return [];       // semantic search — no vectors in memory mode
+        if (q.Contains("collect(c.embedding)")) return [];             // chunk-embedding fetch (app-side fallback / MMR)
+        if (q.Contains("h.embedding AS emb")) return [];               // head-vector app-side fetch
+        if (q.Contains("c.parentId STARTS WITH $prefix")) return [];   // subtree embeddings (k-means input)
+        if (q.Contains("r.body AS body")) return [];                   // rules-to-embed (rebuild)
+        if (q.Contains("r.bodyHash AS hash")) return [];               // has-embedding check
+        if (q.Contains("r.ownerId AS ownerId")) return [];             // dirty heads to rebuild
         // Knowledge-graph reads.
         if (q.Contains("-[]-(n:Rule)")) return FindNeighbors(p);
         if (q.Contains("RETURN count(r) AS n")) return SubtreeCount(p);
@@ -192,6 +209,17 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         if (q.Contains("MERGE (tb:Domain {name: $name})")) { SeedToolboxDomain(p); return true; }
         if (q.Contains("MERGE (d:Domain {name: $name})")) { CreateDomain(p); return true; }
         if (q.Contains("(d:Domain {name: $name}) DETACH DELETE d")) { DeleteDomain(p); return true; }
+        // Entity layer writes (F49) + embedding/head writes (Stage 3; embedding-gated → no-ops in memory mode).
+        if (q.Contains("MERGE (e:Entity {ownerId: $ownerId")) { IngestEntities(p); return true; }
+        if (q.Contains("MERGE (s)-[r:RELATES_TO]->(t)")) { IngestRelations(p); return true; }
+        if (q.Contains("CREATE CONSTRAINT entity_owner_name_unique")) return true;
+        if (q.Contains("CREATE INDEX entity_name_index")) return true;
+        if (q.Contains("CREATE (r)-[:HAS_CHUNK]->(:RuleChunk")) return true;
+        if (q.Contains("SET r.embedAttempts = coalesce")) return true;
+        if (q.Contains("SET h.headVectorDirty")) return true;
+        if (q.Contains("(h:HeadVector {headId: $id}) DETACH DELETE h")) return true;
+        if (q.Contains("CREATE (:HeadVector")) return true;
+        if (q.Contains("CREATE VECTOR INDEX")) return true;
         // Knowledge-graph writes.
         if (q.Contains("MERGE (r:Rule {id: $id})")) { UpsertRule(p); return true; }
         if (q.Contains("-[e:") && q.Contains("DELETE e")) { DeleteEdges(q, p); return true; }
@@ -521,6 +549,156 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
             idx = to + end.Length;
         }
         return results;
+    }
+
+    // ── Stage 3: entity layer + embedding/head coverage ──────────────────────────
+
+    /// <summary>Entity search (ContextCompiler Phase 5, F49): entities whose name contains any search term.</summary>
+    private List<IReadOnlyDictionary<string, object?>> FindEntities(IReadOnlyDictionary<string, object?> p)
+    {
+        var terms = AsStrings(p.GetValueOrDefault("terms")).Select(t => t.ToLowerInvariant()).ToList();
+        var userId = AsString(p, "userId");
+        var limit = ToIntOr(p.GetValueOrDefault("limit"), int.MaxValue);
+        return _entities.Values
+            .Where(e => InEntityScope(e, userId))
+            .Where(e => terms.Any(t =>
+                (AsString(e, "name") ?? string.Empty).ToLowerInvariant().Contains(t, StringComparison.Ordinal)))
+            .Take(limit)
+            .Select(EntityRow)
+            .ToList();
+    }
+
+    /// <summary>Entity neighborhood (F49): RELATES_TO neighbors (either direction) of a normalized entity name.</summary>
+    private List<IReadOnlyDictionary<string, object?>> RelatedEntities(IReadOnlyDictionary<string, object?> p)
+    {
+        var nname = AsString(p, "nname");
+        var userId = AsString(p, "userId");
+        var limit = ToIntOr(p.GetValueOrDefault("limit"), int.MaxValue);
+        if (nname is null) return [];
+
+        var neighbors = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var edge in _entityEdges)
+        {
+            if (edge.SourceNorm == nname) neighbors.Add(edge.TargetNorm);
+            else if (edge.TargetNorm == nname) neighbors.Add(edge.SourceNorm);
+        }
+
+        return _entities.Values
+            .Where(e => neighbors.Contains(AsString(e, "normalizedName") ?? string.Empty) && InEntityScope(e, userId))
+            .Take(limit)
+            .Select(EntityRow)
+            .ToList();
+    }
+
+    private static bool InEntityScope(IReadOnlyDictionary<string, object?> e, string? userId)
+        => userId is null || AsString(e, "ownerId") == userId;
+
+    private static IReadOnlyDictionary<string, object?> EntityRow(IReadOnlyDictionary<string, object?> e)
+        => new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["name"] = e.GetValueOrDefault("name"),
+            ["type"] = e.GetValueOrDefault("type"),
+            ["description"] = e.GetValueOrDefault("description"),
+            ["mentions"] = e.GetValueOrDefault("mentions") ?? 0,
+        };
+
+    /// <summary>Embedding coverage for GraphStats. Memory mode stores no chunks, so nothing is embedded.</summary>
+    private List<IReadOnlyDictionary<string, object?>> EmbeddingCoverage()
+    {
+        var total = _rules.Count;
+        var failed = _rules.Values.Count(r => ToIntOr(r.GetValueOrDefault("embedAttempts"), 0) >= 5);
+        return
+        [
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["embedded"] = 0,
+                ["pending"] = total - failed,
+                ["failed"] = failed,
+                ["total"] = total,
+            },
+        ];
+    }
+
+    /// <summary>Head-vector coverage for GraphStats: repository/upload heads exist but hold no vectors here.</summary>
+    private List<IReadOnlyDictionary<string, object?>> HeadCoverage()
+        =>
+        [
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["totalHeads"] = _rules.Keys.Count(IsHead),
+                ["withVectors"] = 0,
+            },
+        ];
+
+    private static bool IsHead(string id)
+        => (id.StartsWith("git:", StringComparison.Ordinal) || id.StartsWith("upload:", StringComparison.Ordinal))
+           && id.Split(':').Length == 2;
+
+    private void IngestEntities(IReadOnlyDictionary<string, object?> p)
+    {
+        var ownerId = AsString(p, "ownerId");
+        var now = p.GetValueOrDefault("now");
+        var sourceType = p.GetValueOrDefault("sourceType");
+        foreach (var ent in AsDictList(p.GetValueOrDefault("entities")))
+        {
+            var norm = AsString(ent, "normalizedName");
+            if (norm is null) continue;
+            var key = (ownerId ?? string.Empty) + " " + norm;
+            if (!_entities.TryGetValue(key, out var e))
+            {
+                e = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["id"] = ent.GetValueOrDefault("id"),
+                    ["name"] = ent.GetValueOrDefault("name"),
+                    ["normalizedName"] = norm,
+                    ["type"] = ent.GetValueOrDefault("type"),
+                    ["description"] = ent.GetValueOrDefault("description"),
+                    ["ownerId"] = ownerId,
+                    ["sourceType"] = sourceType,
+                    ["mentions"] = 0,
+                    ["createdAt"] = now,
+                };
+                _entities[key] = e;
+            }
+            e["mentions"] = ToIntOr(e.GetValueOrDefault("mentions"), 0) + 1;
+            e["updatedAt"] = now;
+        }
+    }
+
+    private void IngestRelations(IReadOnlyDictionary<string, object?> p)
+    {
+        var ownerId = AsString(p, "ownerId");
+        foreach (var rel in AsDictList(p.GetValueOrDefault("relations")))
+        {
+            var source = AsString(rel, "sourceNorm");
+            var target = AsString(rel, "targetNorm");
+            if (source is null || target is null) continue;
+            if (!_entityEdges.Any(e => e.SourceNorm == source && e.TargetNorm == target && e.OwnerId == ownerId))
+                _entityEdges.Add((source, target, ownerId));
+        }
+    }
+
+    private static int ToIntOr(object? value, int fallback)
+        => value switch
+        {
+            int i => i,
+            long l => (int)l,
+            _ => int.TryParse(value?.ToString(), out var n) ? n : fallback,
+        };
+
+    /// <summary>Materializes a Cypher list parameter of records (anonymous objects or dicts) as dictionaries.</summary>
+    private static IEnumerable<IReadOnlyDictionary<string, object?>> AsDictList(object? value)
+    {
+        if (value is not IEnumerable enumerable || value is string) yield break;
+        foreach (var item in enumerable)
+        {
+            if (item is null) continue;
+            if (item is IReadOnlyDictionary<string, object?> dict) { yield return dict; continue; }
+            var reflected = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var prop in item.GetType().GetProperties())
+                reflected[prop.Name] = prop.GetValue(item);
+            yield return reflected;
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
