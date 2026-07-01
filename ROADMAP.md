@@ -49,6 +49,15 @@ Titel und Body an; Unit-Tests ohne echten LLM grün. **Offen (im Loop):** Defaul
 + Idempotenz/Bulk (1.2), Betriebs-/Datenschutz-Doku. Reale Extraktionsqualität ist nur mit
 lokalem Ollama abnehmbar (M4).
 
+**WP3-Fortschritt (2026-07-01):** Der Entity-Layer war halb gebaut — Retrieval (`BuildEntityContextAsync`,
+F49) vorhanden, aber die Schreib-Seite fehlte ganz (`IEntityExtractor`/`IEntityIngestionService` waren
+leere Interfaces, der Store wurde nie befüllt). **Scheibe A umgesetzt:** `LlmEntityExtractor` (LightRAG-Stil,
+best-effort, Sanitization/Redaction vor dem LLM, verwirft Relationen zu unbekannten Entitäten) +
+`EntityIngestionService` + opt-in Admin-Endpoint `POST /api/akg/entities/ingest` (gated via
+`ENABLE_INGESTION`, userId aus Identity/Regel 6) + DI-Registrierung; Tests mit Mock-LLM grün. Kehrt die
+bewusste „entity ingestion omitted"-Auslassung opt-in um (ADR-0010). **Offen:** Scheibe B = Auto-Extraktion
+in der Ingestion-Pipeline (opt-in, separater Toggle, getrennt vom Enricher).
+
 ## Track 2 — Episodisches Agent-Gedächtnis  *(M2 → M3)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |

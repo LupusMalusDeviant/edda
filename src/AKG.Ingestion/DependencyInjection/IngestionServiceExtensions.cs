@@ -1,5 +1,6 @@
 using Edda.AKG.Ingestion.Connectors;
 using Edda.AKG.Ingestion.Enrichment;
+using Edda.AKG.Ingestion.Entities;
 using Edda.AKG.Ingestion.Git;
 using Edda.AKG.Ingestion.Import;
 using Edda.AKG.Ingestion.GitLab;
@@ -47,6 +48,7 @@ public static class IngestionServiceExtensions
         services.AddSingleton<IIngestionSource>(sp => sp.GetRequiredService<GitMarkdownSource>());
         services.AddSingleton<IIngestionPipeline, IngestionPipeline>();
         AddEnricher(services);
+        AddEntityExtraction(services);
 
         // GitLab group batch source: base URL + token are supplied per source instance by the connector,
         // so the client is built per run via the factory (see ADR-0006) rather than from a fixed singleton.
@@ -86,5 +88,18 @@ public static class IngestionServiceExtensions
         services.AddSingleton<ILlmChatClient, ResolvingLlmChatClient>();
         services.AddSingleton<LlmIngestionEnricher>();
         services.AddSingleton<IIngestionEnricher, ResolvingIngestionEnricher>();
+    }
+
+    /// <summary>
+    /// Registers the LLM-backed entity-extraction stack (M2 / ADR-0010): the entity extractor (reusing the
+    /// resolving chat client) and the ingestion service that persists extracted entities/relations into the
+    /// LightRAG-style entity layer. Extraction runs only when explicitly invoked (opt-in endpoint or
+    /// pipeline) and is best-effort — a missing or failing LLM leaves the graph unchanged.
+    /// </summary>
+    /// <param name="services">The service collection to register into.</param>
+    private static void AddEntityExtraction(IServiceCollection services)
+    {
+        services.AddSingleton<IEntityExtractor, LlmEntityExtractor>();
+        services.AddSingleton<IEntityIngestionService, EntityIngestionService>();
     }
 }

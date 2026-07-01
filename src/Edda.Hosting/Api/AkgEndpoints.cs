@@ -3,14 +3,16 @@ using Edda.Core.Models;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
 
 namespace Edda.Gateway.Api;
 
 /// <summary>
 /// REST endpoint registration for the Agent Knowledge Graph (AKG) in the standalone deployment.
 /// All endpoints require authentication; admin-only operations require the "AdminOnly" policy
-/// (both satisfied by the local single-user scheme). Chat-LLM-dependent endpoints (entity
-/// ingestion) and the short-term-memory benchmark are intentionally omitted from this build.
+/// (both satisfied by the local single-user scheme). Entity ingestion is available as an opt-in,
+/// admin-only endpoint (M2 / ADR-0010): it needs a configured LLM provider and is gated behind
+/// <c>ENABLE_INGESTION</c>, staying inert otherwise. The short-term-memory benchmark remains omitted.
 /// </summary>
 public static class AkgEndpoints
 {
@@ -90,6 +92,33 @@ public static class AkgEndpoints
         // Admin-only: ingests knowledge from an external source (e.g. a Git repository) into the graph.
         app.MapPost("/api/akg/ingest", IngestionEndpointHandlers.IngestAsync)
            .WithName("AkgIngest")
+           .RequireAuthorization("AdminOnly");
+
+        // Opt-in (ENABLE_INGESTION), admin-only: extracts typed entities/relations from posted text via the
+        // LLM entity extractor and persists them into the LightRAG-style entity layer (M2 / ADR-0010). The
+        // owner is taken from the authenticated identity (Regel 6), never from the request body.
+        app.MapPost("/api/akg/entities/ingest",
+                async (EntityIngestRequest request,
+                       IEntityIngestionService entities,
+                       IIdentityContext identity,
+                       ISettingsService settings,
+                       IConfiguration configuration,
+                       CancellationToken ct) =>
+                {
+                    var enabled = settings.Current.General.EnableIngestion
+                        ?? string.Equals(configuration["ENABLE_INGESTION"], "true", StringComparison.OrdinalIgnoreCase);
+                    if (!enabled)
+                    {
+                        return Results.Problem(
+                            detail: "Ingestion is disabled. Enable it under Settings or set ENABLE_INGESTION=true.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+
+                    var userId = identity.UserId ?? "local";
+                    var result = await entities.IngestTextAsync(request.Text, request.DomainHint, userId, "manual", ct);
+                    return Results.Ok(result);
+                })
+           .WithName("AkgIngestEntities")
            .RequireAuthorization("AdminOnly");
 
         return app;
