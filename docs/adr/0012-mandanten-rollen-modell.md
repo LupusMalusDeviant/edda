@@ -1,6 +1,6 @@
 # ADR-0012: Mandanten- und Rollen-Modell (M3)
 
-- **Status:** Vorgeschlagen
+- **Status:** Akzeptiert
 - **Datum:** 2026-07-01
 - **Autor:** LupusMalusDeviant
 - **Konsultiert:** —

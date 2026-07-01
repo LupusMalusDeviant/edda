@@ -97,6 +97,14 @@ M3-Block: Mandantenfähigkeit (Track 3) — davor Pause zur Scope-Bestätigung.
 | 3.1 | **Tenants/Organisationen + Rollen** (Owner/Editor/Viewer) | hoch | L | `IIdentityContext`, Hosting-Auth | Org-Ebene zusätzlich zum User-Scoping |
 | 3.2 | **Dataset-/Domain-Permissions** (read/write/share) | mittel | M | Graph-Provider, Auth | vollständige Daten-Isolation pro Tenant; getestet |
 
+**M3-Fortschritt — Mandantenfähigkeit (2026-07-01):** Nutzer-Entscheidung: **Graph-Store-Isolation zuerst**
+(Rest — Entity-/Feedback-Store-Filter, Dataset-Permissions, Admin-API — bewusst vertagt). **Scheibe A
+umgesetzt (additiv, non-regression):** `KnowledgeRule.TenantId` (Default `"default"` → Bestand migriert
+automatisch) wird in Neo4j-Cypher, `NodeMapper` und Frontmatter-Serializer/Parser persistiert; Core-Konstante
+`Tenants.DefaultTenantId` (das Rollen-Enum folgt mit dem Enforcement). **Noch kein Filter** → single-user verhält sich identisch.
+ADR-0012 akzeptiert. **Offen:** Scheibe B = Tenant-Filter in den Graph-Queries + Isolationstests (davor
+Rückfrage zum Threading-Ansatz).
+
 ## Track 4 — Backend-Flexibilität  *(M2)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |

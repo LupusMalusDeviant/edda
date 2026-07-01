@@ -37,6 +37,8 @@ public sealed class FrontmatterSerializer
             sb.Append("created: ").Append(created.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).Append('\n');
         if (!string.IsNullOrWhiteSpace(rule.OwnerId))
             sb.Append("ownerId: ").Append(rule.OwnerId).Append('\n');
+        if (rule.TenantId != Tenants.DefaultTenantId)
+            sb.Append("tenantId: ").Append(rule.TenantId).Append('\n');
 
         if (rule.RelatesTo is { } relations)
         {

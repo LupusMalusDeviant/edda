@@ -28,7 +28,7 @@ Ein Architecture Decision Record dokumentiert eine einzelne, wichtige Architektu
 | [0009](./0009-hierarchisches-coarse-to-fine-retrieval.md) | Hierarchisches Coarse-to-Fine-Retrieval mit Head-Vektoren | Akzeptiert | 2026-06-19 | — |
 | [0010](./0010-llm-provider-auto-extraktion.md) | LLM-Provider & Aktivierung der Auto-Extraktion (M2) | Akzeptiert | 2026-07-01 | — |
 | [0011](./0011-episodisches-gedaechtnis-design.md) | Design des episodischen Agent-Gedächtnisses (M3) | Akzeptiert | 2026-07-01 | — |
-| [0012](./0012-mandanten-rollen-modell.md) | Mandanten- und Rollen-Modell (M3) | Vorgeschlagen | 2026-07-01 | — |
+| [0012](./0012-mandanten-rollen-modell.md) | Mandanten- und Rollen-Modell (M3) | Akzeptiert | 2026-07-01 | — |
 
 *(Neue Einträge chronologisch sortiert auflisten — konsistent bleiben im Repo.)*
 

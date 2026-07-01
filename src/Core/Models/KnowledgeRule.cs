@@ -71,6 +71,13 @@ public sealed record KnowledgeRule
     public string? SourceType { get; init; }
 
     /// <summary>
+    /// Tenant this rule belongs to for logical multi-tenancy isolation (M3 / ADR-0012). Defaults to
+    /// <see cref="Tenants.DefaultTenantId"/> — the single tenant of the standalone build — so existing
+    /// data and callers that do not set it remain in the default tenant.
+    /// </summary>
+    public string TenantId { get; init; } = Tenants.DefaultTenantId;
+
+    /// <summary>
     /// Optional forced chunking style for this document (<c>prose</c> | <c>markdown</c> | <c>code</c> |
     /// <c>table</c>); null lets the chunker auto-detect. Set when an upload specifies its chunking type.
     /// </summary>

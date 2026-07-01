@@ -96,4 +96,36 @@ public sealed class FrontmatterSerializerTests
 
         markdown.Should().NotContain("author:");
     }
+
+    [Fact]
+    public void Serialize_ThenParse_RoundTripsNonDefaultTenant()
+    {
+        var rule = new KnowledgeRule
+        {
+            Id = "id", Type = "WorldKnowledge", Domain = "general",
+            Priority = RulePriority.Medium, Body = "Body", TenantId = "acme",
+        };
+
+        var markdown = _serializer.Serialize(rule, "T");
+        var parsed = new KnowledgeRuleParser().Parse(markdown);
+
+        markdown.Should().Contain("tenantId: acme");
+        parsed.TenantId.Should().Be("acme");
+    }
+
+    [Fact]
+    public void Serialize_DefaultTenant_OmitsTenantLine_AndParsesBackToDefault()
+    {
+        var rule = new KnowledgeRule
+        {
+            Id = "id", Type = "WorldKnowledge", Domain = "general",
+            Priority = RulePriority.Medium, Body = "Body",
+        };
+
+        var markdown = _serializer.Serialize(rule, "T");
+        var parsed = new KnowledgeRuleParser().Parse(markdown);
+
+        markdown.Should().NotContain("tenantId:");
+        parsed.TenantId.Should().Be(Tenants.DefaultTenantId);
+    }
 }

@@ -220,6 +220,32 @@ public class NodeMapperTests
         Assert.Equal(type, result.Type);
     }
 
+    // ── Tenant scoping ──────────────────────────────────────────────────
+
+    [Fact]
+    public void MapRowObject_WithTenantId_MapsIt()
+    {
+        var dict = new Dictionary<string, object?>
+        {
+            ["id"] = "t-rule", ["type"] = "Rule", ["domain"] = "general",
+            ["priority"] = "Medium", ["body"] = "body", ["tenantId"] = "acme",
+        };
+
+        NodeMapper.MapRowObject(dict).TenantId.Should().Be("acme");
+    }
+
+    [Fact]
+    public void MapRowObject_WithoutTenantId_DefaultsToDefaultTenant()
+    {
+        var dict = new Dictionary<string, object?>
+        {
+            ["id"] = "t-rule", ["type"] = "Rule", ["domain"] = "general",
+            ["priority"] = "Medium", ["body"] = "body",
+        };
+
+        NodeMapper.MapRowObject(dict).TenantId.Should().Be(Tenants.DefaultTenantId);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private static INode CreateBasicNode(string id)

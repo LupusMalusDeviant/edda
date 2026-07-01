@@ -57,6 +57,7 @@ public sealed class KnowledgeRuleParser
         var supersedes = GetList(fields, "supersedes");
         var related = GetList(fields, "related");
         var ownerId = GetString(fields, "ownerId");
+        var tenantIdStr = GetString(fields, "tenantId");
         var author = GetString(fields, "author");
         var createdStr = GetString(fields, "created");
         DateOnly? created = null;
@@ -96,6 +97,7 @@ public sealed class KnowledgeRuleParser
             Body = body.Trim(),
             Tags = tags,
             OwnerId = ownerId,
+            TenantId = string.IsNullOrWhiteSpace(tenantIdStr) ? Tenants.DefaultTenantId : tenantIdStr,
             Author = author,
             Created = created,
             RelatesTo = relations,
