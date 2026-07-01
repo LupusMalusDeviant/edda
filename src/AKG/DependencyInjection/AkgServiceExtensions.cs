@@ -191,10 +191,22 @@ public static class AkgServiceExtensions
             feedbackDbPath,
             sp.GetRequiredService<ILogger<RuleFeedbackStore>>()));
 
+        // F32b — confidence decay: stale feedback reverts a rule's multiplier toward neutral over time.
+        var decayRaw = configuration?["Feedback:DecayHalfLifeDays"]
+            ?? Environment.GetEnvironmentVariable("FEEDBACK_DECAY_HALFLIFE_DAYS");
+        var decayHalfLifeDays = double.TryParse(
+            decayRaw,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var parsedHalfLife)
+            ? parsedHalfLife
+            : ConfidenceAdjuster.DefaultDecayHalfLifeDays;
+
         services.AddSingleton<IRuleFeedbackService>(sp => new RuleFeedbackService(
             sp.GetRequiredService<IRuleFeedbackStore>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILogger<RuleFeedbackService>>()));
+            sp.GetRequiredService<ILogger<RuleFeedbackService>>(),
+            decayHalfLifeDays));
 
         services.AddHostedService<FeedbackSummaryJob>();
 

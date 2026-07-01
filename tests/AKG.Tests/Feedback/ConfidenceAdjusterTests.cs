@@ -143,4 +143,74 @@ public sealed class ConfidenceAdjusterTests
 
         result.Should().BeApproximately(1.09, precision: 0.01);
     }
+
+    // ── Decay ────────────────────────────────────────────────────────────────────
+
+    private static readonly DateTimeOffset Now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void Calculate_DecayDisabled_ReturnsRawMultiplier()
+    {
+        // halfLife <= 0 disables decay even with stale feedback.
+        var stats = Stats(tdkPass: 10) with { LastFeedbackAt = Now.AddYears(-1) };
+
+        var result = ConfidenceAdjuster.Calculate(stats, Now, halfLifeDays: 0);
+
+        result.Should().BeApproximately(1.15, precision: 0.01);
+    }
+
+    [Fact]
+    public void Calculate_NoLastFeedback_ReturnsRawMultiplier()
+    {
+        // No LastFeedbackAt → staleness cannot be measured → no decay.
+        var stats = Stats(tdkPass: 10);
+
+        var result = ConfidenceAdjuster.Calculate(stats, Now, halfLifeDays: 90);
+
+        result.Should().BeApproximately(1.15, precision: 0.01);
+    }
+
+    [Fact]
+    public void Calculate_FreshFeedback_NoDecayApplied()
+    {
+        // Age 0 → decay factor 2^0 = 1 → multiplier unchanged.
+        var stats = Stats(tdkPass: 10) with { LastFeedbackAt = Now };
+
+        var result = ConfidenceAdjuster.Calculate(stats, Now, halfLifeDays: 90);
+
+        result.Should().BeApproximately(1.15, precision: 0.01);
+    }
+
+    [Fact]
+    public void Calculate_OneHalfLifeOld_HalvesDeviationFromNeutral()
+    {
+        // Raw boost 1.15 (deviation +0.15). After one half-life the deviation halves → 1.075.
+        var stats = Stats(tdkPass: 10) with { LastFeedbackAt = Now.AddDays(-90) };
+
+        var result = ConfidenceAdjuster.Calculate(stats, Now, halfLifeDays: 90);
+
+        result.Should().BeApproximately(1.075, precision: 0.005);
+    }
+
+    [Fact]
+    public void Calculate_OneHalfLifeOld_PenaltyRevertsTowardNeutral()
+    {
+        // Raw penalty 0.65 (deviation -0.35). After one half-life → 1.0 - 0.175 = 0.825.
+        var stats = Stats(tdkFail: 10) with { LastFeedbackAt = Now.AddDays(-90) };
+
+        var result = ConfidenceAdjuster.Calculate(stats, Now, halfLifeDays: 90);
+
+        result.Should().BeApproximately(0.825, precision: 0.005);
+    }
+
+    [Fact]
+    public void Calculate_VeryStaleFeedback_ApproachesNeutral()
+    {
+        // Ten half-lives old → deviation ~1/1024 of the original → effectively neutral.
+        var stats = Stats(tdkPass: 10) with { LastFeedbackAt = Now.AddDays(-900) };
+
+        var result = ConfidenceAdjuster.Calculate(stats, Now, halfLifeDays: 90);
+
+        result.Should().BeApproximately(1.0, precision: 0.001);
+    }
 }

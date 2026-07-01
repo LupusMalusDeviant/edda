@@ -219,4 +219,42 @@ public sealed class RuleFeedbackServiceTests : IDisposable
         after.ConfidenceMultiplier.Should().BeGreaterThan(1.0);
         after.LastRecalculated.Should().NotBeNull();
     }
+
+    // ── Confidence decay ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetStats_AfterEvent_PopulatesLastFeedbackAt()
+    {
+        await _sut.RecordTdkOutcomeAsync("rule-ts", passed: true);
+
+        var stats = await _sut.GetStatsAsync("rule-ts");
+
+        stats.LastFeedbackAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task RecalculateAll_StaleFeedback_DecaysMultiplierTowardNeutral()
+    {
+        // Insert 5 passing events dated 180 days ago (two half-lives at the default 90-day half-life).
+        var old = TimeProvider.System.GetUtcNow().AddDays(-180);
+        for (var i = 0; i < 5; i++)
+        {
+            await _store.AppendEventAsync(new RuleFeedbackEvent
+            {
+                EventId   = Guid.NewGuid().ToString(),
+                RuleId    = "rule-stale",
+                Type      = FeedbackEventType.TdkValidation,
+                Positive  = true,
+                Timestamp = old,
+            }, default);
+        }
+
+        await _sut.RecalculateAllAsync();
+
+        var stats = await _sut.GetStatsAsync("rule-stale");
+
+        // Fresh this would be ~1.15; two half-lives old → deviation quartered → ~1.0375.
+        stats.ConfidenceMultiplier.Should().BeGreaterThan(1.0);
+        stats.ConfidenceMultiplier.Should().BeLessThan(1.10);
+    }
 }

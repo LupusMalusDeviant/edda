@@ -23,6 +23,10 @@ internal static class ConfidenceAdjuster
     private const double MaxMultiplier = 1.3;
     private const double NeutralScore  = 1.0;
 
+    // Default half-life (days) for confidence decay when none is configured. After this many days
+    // without new feedback, a rule's deviation from neutral halves. Values <= 0 disable decay.
+    internal const double DefaultDecayHalfLifeDays = 90.0;
+
     /// <summary>
     /// Calculates the confidence multiplier for a rule given its feedback statistics.
     /// </summary>
@@ -62,6 +66,35 @@ internal static class ConfidenceAdjuster
                      + ComplianceWeight * compScore;
 
         return Math.Clamp(combined, MinMultiplier, MaxMultiplier);
+    }
+
+    /// <summary>
+    /// Calculates the confidence multiplier for a rule and then applies time-based decay toward neutral.
+    /// As the time since the rule's last feedback (<see cref="RuleFeedbackStats.LastFeedbackAt"/>) grows,
+    /// the count-based multiplier reverts toward <see cref="NeutralScore"/> on an exponential half-life
+    /// curve — stale evidence, whether a boost or a penalty, gradually loses its effect.
+    /// </summary>
+    /// <param name="stats">Aggregated feedback data for the rule.</param>
+    /// <param name="now">The current time, used to measure staleness.</param>
+    /// <param name="halfLifeDays">
+    /// Decay half-life in days. When &lt;= 0, or when the rule has no recorded feedback
+    /// (<see cref="RuleFeedbackStats.LastFeedbackAt"/> is null), no decay is applied and the plain
+    /// count-based multiplier is returned.
+    /// </param>
+    /// <returns>
+    /// The optionally decayed multiplier, clamped to
+    /// [<see cref="MinMultiplier"/>, <see cref="MaxMultiplier"/>].
+    /// </returns>
+    internal static double Calculate(RuleFeedbackStats stats, DateTimeOffset now, double halfLifeDays)
+    {
+        var raw = Calculate(stats);
+
+        if (halfLifeDays <= 0 || stats.LastFeedbackAt is not { } lastFeedback)
+            return raw;
+
+        var ageDays = Math.Max(0.0, (now - lastFeedback).TotalDays);
+        var decayed = NeutralScore + (raw - NeutralScore) * Math.Pow(2, -ageDays / halfLifeDays);
+        return Math.Clamp(decayed, MinMultiplier, MaxMultiplier);
     }
 
     /// <summary>

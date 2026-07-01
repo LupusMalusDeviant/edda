@@ -163,7 +163,11 @@ internal sealed class RuleFeedbackStore : IRuleFeedbackStore
     {
         using var conn = OpenConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM RuleFeedbackStats";
+        cmd.CommandText = """
+            SELECT s.*,
+                   (SELECT MAX(e.Timestamp) FROM RuleFeedbackEvents e WHERE e.RuleId = s.RuleId) AS LastFeedbackAt
+            FROM RuleFeedbackStats s
+            """;
         var result = new List<RuleFeedbackStats>();
         using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -224,7 +228,12 @@ internal sealed class RuleFeedbackStore : IRuleFeedbackStore
     {
         using var conn = OpenConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM RuleFeedbackStats WHERE RuleId = $ruleId";
+        cmd.CommandText = """
+            SELECT s.*,
+                   (SELECT MAX(e.Timestamp) FROM RuleFeedbackEvents e WHERE e.RuleId = s.RuleId) AS LastFeedbackAt
+            FROM RuleFeedbackStats s
+            WHERE s.RuleId = $ruleId
+            """;
         cmd.Parameters.AddWithValue("$ruleId", ruleId);
         using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
         return await reader.ReadAsync(ct).ConfigureAwait(false)
@@ -289,5 +298,8 @@ internal sealed class RuleFeedbackStore : IRuleFeedbackStore
             LastRecalculated     = r.IsDBNull(r.GetOrdinal("LastRecalculated"))
                 ? null
                 : DateTimeOffset.Parse(r.GetString(r.GetOrdinal("LastRecalculated"))),
+            LastFeedbackAt       = r.IsDBNull(r.GetOrdinal("LastFeedbackAt"))
+                ? null
+                : DateTimeOffset.Parse(r.GetString(r.GetOrdinal("LastFeedbackAt"))),
         };
 }

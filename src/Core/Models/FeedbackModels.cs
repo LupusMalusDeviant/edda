@@ -78,6 +78,13 @@ public sealed record RuleFeedbackStats
 
     /// <summary>When the confidence multiplier was last recalculated by the background job.</summary>
     public DateTimeOffset? LastRecalculated { get; init; }
+
+    /// <summary>
+    /// Timestamp of the most recent feedback event recorded for this rule, or null when the rule has no
+    /// events yet. Drives confidence decay: the older the last reinforcement, the more the multiplier
+    /// reverts toward neutral (1.0).
+    /// </summary>
+    public DateTimeOffset? LastFeedbackAt { get; init; }
 }
 
 /// <summary>

@@ -20,6 +20,7 @@ internal sealed class RuleFeedbackService : IRuleFeedbackService
     private readonly IRuleFeedbackStore _store;
     private readonly TimeProvider _time;
     private readonly ILogger<RuleFeedbackService> _logger;
+    private readonly double _decayHalfLifeDays;
 
     /// <summary>
     /// Initializes a new <see cref="RuleFeedbackService"/>.
@@ -27,14 +28,21 @@ internal sealed class RuleFeedbackService : IRuleFeedbackService
     /// <param name="store">SQLite persistence layer for feedback events and stats.</param>
     /// <param name="time">Time provider for reproducible timestamps.</param>
     /// <param name="logger">Structured logger.</param>
+    /// <param name="decayHalfLifeDays">
+    /// Confidence-decay half-life in days (see <see cref="ConfidenceAdjuster"/>). During recalculation,
+    /// rules whose most recent feedback is older than this revert toward a neutral multiplier. Defaults to
+    /// <see cref="ConfidenceAdjuster.DefaultDecayHalfLifeDays"/>; values &lt;= 0 disable decay.
+    /// </param>
     internal RuleFeedbackService(
         IRuleFeedbackStore store,
         TimeProvider time,
-        ILogger<RuleFeedbackService> logger)
+        ILogger<RuleFeedbackService> logger,
+        double decayHalfLifeDays = ConfidenceAdjuster.DefaultDecayHalfLifeDays)
     {
-        _store  = store;
-        _time   = time;
-        _logger = logger;
+        _store             = store;
+        _time              = time;
+        _logger            = logger;
+        _decayHalfLifeDays = decayHalfLifeDays;
     }
 
     /// <inheritdoc />
@@ -181,7 +189,7 @@ internal sealed class RuleFeedbackService : IRuleFeedbackService
 
         foreach (var stats in allStats)
         {
-            var newMultiplier = ConfidenceAdjuster.Calculate(stats);
+            var newMultiplier = ConfidenceAdjuster.Calculate(stats, now, _decayHalfLifeDays);
 
             await _store.UpdateMultiplierAsync(stats.RuleId, newMultiplier, now, ct)
                 .ConfigureAwait(false);

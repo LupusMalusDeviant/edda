@@ -27,7 +27,7 @@ im privaten/lokalen .NET-Umfeld und beim sicherheitskritischen Agent-Zugriff.
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
 |---|----------|-------|---------|-------------|--------------------|
 | 0.1 | **Zero-Infra-Dev-Modus** (eingebetteter Graph+Vektor, kein Docker) | hoch | M | `AddAkgServices`, app-seitiges Cosine-Fallback ausbauen | `dotnet run` ohne Neo4j startbar; Tests ohne Infra grün |
-| 0.2 | **Confidence-Decay / Vergessenskurve** | mittel | S | `ConfidenceAdjuster`, `RuleFeedbackService` | ungenutzte Regeln verlieren Konfidenz; „stale → prüfen"-Liste abrufbar |
+| 0.2 | **Confidence-Decay / Vergessenskurve** ✅ | mittel | S | `ConfidenceAdjuster`, `RuleFeedbackService` | **Umgesetzt:** Multiplier fällt zeitbasiert Richtung neutral (`FEEDBACK_DECAY_HALFLIFE_DAYS`, Default 90). Offen: „stale → prüfen"-Liste (mit 0.3) |
 | 0.3 | **Proaktive Gap-Analyse** (read-only MCP-Tool `analyze_coverage`) | mittel-hoch | M | `AKG.Mcp` Tool-Registry | meldet dünne Domains, Konzepte ohne Regel, Low-Confidence, offene Konflikte; default-deny bleibt |
 | 0.4 | **Entwickler-Tagebuch + Produktnarrativ** | niedrig | S | `DEVELOPER.md`, `README.md` | „für wen / wofür" steht; laufendes Tagebuch existiert |
 
