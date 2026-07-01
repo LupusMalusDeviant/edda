@@ -80,4 +80,13 @@ internal static class MemoryNodes
         var ageDays = Math.Max(0.0, (now.UtcDateTime.Date - createdDate.ToDateTime(TimeOnly.MinValue)).TotalDays);
         return Math.Pow(2, -ageDays / halfLifeDays);
     }
+
+    /// <summary>
+    /// Normalizes memory content for duplicate detection: lower-cases and collapses all whitespace runs to
+    /// single spaces (trimmed). Two memories that normalize to the same text are treated as duplicates.
+    /// </summary>
+    /// <param name="content">The raw memory content.</param>
+    /// <returns>The normalized comparison key.</returns>
+    internal static string Normalize(string content) =>
+        string.Join(' ', content.ToLowerInvariant().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }

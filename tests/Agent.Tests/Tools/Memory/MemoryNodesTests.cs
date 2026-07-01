@@ -81,4 +81,11 @@ public class MemoryNodesTests
         var now = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
         MemoryNodes.RecencyFactor(null, now, 90).Should().Be(1.0);
     }
+
+    [Fact]
+    public void Normalize_LowercasesAndCollapsesWhitespace()
+    {
+        MemoryNodes.Normalize("  Bob   Likes\tTea  ").Should().Be("bob likes tea");
+        MemoryNodes.Normalize("  Bob   Likes\tTea  ").Should().Be(MemoryNodes.Normalize("bob likes tea"));
+    }
 }

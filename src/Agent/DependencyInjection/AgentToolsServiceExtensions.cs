@@ -52,8 +52,8 @@ public static class AgentToolsServiceExtensions
     /// Registers the lean set of agent tools as <see cref="IAgentTool"/> singletons and schedules
     /// their registration into <see cref="IToolRegistry"/> via a hosted startup service.
     /// Tools: <c>manage_memory</c>, <c>manage_userdata</c>, <c>manage_learnings</c>,
-    /// <c>remember</c>, <c>recall</c>, <c>forget</c>, <c>search_memory</c>, <c>list_memory</c>,
-    /// <c>analyze_coverage</c>, <c>tdk_validate</c>.
+    /// <c>remember</c>, <c>recall</c>, <c>forget</c>, <c>consolidate_memory</c>, <c>search_memory</c>,
+    /// <c>list_memory</c>, <c>analyze_coverage</c>, <c>tdk_validate</c>.
     /// </summary>
     /// <param name="services">The service collection to register into.</param>
     /// <returns>The service collection for chaining.</returns>
@@ -73,6 +73,7 @@ public static class AgentToolsServiceExtensions
         services.AddSingleton<IAgentTool, RememberTool>();
         services.AddSingleton<IAgentTool, RecallTool>();
         services.AddSingleton<IAgentTool, ForgetTool>();
+        services.AddSingleton<IAgentTool, ConsolidateTool>();
 
         // Knowledge / TDK tools.
         services.AddSingleton<IAgentTool, KnowledgeGetContextTool>();

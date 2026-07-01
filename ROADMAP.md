@@ -84,8 +84,11 @@ episodisch (`manage_memory`=Datei, `manage_learnings`=1 Aggregat-Knoten/User, `s
 `remember`/`forget` in der Write-default-deny-Liste, `recall` opt-in (nicht in den Defaults). Tests grün
 (Mock-Graph). **WP5.2 (Decay, 2.3) umgesetzt:** `recall` gewichtet Treffer mit einer Vergessenskurve
 (`RecencyFactor`, Halbwertszeit 90 Tage): veraltete Erinnerungen sinken im Ranking, erneutes `remember`
-frischt eine Erinnerung auf. **Offen:** WP5.1 Sitzungs-Konsolidierung — Trigger ist eine offene
-Design-Entscheidung (→ Rückfrage).
+frischt eine Erinnerung auf. **WP5.1 (Konsolidierung) umgesetzt:** opt-in `consolidate_memory`-Tool
+(deterministisch, MCP-default-deny) entfernt normalisierte Duplikate (Groß/Klein/Whitespace, behält das
+neueste) und löscht stark verblasste Erinnerungen (Recency ≤ 0,05). **→ Episodisches Gedächtnis
+(Track 2 / M3-Teil 1) funktional & voll test-abgedeckt abgeschlossen — kein LLM nötig.** Nächster
+M3-Block: Mandantenfähigkeit (Track 3) — davor Pause zur Scope-Bestätigung.
 
 ## Track 3 — Mandantenfähigkeit  *(M3)*
 

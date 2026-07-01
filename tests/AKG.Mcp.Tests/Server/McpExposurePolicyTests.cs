@@ -82,6 +82,7 @@ public class McpExposurePolicyTests
     [Theory]
     [InlineData("remember")]
     [InlineData("forget")]
+    [InlineData("consolidate_memory")]
     public void IsExposed_EpisodicWriteTools_BlockedByDefault_EvenWhenAllowListed(string toolName)
     {
         // Episodic-memory write tools stay default-deny over MCP (M3 / ADR-0011 safety-first).
@@ -92,6 +93,7 @@ public class McpExposurePolicyTests
     [Theory]
     [InlineData("remember")]
     [InlineData("forget")]
+    [InlineData("consolidate_memory")]
     public void IsExposed_EpisodicWriteTools_Exposed_WhenWriteAccessEnabledAndAllowListed(string toolName)
     {
         var policy = new McpExposurePolicy([toolName], allowWriteTools: true);
