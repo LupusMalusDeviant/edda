@@ -270,4 +270,55 @@ public sealed class RuleFeedbackServiceTests : IDisposable
         all.Should().Contain(s => s.RuleId == "rule-all-2");
         all.Single(s => s.RuleId == "rule-all-1").LastFeedbackAt.Should().NotBeNull();
     }
+
+    // ── Rule rating (E2) ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RecordRuleRating_Helpful_IncrementsUserPositiveCount()
+    {
+        await _sut.RecordRuleRatingAsync("rule-rate-h", RuleRating.Helpful, "u-1");
+
+        var stats = await _sut.GetStatsAsync("rule-rate-h");
+
+        stats.UserPositiveCount.Should().Be(1);
+        stats.UserNegativeCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RecordRuleRating_NotHelpful_IncrementsUserNegativeCount()
+    {
+        await _sut.RecordRuleRatingAsync("rule-rate-n", RuleRating.NotHelpful, "u-1");
+
+        var stats = await _sut.GetStatsAsync("rule-rate-n");
+
+        stats.UserNegativeCount.Should().Be(1);
+        stats.UserPositiveCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RecordRuleRating_Outdated_IncrementsUserNegativeCount()
+    {
+        await _sut.RecordRuleRatingAsync("rule-rate-o", RuleRating.Outdated, "u-1");
+
+        var stats = await _sut.GetStatsAsync("rule-rate-o");
+
+        stats.UserNegativeCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task RecordRuleRating_ChangesConfidenceMultiplier_HelpfulAboveNotHelpful()
+    {
+        for (var i = 0; i < 4; i++)
+        {
+            await _sut.RecordRuleRatingAsync("rule-good", RuleRating.Helpful, "u-1");
+            await _sut.RecordRuleRatingAsync("rule-bad", RuleRating.NotHelpful, "u-1");
+        }
+
+        await _sut.RecalculateAllAsync();
+        var multipliers = await _sut.GetMultipliersAsync(["rule-good", "rule-bad"]);
+
+        multipliers["rule-good"].Should().BeGreaterThan(1.0);   // positive ratings boost confidence
+        multipliers["rule-bad"].Should().BeLessThan(1.0);       // negative ratings degrade it
+        multipliers["rule-good"].Should().BeGreaterThan(multipliers["rule-bad"]);
+    }
 }

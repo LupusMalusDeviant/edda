@@ -114,3 +114,20 @@ public sealed record RuleFeedbackEvent
     /// <summary>When this event was recorded.</summary>
     public required DateTimeOffset Timestamp { get; init; }
 }
+
+/// <summary>
+/// An agent's explicit usefulness rating for a single AKG rule (E2), recorded via the <c>rate_memory</c>
+/// tool. <see cref="Helpful"/> is a positive signal; <see cref="NotHelpful"/> and <see cref="Outdated"/>
+/// are negative signals that degrade the rule's confidence multiplier.
+/// </summary>
+public enum RuleRating
+{
+    /// <summary>The rule was useful (positive signal).</summary>
+    Helpful,
+
+    /// <summary>The rule was not useful (negative signal).</summary>
+    NotHelpful,
+
+    /// <summary>The rule is stale/obsolete (negative signal).</summary>
+    Outdated,
+}

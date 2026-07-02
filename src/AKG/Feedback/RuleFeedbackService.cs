@@ -98,6 +98,27 @@ internal sealed class RuleFeedbackService : IRuleFeedbackService
     }
 
     /// <inheritdoc />
+    public async Task RecordRuleRatingAsync(
+        string ruleId, RuleRating rating, string userId, CancellationToken ct = default)
+    {
+        var evt = new RuleFeedbackEvent
+        {
+            EventId   = Guid.NewGuid().ToString(),
+            RuleId    = ruleId,
+            Type      = FeedbackEventType.UserFeedback,
+            Positive  = rating == RuleRating.Helpful,
+            UserId    = userId,
+            Timestamp = _time.GetUtcNow(),
+        };
+
+        await _store.AppendEventAsync(evt, ct).ConfigureAwait(false);
+
+        _logger.LogInformation(
+            "Rule rating recorded: rule={RuleId} rating={Rating} userId={UserId} | {Component}",
+            ruleId, rating, userId, "AKG.Feedback");
+    }
+
+    /// <inheritdoc />
     public async Task RecordComplianceAsync(
         string ruleId, string conversationId, bool compliant,
         string? userId = null, CancellationToken ct = default)

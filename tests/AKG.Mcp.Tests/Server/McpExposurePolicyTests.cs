@@ -83,9 +83,10 @@ public class McpExposurePolicyTests
     [InlineData("remember")]
     [InlineData("forget")]
     [InlineData("consolidate_memory")]
+    [InlineData("rate_memory")]
     public void IsExposed_EpisodicWriteTools_BlockedByDefault_EvenWhenAllowListed(string toolName)
     {
-        // Episodic-memory write tools stay default-deny over MCP (M3 / ADR-0011 safety-first).
+        // Episodic-memory write tools stay default-deny over MCP (M3 / ADR-0011 safety-first; E2 rate_memory).
         var policy = new McpExposurePolicy([toolName], allowWriteTools: false);
         policy.IsExposed(toolName).Should().BeFalse();
     }
@@ -94,10 +95,18 @@ public class McpExposurePolicyTests
     [InlineData("remember")]
     [InlineData("forget")]
     [InlineData("consolidate_memory")]
+    [InlineData("rate_memory")]
     public void IsExposed_EpisodicWriteTools_Exposed_WhenWriteAccessEnabledAndAllowListed(string toolName)
     {
         var policy = new McpExposurePolicy([toolName], allowWriteTools: true);
         policy.IsExposed(toolName).Should().BeTrue();
+    }
+
+    [Fact]
+    public void DefaultExposedTools_DoNotIncludeRateMemory_ReadOnlyDefault()
+    {
+        // E2: rate_memory is a write tool → never in the read-only default surface.
+        McpExposurePolicy.DefaultExposedTools.Should().NotContain("rate_memory");
     }
 
     [Fact]

@@ -38,6 +38,16 @@ public interface IRuleFeedbackService
         CancellationToken ct = default);
 
     /// <summary>
+    /// Records an agent's explicit usefulness rating for a single rule (E2). Unlike
+    /// <see cref="RecordUserFeedbackAsync"/> this targets one rule id directly (no conversation propagation).
+    /// </summary>
+    /// <param name="ruleId">The rule being rated.</param>
+    /// <param name="rating">The usefulness rating.</param>
+    /// <param name="userId">The user providing the rating (from the tool execution context).</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task RecordRuleRatingAsync(string ruleId, RuleRating rating, string userId, CancellationToken ct = default);
+
+    /// <summary>
     /// Records whether the model's response actually followed a rule's guidance.
     /// Typically determined by an LLM-based compliance check run in the background.
     /// </summary>

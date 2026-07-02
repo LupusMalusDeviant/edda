@@ -86,6 +86,9 @@ public static class AgentToolsServiceExtensions
         services.AddSingleton<IAgentTool, ForgetTool>();
         services.AddSingleton<IAgentTool, ConsolidateTool>();
 
+        // E2: agent feedback into the confidence layer. Mutating → MCP default-deny (McpExposurePolicy.WriteToolNames).
+        services.AddSingleton<IAgentTool, RateMemoryTool>();
+
         // C10: shared consolidation logic + opt-in periodic background maintenance. The hosted service runs
         // the consolidator for every user every MEMORY_CONSOLIDATION_INTERVAL_HOURS hours (default 0 = off).
         // C4: consolidation additionally merges token-similar near-duplicates; threshold from
