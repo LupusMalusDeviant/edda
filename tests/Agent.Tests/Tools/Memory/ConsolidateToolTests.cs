@@ -60,6 +60,19 @@ public class ConsolidateToolTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_ListsMergedAwayBodies()
+    {
+        _consolidator.Setup(c => c.ConsolidateUserAsync("user-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new MemoryConsolidationResult(1, 0, 0, 1) { MergedAwayBodies = ["old fact"] });
+
+        var result = await _sut.ExecuteAsync(Call(), Ctx("user-1"));
+
+        result.Success.Should().BeTrue();
+        result.Content.Should().Contain("near-duplicate(s)");
+        result.Content.Should().Contain("Merged away: old fact");
+    }
+
+    [Fact]
     public void Definition_HasCorrectName()
         => _sut.Definition.Name.Should().Be("consolidate_memory");
 }

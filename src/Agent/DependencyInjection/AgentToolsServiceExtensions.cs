@@ -88,7 +88,13 @@ public static class AgentToolsServiceExtensions
 
         // C10: shared consolidation logic + opt-in periodic background maintenance. The hosted service runs
         // the consolidator for every user every MEMORY_CONSOLIDATION_INTERVAL_HOURS hours (default 0 = off).
-        services.AddSingleton<IMemoryConsolidator, MemoryConsolidator>();
+        // C4: consolidation additionally merges token-similar near-duplicates; threshold from
+        // MEMORY_CONSOLIDATE_JACCARD (default off = only exact normalized-duplicate removal, as before C4).
+        services.AddSingleton<IMemoryConsolidator>(sp => new MemoryConsolidator(
+            sp.GetRequiredService<IKnowledgeGraph>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<MemoryConsolidator>>(),
+            jaccardThreshold: ParseConsolidateThreshold(sp.GetService<IConfiguration>())));
         services.AddHostedService(sp => new MemoryConsolidationHostedService(
             sp.GetRequiredService<IMemoryConsolidator>(),
             sp.GetRequiredService<IAuditLog>(),
@@ -146,6 +152,25 @@ public static class AgentToolsServiceExtensions
             System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold >= 0
             ? threshold
             : DefaultThreshold;
+    }
+
+    /// <summary>
+    /// Reads <c>MEMORY_CONSOLIDATE_JACCARD</c> from configuration (falling back to the environment) as an
+    /// invariant-culture token-Jaccard threshold for C4 near-duplicate consolidation. Returns
+    /// <see cref="double.PositiveInfinity"/> (disabled — the pre-C4 behaviour) when unset, non-positive, or
+    /// unparseable; a value greater than 1.0 also disables it.
+    /// </summary>
+    /// <param name="configuration">The host configuration, if available.</param>
+    /// <returns>The consolidation near-duplicate threshold; disabled by default.</returns>
+    private static double ParseConsolidateThreshold(IConfiguration? configuration)
+    {
+        var raw = configuration?["MEMORY_CONSOLIDATE_JACCARD"]
+                  ?? Environment.GetEnvironmentVariable("MEMORY_CONSOLIDATE_JACCARD");
+        return double.TryParse(
+            raw, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold > 0
+            ? threshold
+            : double.PositiveInfinity;
     }
 }
 

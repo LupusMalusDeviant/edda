@@ -33,6 +33,9 @@ public class MemoryConsolidatorTests
         _graph.Setup(g => g.GetRulesAsync(null, "Memory", null, userId, It.IsAny<CancellationToken>()))
               .ReturnsAsync(rules);
 
+    private MemoryConsolidator SutWithThreshold(double jaccardThreshold) =>
+        new(_graph.Object, _time, NullLogger<MemoryConsolidator>.Instance, jaccardThreshold);
+
     [Fact]
     public async Task ConsolidateUserAsync_RemovesNormalizedDuplicates_KeepingNewest()
     {
@@ -102,5 +105,85 @@ public class MemoryConsolidatorTests
         result.FadedRemoved.Should().Be(0);
         _graph.Verify(g => g.ListOwnersAsync("Memory", It.IsAny<CancellationToken>()), Times.Once);
         _graph.Verify(g => g.DeleteRuleAsync(older.Id, "user-1", false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConsolidateUserAsync_MergesNearDuplicates_KeepingNewest()
+    {
+        // {the,database,is,postgres} vs {database,is,postgres}: 3/4 = 0.75 > 0.7 threshold; not exact-normalized.
+        var older = Memory("the database is postgres", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var newer = Memory("database is postgres", new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
+        SetupMemories("user-1", older, newer);
+
+        var result = await SutWithThreshold(0.7).ConsolidateUserAsync("user-1");
+
+        result.NearDuplicatesRemoved.Should().Be(1);
+        result.DuplicatesRemoved.Should().Be(0);
+        result.MergedAwayBodies.Should().ContainSingle().Which.Should().Be("the database is postgres");
+        _graph.Verify(g => g.DeleteRuleAsync(older.Id, "user-1", false, It.IsAny<CancellationToken>()), Times.Once);
+        _graph.Verify(g => g.DeleteRuleAsync(newer.Id, "user-1", false, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ConsolidateUserAsync_DisjointMemories_NotMerged()
+    {
+        SetupMemories("user-1",
+            Memory("bob likes tea", new DateTimeOffset(2026, 2, 10, 0, 0, 0, TimeSpan.Zero)),
+            Memory("deploy runs on fridays", new DateTimeOffset(2026, 2, 10, 0, 0, 0, TimeSpan.Zero)));
+
+        var result = await SutWithThreshold(0.7).ConsolidateUserAsync("user-1");
+
+        result.TotalRemoved.Should().Be(0);
+        _graph.Verify(g => g.DeleteRuleAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ConsolidateUserAsync_ThresholdDisabled_KeepsNearDuplicates()
+    {
+        // Same near-duplicate pair, but the default (disabled) SUT must run exact-only dedup — nothing removed.
+        SetupMemories("user-1",
+            Memory("the database is postgres", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+            Memory("database is postgres", new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero)));
+
+        var result = await _sut.ConsolidateUserAsync("user-1");
+
+        result.NearDuplicatesRemoved.Should().Be(0);
+        result.TotalRemoved.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ConsolidateUserAsync_ExactAndNear_CountedSeparately()
+    {
+        // Exact-normalized pair (whitespace/case), a lexical near-duplicate pair, and one unique memory.
+        SetupMemories("user-1",
+            Memory("Bob likes Tea", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+            Memory("bob   likes tea", new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero)),
+            Memory("the database is postgres", new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero)),
+            Memory("database is postgres", new DateTimeOffset(2026, 2, 5, 0, 0, 0, TimeSpan.Zero)),
+            Memory("weather is nice today", new DateTimeOffset(2026, 2, 12, 0, 0, 0, TimeSpan.Zero)));
+
+        var result = await SutWithThreshold(0.7).ConsolidateUserAsync("user-1");
+
+        result.DuplicatesRemoved.Should().Be(1);
+        result.NearDuplicatesRemoved.Should().Be(1);
+        result.TotalRemoved.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ConsolidateUserAsync_NearDuplicateTie_KeepsDeterministically()
+    {
+        // Equal Created dates: the Id ordinal tie-break decides the survivor deterministically.
+        var a = Memory("the database is postgres", new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
+        var b = Memory("database is postgres", new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
+        SetupMemories("user-1", a, b);
+
+        var result = await SutWithThreshold(0.7).ConsolidateUserAsync("user-1");
+
+        result.NearDuplicatesRemoved.Should().Be(1);
+        var loserId = string.CompareOrdinal(a.Id, b.Id) < 0 ? b.Id : a.Id;
+        var survivorId = string.CompareOrdinal(a.Id, b.Id) < 0 ? a.Id : b.Id;
+        _graph.Verify(g => g.DeleteRuleAsync(loserId, "user-1", false, It.IsAny<CancellationToken>()), Times.Once);
+        _graph.Verify(g => g.DeleteRuleAsync(survivorId, "user-1", false, It.IsAny<CancellationToken>()), Times.Never);
     }
 }

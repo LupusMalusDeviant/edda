@@ -17,16 +17,27 @@ internal sealed class MemoryConsolidator : IMemoryConsolidator
 
     private readonly IKnowledgeGraph _graph;
     private readonly TimeProvider _timeProvider;
+    private readonly double _jaccardThreshold;
     private readonly ILogger<MemoryConsolidator> _logger;
 
     /// <summary>Initializes a new <see cref="MemoryConsolidator"/>.</summary>
     /// <param name="graph">Graph the memory nodes are read from and pruned in.</param>
     /// <param name="timeProvider">Provides the current time for the fade threshold.</param>
     /// <param name="logger">Structured logger.</param>
-    public MemoryConsolidator(IKnowledgeGraph graph, TimeProvider timeProvider, ILogger<MemoryConsolidator> logger)
+    /// <param name="jaccardThreshold">
+    /// C4: token-Jaccard threshold above which two memories are treated as near-duplicates and merged (the
+    /// newest survives). <see cref="double.PositiveInfinity"/> (the default) disables near-duplicate detection,
+    /// leaving only exact normalized-duplicate removal — the behaviour before C4.
+    /// </param>
+    public MemoryConsolidator(
+        IKnowledgeGraph graph,
+        TimeProvider timeProvider,
+        ILogger<MemoryConsolidator> logger,
+        double jaccardThreshold = double.PositiveInfinity)
     {
         _graph = graph;
         _timeProvider = timeProvider;
+        _jaccardThreshold = jaccardThreshold;
         _logger = logger;
     }
 
@@ -41,23 +52,29 @@ internal sealed class MemoryConsolidator : IMemoryConsolidator
             .Where(m => string.Equals(m.OwnerId, userId, StringComparison.Ordinal))
             .ToList();
 
-        var duplicates = FindDuplicates(owned);
-        var duplicateIds = duplicates.Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
+        var (exactDups, nearDups) = FindRedundant(owned);
+        var removedIds = exactDups.Concat(nearDups).Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
 
         var now = _timeProvider.GetUtcNow();
         var faded = owned
-            .Where(m => !duplicateIds.Contains(m.Id))
+            .Where(m => !removedIds.Contains(m.Id))
             .Where(m => MemoryNodes.RecencyFactor(m.Created, now, MemoryNodes.DefaultDecayHalfLifeDays) <= PruneThreshold)
             .ToList();
 
-        foreach (var memory in duplicates.Concat(faded))
+        foreach (var memory in exactDups.Concat(nearDups).Concat(faded))
             await _graph.DeleteRuleAsync(memory.Id, userId, isAdmin: false, cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Memory consolidation userId={UserId} duplicates={Dup} faded={Faded}",
-            userId, duplicates.Count, faded.Count);
+        _logger.LogInformation("Memory consolidation userId={UserId} duplicates={Dup} near={Near} faded={Faded}",
+            userId, exactDups.Count, nearDups.Count, faded.Count);
 
         return new MemoryConsolidationResult(
-            UsersProcessed: 1, DuplicatesRemoved: duplicates.Count, FadedRemoved: faded.Count);
+            UsersProcessed: 1,
+            DuplicatesRemoved: exactDups.Count,
+            FadedRemoved: faded.Count,
+            NearDuplicatesRemoved: nearDups.Count)
+        {
+            MergedAwayBodies = nearDups.Select(m => m.Body).ToList(),
+        };
     }
 
     /// <inheritdoc />
@@ -67,6 +84,7 @@ internal sealed class MemoryConsolidator : IMemoryConsolidator
 
         var users = 0;
         var duplicates = 0;
+        var near = 0;
         var faded = 0;
         foreach (var userId in owners)
         {
@@ -74,29 +92,55 @@ internal sealed class MemoryConsolidator : IMemoryConsolidator
             var result = await ConsolidateUserAsync(userId, cancellationToken).ConfigureAwait(false);
             users++;
             duplicates += result.DuplicatesRemoved;
+            near += result.NearDuplicatesRemoved;
             faded += result.FadedRemoved;
         }
 
-        return new MemoryConsolidationResult(users, duplicates, faded);
+        // MergedAwayBodies is intentionally left empty for the aggregate run — no cross-user content collected.
+        return new MemoryConsolidationResult(users, duplicates, faded, near);
     }
 
     /// <summary>
-    /// Returns the redundant memories in <paramref name="owned"/>: within each set of memories whose content
-    /// normalizes to the same text, every entry except the most recently created is redundant.
+    /// Splits the user's memories into the redundant ones to remove: <c>Exact</c> are normalized-duplicate
+    /// losers (within each set of memories whose content normalizes to the same text, every entry except the
+    /// most recently created), and <c>Near</c> are token-similar near-duplicate losers among the exact-dedup
+    /// survivors (C4). The newest memory of each cluster survives; Stage B is skipped entirely when
+    /// near-duplicate detection is disabled (<see cref="_jaccardThreshold"/> &gt; 1.0).
     /// </summary>
     /// <param name="owned">The user's memory nodes.</param>
-    /// <returns>The redundant memories to remove.</returns>
-    private static IReadOnlyList<KnowledgeRule> FindDuplicates(IReadOnlyList<KnowledgeRule> owned)
+    /// <returns>The exact-duplicate and near-duplicate memories to remove.</returns>
+    private (IReadOnlyList<KnowledgeRule> Exact, IReadOnlyList<KnowledgeRule> Near) FindRedundant(
+        IReadOnlyList<KnowledgeRule> owned)
     {
-        var redundant = new List<KnowledgeRule>();
+        // Stage A — exact normalized dedup (behaviour unchanged; deterministic Id tie-break added).
+        var exact = new List<KnowledgeRule>();
+        var survivors = new List<KnowledgeRule>();
         foreach (var group in owned.GroupBy(m => MemoryNodes.Normalize(m.Body)))
         {
-            var members = group.OrderByDescending(m => m.Created ?? DateOnly.MinValue).ToList();
-            if (members.Count <= 1)
-                continue;
-            redundant.AddRange(members.Skip(1));
+            var members = group
+                .OrderByDescending(m => m.Created ?? DateOnly.MinValue)
+                .ThenBy(m => m.Id, StringComparer.Ordinal)
+                .ToList();
+            survivors.Add(members[0]);
+            exact.AddRange(members.Skip(1));
         }
 
-        return redundant;
+        // Stage B — token near-duplicate dedup among the Stage-A survivors (opt-in; no-op when disabled).
+        var near = new List<KnowledgeRule>();
+        if (_jaccardThreshold <= 1.0)
+        {
+            var kept = new List<KnowledgeRule>();
+            foreach (var m in survivors
+                         .OrderByDescending(x => x.Created ?? DateOnly.MinValue)
+                         .ThenBy(x => x.Id, StringComparer.Ordinal))
+            {
+                if (kept.Any(k => MemorySimilarity.Jaccard(k.Body, m.Body) > _jaccardThreshold))
+                    near.Add(m);      // absorbed by an already-kept newer memory
+                else
+                    kept.Add(m);
+            }
+        }
+
+        return (exact, near);
     }
 }

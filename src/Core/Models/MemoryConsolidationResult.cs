@@ -7,11 +7,20 @@ namespace Edda.Core.Models;
 /// <param name="UsersProcessed">Number of users whose memory was consolidated.</param>
 /// <param name="DuplicatesRemoved">Total normalized-duplicate memories removed.</param>
 /// <param name="FadedRemoved">Total faded (below recall threshold) memories pruned.</param>
+/// <param name="NearDuplicatesRemoved">Total token-similar near-duplicate memories merged away (C4).</param>
 public sealed record MemoryConsolidationResult(
     int UsersProcessed,
     int DuplicatesRemoved,
-    int FadedRemoved)
+    int FadedRemoved,
+    int NearDuplicatesRemoved = 0)
 {
-    /// <summary>Total memories removed (duplicates + faded).</summary>
-    public int TotalRemoved => DuplicatesRemoved + FadedRemoved;
+    /// <summary>
+    /// Bodies of the near-duplicate losers merged away this run. Populated only for single-user runs
+    /// (<c>ConsolidateUserAsync</c>); empty for the aggregate all-users run so no cross-user content is
+    /// collected into one list.
+    /// </summary>
+    public IReadOnlyList<string> MergedAwayBodies { get; init; } = [];
+
+    /// <summary>Total memories removed (exact duplicates + near-duplicates + faded).</summary>
+    public int TotalRemoved => DuplicatesRemoved + NearDuplicatesRemoved + FadedRemoved;
 }

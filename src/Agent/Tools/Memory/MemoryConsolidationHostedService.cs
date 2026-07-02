@@ -99,7 +99,8 @@ internal sealed class MemoryConsolidationHostedService : IHostedService
                             AuditEvent.MemoryConsolidated,
                             userId: "system",
                             $"Periodic memory consolidation: {result.UsersProcessed} user(s), "
-                            + $"{result.DuplicatesRemoved} duplicate(s) removed, {result.FadedRemoved} faded pruned",
+                            + $"{result.DuplicatesRemoved} duplicate(s) removed, "
+                            + $"{result.NearDuplicatesRemoved} near-duplicate(s) removed, {result.FadedRemoved} faded pruned",
                             cancellationToken: ct).ConfigureAwait(false);
                     }
 
