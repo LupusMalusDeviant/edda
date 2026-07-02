@@ -83,6 +83,17 @@ public sealed class TdkEngine : ITdkEngine
         {
             foreach (var block in codeBlocks)
             {
+                // F9: skip a (rule × block) pair whose block language the rule does not target — before any
+                // sandbox is created. Saves a container run and avoids cross-language false positives from a
+                // language-specific validator matching a foreign block.
+                if (!TdkLanguageMatcher.Applies(rule.AppliesTo, block.Language))
+                {
+                    _logger.LogDebug(
+                        "TDK: rule {RuleId} does not target '{Language}' blocks — skipping before sandbox",
+                        rule.Id, block.Language);
+                    continue;
+                }
+
                 await ValidateBlockAsync(rule, block, request, allViolations, engineErrors, cancellationToken)
                     .ConfigureAwait(false);
             }

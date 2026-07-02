@@ -47,6 +47,14 @@ public sealed record KnowledgeRule
     /// </summary>
     public string? ValidatorScript { get; init; }
 
+    /// <summary>
+    /// Optional list of source languages this rule's TDK validator targets (e.g. <c>python</c>,
+    /// <c>csharp</c>). Empty means the validator applies to code blocks in any language. Lets the TDK
+    /// engine skip a (rule × block) pair whose block language the rule does not target — before a
+    /// sandbox is started — saving a container run and avoiding cross-language false positives.
+    /// </summary>
+    public IReadOnlyList<string> AppliesTo { get; init; } = [];
+
     /// <summary>The Markdown body of the rule — the actual content shown to the agent.</summary>
     public required string Body { get; init; }
 

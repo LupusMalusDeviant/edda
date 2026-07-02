@@ -285,6 +285,54 @@ public class TdkEngineTests
         _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
     }
 
+    [Fact]
+    public async Task TdkEngine_RuleDoesNotTargetBlockLanguage_SkipsBeforeSandbox()
+    {
+        // F9: the rule targets python but the response only has a csharp block, so the (rule × block)
+        // pair is skipped before any sandbox is created — no validator runs, no outcome/engine error.
+        var rules = new List<KnowledgeRule>
+        {
+            new()
+            {
+                Id = "py-only", Type = "rule", Domain = "python", Priority = RulePriority.Medium,
+                Body = "Python-only rule.", ValidatorScript = "validator.py", AppliesTo = ["python"]
+            }
+        };
+
+        var result = await _sut.ValidateAsync(
+            "```csharp\nvar x = 1;\n```", rules, CreateDefaultRequest());
+
+        result.HasViolations.Should().BeFalse();
+        result.EngineErrors.Should().BeEmpty();
+        _sandboxFactory.Verify(f => f.CreateAsync(It.IsAny<CancellationToken>()), Times.Never,
+            "a rule that does not target the block language must be skipped before a sandbox is created");
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task TdkEngine_RuleTargetsBlockLanguage_RunsValidator()
+    {
+        var sandbox = SetupMockSandbox("{\"pass\":true,\"violations\":[]}", exitCode: 0);
+        _sandboxFactory.Setup(f => f.CreateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sandbox.Object);
+
+        var rules = new List<KnowledgeRule>
+        {
+            new()
+            {
+                Id = "cs-rule", Type = "rule", Domain = "csharp", Priority = RulePriority.Medium,
+                Body = "C#-only rule.", ValidatorScript = "validator.py", AppliesTo = ["csharp"]
+            }
+        };
+
+        var result = await _sut.ValidateAsync(
+            "```csharp\nvar x = 1;\n```", rules, CreateDefaultRequest());
+
+        result.HasViolations.Should().BeFalse();
+        _sandboxFactory.Verify(f => f.CreateAsync(It.IsAny<CancellationToken>()), Times.Once,
+            "a rule targeting the block language runs its validator");
+    }
+
     private static Mock<ISandbox> SetupMockSandbox(
         string stdout, int exitCode, bool timedOut = false)
     {
