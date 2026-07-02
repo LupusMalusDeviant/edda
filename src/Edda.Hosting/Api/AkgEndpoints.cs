@@ -68,11 +68,13 @@ public static class AkgEndpoints
            .RequireAuthorization("AdminOnly");
 
         // Admin-only: clears all rule embeddings and rebuilds them (e.g. after an embedding-model
-        // change). Re-embedding can take minutes on CPU, so it runs in the background → 202 Accepted.
+        // change). Re-embedding can take minutes on CPU, so it is queued on the supervised background
+        // work queue (drained by a hosted consumer, cancelled on shutdown) → 202 Accepted.
         app.MapPost("/api/akg/embed/rebuild",
-                (IKnowledgeGraph graph) =>
+                (IKnowledgeGraph graph, IBackgroundWorkQueue backgroundWorkQueue) =>
                 {
-                    _ = Task.Run(() => graph.ResetAndRebuildEmbeddingsAsync(CancellationToken.None));
+                    backgroundWorkQueue.Enqueue(
+                        ct => graph.ResetAndRebuildEmbeddingsAsync(ct), "admin embedding rebuild");
                     return Results.Accepted(value: new { status = "embedding rebuild started" });
                 })
            .WithName("AkgRebuildEmbeddings")

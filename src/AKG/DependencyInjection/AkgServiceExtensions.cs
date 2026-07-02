@@ -1,4 +1,5 @@
 using Edda.AKG.Activity;
+using Edda.AKG.Background;
 using Edda.AKG.Benchmark;
 using Edda.AKG.Chunking;
 using Edda.AKG.Confidence;
@@ -97,6 +98,13 @@ public static class AkgServiceExtensions
 
         services.AddHostedService<WorldKnowledgeSeedHostedService>();
 
+        // D2 — supervised background work queue: a Channel-backed queue drained by a single hosted
+        // consumer, replacing unobserved Task.Run calls so background jobs respect shutdown and surface
+        // their failures. Consumed by Neo4jKnowledgeGraph (post-import rebuild), the embed-rebuild
+        // endpoint, and WorldKnowledgeSeedHostedService (superseded-rule invalidation).
+        services.AddSingleton<IBackgroundWorkQueue, ChannelBackgroundWorkQueue>();
+        services.AddHostedService<BackgroundWorkQueueConsumer>();
+
         services.AddSingleton<IGraphValidator>(sp => new GraphValidator(
             sp.GetRequiredService<ICypherExecutor>(),
             sp.GetRequiredService<ILogger<GraphValidator>>()));
@@ -123,6 +131,7 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<IHeadVectorStore>(),
             sp.GetRequiredService<IFileSystem>(),
             sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IBackgroundWorkQueue>(),
             sp.GetRequiredService<ILogger<Neo4jKnowledgeGraph>>()));
 
         // F48 — retrieval benchmark runner (measures CompileContextAsync quality)

@@ -25,6 +25,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     private readonly IHeadVectorStore _headVectorStore;
     private readonly IFileSystem _fileSystem;
     private readonly TimeProvider _timeProvider;
+    private readonly IBackgroundWorkQueue _backgroundWorkQueue;
     private readonly ILogger<Neo4jKnowledgeGraph> _logger;
 
     // >0 while a bulk ingestion is in progress; suppresses per-upsert inline embedding (see BeginBulkIngestion).
@@ -41,6 +42,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <param name="headVectorStore">Head-vector store, queried for stage-1 coverage statistics.</param>
     /// <param name="fileSystem">File system abstraction for path resolution.</param>
     /// <param name="timeProvider">Time provider for temporal-validity timestamps.</param>
+    /// <param name="backgroundWorkQueue">Queue for supervised post-import embedding rebuilds.</param>
     /// <param name="logger">Logger for diagnostics.</param>
     internal Neo4jKnowledgeGraph(
         ICypherExecutor cypher,
@@ -51,6 +53,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         IHeadVectorStore headVectorStore,
         IFileSystem fileSystem,
         TimeProvider timeProvider,
+        IBackgroundWorkQueue backgroundWorkQueue,
         ILogger<Neo4jKnowledgeGraph> logger)
     {
         _cypher = cypher;
@@ -61,6 +64,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         _headVectorStore = headVectorStore;
         _fileSystem = fileSystem;
         _timeProvider = timeProvider;
+        _backgroundWorkQueue = backgroundWorkQueue;
         _logger = logger;
     }
 
@@ -281,19 +285,20 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         if (Interlocked.Decrement(ref _bulkIngestionDepth) != 0)
             return;
 
-        // Fire-and-forget — the rebuild handles its own errors and reports progress to the activity tracker.
-        _ = Task.Run(async () =>
+        // Supervised background work: a dedicated hosted consumer drains this and cancels it on host
+        // shutdown, instead of an unobserved Task.Run that ignored shutdown and detached its failures.
+        _backgroundWorkQueue.Enqueue(async ct =>
         {
             try
             {
-                await RebuildEmbeddingsAsync(CancellationToken.None).ConfigureAwait(false);
+                await RebuildEmbeddingsAsync(ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex,
                     "Post-import embedding rebuild failed — semantic search may be degraded | {Component}", "AKG");
             }
-        });
+        }, "post-import embedding rebuild");
     }
 
     /// <summary>Reference-counted scope returned by <see cref="BeginBulkIngestion"/>.</summary>

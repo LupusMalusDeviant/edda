@@ -1,3 +1,4 @@
+using Edda.AKG.Background;
 using Edda.AKG.Graph;
 using Edda.AKG.Tests.TestUtilities;
 using Edda.Core.Abstractions;
@@ -11,6 +12,7 @@ public sealed class WorldKnowledgeSeedHostedServiceTests
     private readonly InMemoryFileSystem _fileSystem = new();
     private readonly FakeCypherExecutor _cypher = new();
     private readonly Mock<IKnowledgeGraph> _graphMock = new();
+    private readonly ChannelBackgroundWorkQueue _workQueue = new();
     private readonly WorldKnowledgeSeedHostedService _sut;
 
     public WorldKnowledgeSeedHostedServiceTests()
@@ -36,6 +38,7 @@ public sealed class WorldKnowledgeSeedHostedServiceTests
             _graphMock.Object,
             _fileSystem,
             _cypher,
+            _workQueue,
             NullLogger<WorldKnowledgeSeedHostedService>.Instance);
     }
 
@@ -46,6 +49,22 @@ public sealed class WorldKnowledgeSeedHostedServiceTests
 
         _cypher.ExecutedWriteQueries.Should().Contain(q =>
             q.Contains("'tools'") && q.Contains("'custom-tools'") && q.Contains("HAS_SUBDOMAIN"));
+    }
+
+    [Fact]
+    public async Task StartAsync_EnqueuesSupersededRuleInvalidation()
+    {
+        _graphMock.Setup(g => g.InvalidateSupersededRulesAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        await _sut.StartAsync(CancellationToken.None);
+
+        // The invalidation is queued (not run inline / not detached via Task.Run). Draining the queue
+        // and running the item must invoke InvalidateSupersededRulesAsync.
+        var item = await _workQueue.DequeueAsync(CancellationToken.None);
+        await item.Work(CancellationToken.None);
+
+        _graphMock.Verify(g => g.InvalidateSupersededRulesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

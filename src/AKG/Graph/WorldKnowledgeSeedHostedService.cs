@@ -25,6 +25,7 @@ internal sealed class WorldKnowledgeSeedHostedService : IHostedService
     private readonly IKnowledgeGraph _knowledgeGraph;
     private readonly IFileSystem _fileSystem;
     private readonly ICypherExecutor _cypher;
+    private readonly IBackgroundWorkQueue _backgroundWorkQueue;
     private readonly ILogger<WorldKnowledgeSeedHostedService> _logger;
 
     public WorldKnowledgeSeedHostedService(
@@ -33,6 +34,7 @@ internal sealed class WorldKnowledgeSeedHostedService : IHostedService
         IKnowledgeGraph knowledgeGraph,
         IFileSystem fileSystem,
         ICypherExecutor cypher,
+        IBackgroundWorkQueue backgroundWorkQueue,
         ILogger<WorldKnowledgeSeedHostedService> logger)
     {
         _seeder = seeder;
@@ -40,6 +42,7 @@ internal sealed class WorldKnowledgeSeedHostedService : IHostedService
         _knowledgeGraph = knowledgeGraph;
         _fileSystem = fileSystem;
         _cypher = cypher;
+        _backgroundWorkQueue = backgroundWorkQueue;
         _logger = logger;
     }
 
@@ -115,19 +118,20 @@ internal sealed class WorldKnowledgeSeedHostedService : IHostedService
         // Invalidate superseded rules in the background — must NOT block StartAsync. Embedding itself is
         // owned by EmbeddingBackfillHostedService, which drains the corpus resiliently and resumes after
         // restarts, so we no longer kick off a one-shot rebuild here (the old one aborted after a few
-        // provider failures and left most of a large corpus unembedded).
-        _ = Task.Run(async () =>
+        // provider failures and left most of a large corpus unembedded). The work is enqueued on the
+        // supervised background queue so it is cancelled on shutdown instead of detached via Task.Run.
+        _backgroundWorkQueue.Enqueue(async ct =>
         {
             try
             {
-                await _knowledgeGraph.InvalidateSupersededRulesAsync(CancellationToken.None).ConfigureAwait(false);
+                await _knowledgeGraph.InvalidateSupersededRulesAsync(ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex,
                     "Superseded-rule invalidation failed on startup | {Component}", "AKG");
             }
-        }, CancellationToken.None);
+        }, "superseded-rule invalidation");
     }
 
     /// <summary>

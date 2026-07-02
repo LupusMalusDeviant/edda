@@ -1,3 +1,4 @@
+using Edda.AKG.Background;
 using Edda.AKG.Chunking;
 using Edda.AKG.Context;
 using Edda.AKG.Embeddings;
@@ -114,6 +115,7 @@ public class Neo4jKnowledgeGraphTests
             HeadVectorStore(),
             fs.Object,
             TimeProvider.System,
+            new ChannelBackgroundWorkQueue(),
             logger.Object);
     }
 
@@ -289,6 +291,7 @@ public class Neo4jKnowledgeGraphTests
             HeadVectorStore(),
             fs.Object,
             TimeProvider.System,
+            new ChannelBackgroundWorkQueue(),
             logger.Object);
 
         var rule = new KnowledgeRule
