@@ -114,6 +114,17 @@ public static class AkgEndpoints
                             statusCode: StatusCodes.Status503ServiceUnavailable);
                     }
 
+                    // Reject empty or oversized text before spending any LLM budget on extraction.
+                    var maxChars = IngestionTextValidator.ResolveMaxChars(configuration["INGESTION_MAX_TEXT_CHARS"]);
+                    var textError = IngestionTextValidator.Validate(request.Text, maxChars);
+                    if (textError is not null)
+                    {
+                        return Results.ValidationProblem(new Dictionary<string, string[]>
+                        {
+                            ["text"] = [textError],
+                        });
+                    }
+
                     var userId = identity.UserId ?? "local";
                     var result = await entities.IngestTextAsync(request.Text, request.DomainHint, userId, "manual", ct);
                     return Results.Ok(result);
