@@ -6,6 +6,7 @@ using Edda.Web.Components;
 using Edda.Web.Services;
 using Edda.Hosting.Authentication;
 using Edda.Hosting.DependencyInjection;
+using Edda.Hosting.Middleware;
 using Edda.Security.Authentication;
 using Edda.Security.Networking;
 
@@ -89,7 +90,10 @@ var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    // A10: redact secrets from unhandled-exception logs (API keys/tokens can appear in messages or
+    // request URLs) and return a ProblemDetails 500 instead of leaking internals. In Development the
+    // framework developer exception page is kept for local debugging.
+    app.UseMiddleware<SecretRedactingExceptionMiddleware>();
 }
 
 // Apply the IP rate limiter to the API and MCP surface only, ahead of authentication so that
