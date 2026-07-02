@@ -295,18 +295,20 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     {
         if (targetIds.Length == 0) return;
 
+        // Replace all edges of this relation type from the source in a single round-trip: delete the
+        // existing ones, then MERGE an edge to each target via UNWIND. Previously this issued one MERGE
+        // query per target (N+1 round-trips: 100 relations = 100 queries). relType is a fixed internal
+        // constant (never user input), so interpolating it into the query is safe.
         await _cypher.ExecuteAsync(
-            $"MATCH (s:Rule {{id: $sourceId}})-[e:{relType}]->() DELETE e",
-            new { sourceId },
+            "MATCH (s:Rule {id: $sourceId}) " +
+            $"OPTIONAL MATCH (s)-[e:{relType}]->() " +
+            "DELETE e " +
+            "WITH DISTINCT s " +
+            "UNWIND $targetIds AS targetId " +
+            "MATCH (t:Rule {id: targetId}) " +
+            $"MERGE (s)-[:{relType}]->(t)",
+            new { sourceId, targetIds },
             ct).ConfigureAwait(false);
-
-        foreach (var targetId in targetIds)
-        {
-            await _cypher.ExecuteAsync(
-                $"MATCH (s:Rule {{id: $sourceId}}), (t:Rule {{id: $targetId}}) MERGE (s)-[:{relType}]->(t)",
-                new { sourceId, targetId },
-                ct).ConfigureAwait(false);
-        }
     }
 
     /// <inheritdoc/>

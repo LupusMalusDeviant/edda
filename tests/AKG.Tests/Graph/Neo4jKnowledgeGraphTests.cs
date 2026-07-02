@@ -347,6 +347,30 @@ public class Neo4jKnowledgeGraphTests
     }
 
     [Fact]
+    public async Task UpsertRuleAsync_WithManyTargetsInRelation_IssuesSingleBatchedEdgeQueryPerRelationType()
+    {
+        var graph = CreateGraph();
+        var targets = Enumerable.Range(0, 25).Select(i => $"target-{i}").ToArray();
+        var rule = new KnowledgeRule
+        {
+            Id        = "batch-source",
+            Domain    = "docs",
+            Type      = "WorldKnowledge",
+            Priority  = RulePriority.Medium,
+            Body      = "Body.",
+            RelatesTo = new RuleRelations { Related = targets },
+        };
+
+        await graph.UpsertRuleAsync(rule);
+
+        // Exactly one write query MERGEs the RELATED edges, regardless of the number of targets
+        // (previously this was one MERGE per target — the N+1 round-trips that D1 removes).
+        _cypher.ExecutedWriteQueries.Count(q => q.Contains("MERGE (s)-[:RELATED]")).Should().Be(1);
+        _cypher.ExecutedWriteQueries.Should().Contain(q =>
+            q.Contains("MERGE (s)-[:RELATED]") && q.Contains("UNWIND $targetIds AS targetId"));
+    }
+
+    [Fact]
     public async Task GetRuleAsync_NodeWithRelated_MapsRelatedRelation()
     {
         var node = new Mock<INode>();

@@ -253,6 +253,32 @@ public sealed class InMemoryCypherExecutorTests
         rows.Should().ContainSingle(); // REQUIRES edge to b still present → b once
     }
 
+    [Fact]
+    public async Task BatchedEdgeUpsert_CreatesAllTargetsAndReplacesExistingEdges()
+    {
+        await Upsert("a");
+        await Upsert("b");
+        await Upsert("c");
+        await Upsert("x");
+        await MergeEdge("a", "IMPLIES", "x"); // pre-existing IMPLIES edge the batch must replace
+
+        // The batched shape now issued by Neo4jKnowledgeGraph.UpsertEdgesAsync (issue D1).
+        await _sut.ExecuteAsync(
+            "MATCH (s:Rule {id: $sourceId}) " +
+            "OPTIONAL MATCH (s)-[e:IMPLIES]->() " +
+            "DELETE e " +
+            "WITH DISTINCT s " +
+            "UNWIND $targetIds AS targetId " +
+            "MATCH (t:Rule {id: targetId}) " +
+            "MERGE (s)-[:IMPLIES]->(t)",
+            new { sourceId = "a", targetIds = new[] { "b", "c" } });
+
+        var rows = await _sut.QueryAsync(NeighborsQuery, new { ruleId = "a", userId = (string?)null });
+        var ids = rows.Select(r => ((IReadOnlyDictionary<string, object?>)r["n"]!)["id"] as string).ToList();
+
+        ids.Should().BeEquivalentTo(["b", "c"]); // x replaced away; b and c added in one query
+    }
+
     private Task MergeEdge(string source, string rel, string target)
         => _sut.ExecuteAsync(
             $"MATCH (s:Rule {{id: $sourceId}}), (t:Rule {{id: $targetId}}) MERGE (s)-[:{rel}]->(t)",

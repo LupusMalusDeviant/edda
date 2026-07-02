@@ -221,6 +221,9 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         if (q.Contains("CREATE (:HeadVector")) return true;
         if (q.Contains("CREATE VECTOR INDEX")) return true;
         // Knowledge-graph writes.
+        // Batched edge replace (UNWIND $targetIds) must be checked before the single-edge shapes: it
+        // contains both "-[e:…] DELETE e" and "MERGE (s)-[:…" and would otherwise match those first.
+        if (q.Contains("UNWIND $targetIds AS targetId") && q.Contains("MERGE (s)-[:")) { ReplaceEdges(q, p); return true; }
         if (q.Contains("MERGE (r:Rule {id: $id})")) { UpsertRule(p); return true; }
         if (q.Contains("-[e:") && q.Contains("DELETE e")) { DeleteEdges(q, p); return true; }
         if (q.Contains("MERGE (s)-[:")) { MergeEdge(q, p); return true; }
@@ -274,6 +277,22 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         if (relType is null || sourceId is null || targetId is null) return;
         if (!_edges.Any(e => e.Source == sourceId && e.Rel == relType && e.Target == targetId))
             _edges.Add(new Edge(sourceId, relType, targetId));
+    }
+
+    private void ReplaceEdges(string q, IReadOnlyDictionary<string, object?> p)
+    {
+        var relType = ExtractBetween(q, "MERGE (s)-[:", "]");
+        var sourceId = AsString(p, "sourceId");
+        if (relType is null || sourceId is null) return;
+
+        // Replace semantics (mirrors the batched Neo4j query): drop all existing edges of this type
+        // from the source, then add an edge to each target id in the UNWIND batch.
+        _edges.RemoveAll(e => e.Source == sourceId && e.Rel == relType);
+        foreach (var targetId in AsStrings(p.GetValueOrDefault("targetIds")))
+        {
+            if (!_edges.Any(e => e.Source == sourceId && e.Rel == relType && e.Target == targetId))
+                _edges.Add(new Edge(sourceId, relType, targetId));
+        }
     }
 
     private void RemoveProp(IReadOnlyDictionary<string, object?> p, string property)
