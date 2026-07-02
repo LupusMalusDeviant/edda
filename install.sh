@@ -90,6 +90,10 @@ fi
 ENRICHER=""
 [ -n "${LLM_PROVIDER:-}" ] && ENRICHER="llm"
 
+# Neo4j-Zufallspasswort erzeugen (24 alphanumerische Zeichen; kein '/', da NEO4J_AUTH=neo4j/<pw>
+# den Schrägstrich als Trenner nutzt). So startet die DB NICHT im offenen No-Auth-Modus.
+NEO4J_PW="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-24)"
+
 cat > .env <<EOF
 # Von install.sh erzeugt. Enthält Secrets — niemals committen (steht in .gitignore).
 EDDA_BIND=$BIND
@@ -102,10 +106,16 @@ INGESTION_ENRICHER=$ENRICHER
 INGESTION_LLM_PROVIDER=${LLM_PROVIDER:-}
 INGESTION_LLM_API_KEY=$LLM_KEY
 EDDA_AUTH_TOKEN=${AUTH_TOKEN:-}
+# Neo4j-Authentifizierung (automatisch erzeugtes Zufallspasswort — DB nicht offen).
+NEO4J_AUTH=neo4j/$NEO4J_PW
+NEO4J_AUTH_MODE=basic
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=$NEO4J_PW
 EOF
 # Ollama-Profil aktivieren, damit jeder `docker compose`-Aufruf den Embedding-Server mitstartet.
 [ "$USE_OLLAMA" = "1" ] && echo "COMPOSE_PROFILES=local-embeddings" >> .env
 ok ".env geschrieben (Bind ${BIND}:${PORT})."
+ok "Neo4j-Zufallspasswort erzeugt und in .env hinterlegt (keine offene DB)."
 
 # ── 4) Deploy ───────────────────────────────────────────────────────────────
 echo

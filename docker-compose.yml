@@ -19,6 +19,11 @@ services:
       - GRAPH_PROVIDER=${GRAPH_PROVIDER:-neo4j}
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_AUTH=${NEO4J_AUTH:-none}
+      # App-seitige Neo4j-Zugangsdaten: der neo4j-Container liest NEO4J_AUTH, die App meldet sich mit
+      # NEO4J_USERNAME/NEO4J_PASSWORD an. Defaults = bisheriges Verhalten; install.sh/ps1 hinterlegen
+      # hier das erzeugte Zufallspasswort (damit die App die dann authentifizierte DB erreicht).
+      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
       # Embeddings — openai | google | voyage | ollama | custom | bedrock | null
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-null}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

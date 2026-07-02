@@ -27,12 +27,24 @@ public sealed class Neo4jGraphDatabaseProvider : IGraphDatabaseProvider
     {
         _logger = loggerFactory.CreateLogger<Neo4jGraphDatabaseProvider>();
 
-        var authToken = string.Equals(config.Auth, "none", StringComparison.OrdinalIgnoreCase)
+        var isNoAuth = string.Equals(config.Auth, "none", StringComparison.OrdinalIgnoreCase);
+        var authToken = isNoAuth
             ? AuthTokens.None
             : AuthTokens.Basic(config.Username, config.Password);
 
         _driver = GraphDatabase.Driver(config.Uri, authToken);
         _executor = new Neo4jCypherExecutor(_driver);
+
+        if (isNoAuth)
+        {
+            _logger.LogWarning(
+                "Neo4j is configured WITHOUT authentication (NEO4J_AUTH_MODE=none): the database " +
+                "accepts unauthenticated connections. If the Bolt endpoint ({Uri}) is reachable " +
+                "beyond this host, the graph is exposed. Set NEO4J_AUTH_MODE=basic with " +
+                "NEO4J_USERNAME/NEO4J_PASSWORD — the install scripts generate a random password. " +
+                "| {Component}",
+                config.Uri, "GraphProvider");
+        }
 
         _logger.LogInformation(
             "Neo4j graph provider initialized: {Uri} | {Component}",

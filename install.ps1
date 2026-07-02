@@ -86,6 +86,14 @@ if (Test-Path .env) {
 $enricher       = if (-not [string]::IsNullOrWhiteSpace($llmProvider)) { "llm" }  else { "" }
 $embProviderOut = if ([string]::IsNullOrWhiteSpace($embProvider))      { "null" } else { $embProvider }
 
+# Neo4j-Zufallspasswort erzeugen (24 alphanumerische Zeichen; kein '/', da NEO4J_AUTH=neo4j/<pw>
+# den Schraegstrich als Trenner nutzt). So startet die DB NICHT im offenen No-Auth-Modus.
+$neo4jRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$neo4jBytes = New-Object 'System.Byte[]' 48
+$neo4jRng.GetBytes($neo4jBytes)
+$neo4jRng.Dispose()
+$neo4jPw = (([System.Convert]::ToBase64String($neo4jBytes)) -replace '[^A-Za-z0-9]', '').Substring(0, 24)
+
 $lines = @(
     "# Von install.ps1 erzeugt. Enthaelt Secrets - niemals committen (steht in .gitignore)."
     "EDDA_BIND=$bind"
@@ -98,6 +106,11 @@ $lines = @(
     "INGESTION_LLM_PROVIDER=$llmProvider"
     "INGESTION_LLM_API_KEY=$llmKey"
     "EDDA_AUTH_TOKEN=$authToken"
+    "# Neo4j-Authentifizierung (automatisch erzeugtes Zufallspasswort - DB nicht offen)."
+    "NEO4J_AUTH=neo4j/$neo4jPw"
+    "NEO4J_AUTH_MODE=basic"
+    "NEO4J_USERNAME=neo4j"
+    "NEO4J_PASSWORD=$neo4jPw"
 )
 # Ollama-Profil aktivieren, damit jeder docker-compose-Aufruf den Embedding-Server mitstartet.
 if ($useOllama) { $lines += "COMPOSE_PROFILES=local-embeddings" }
@@ -105,6 +118,7 @@ if ($useOllama) { $lines += "COMPOSE_PROFILES=local-embeddings" }
 $envPath = Join-Path $PSScriptRoot ".env"
 [System.IO.File]::WriteAllText($envPath, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding $false))
 Write-Ok ".env geschrieben (Bind ${bind}:${port})."
+Write-Ok "Neo4j-Zufallspasswort erzeugt und in .env hinterlegt (keine offene DB)."
 
 # -- 4) Deploy ---------------------------------------------------------------
 Write-Host ""
