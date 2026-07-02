@@ -110,7 +110,8 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<TimeProvider>(),
             sp.GetService<IRuleFeedbackService>(),
             sp.GetService<IEntityStore>(),
-            sp.GetRequiredService<IHeadVectorStore>()));
+            sp.GetRequiredService<IHeadVectorStore>(),
+            RetrievalOptionsResolver.Resolve(configuration)));
 
         // Knowledge graph (main public API)
         services.AddSingleton<IKnowledgeGraph>(sp => new Neo4jKnowledgeGraph(

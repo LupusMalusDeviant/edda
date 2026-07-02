@@ -19,28 +19,13 @@ namespace Edda.AKG.Context;
 /// </summary>
 internal sealed class SemanticBooster
 {
-    /// <summary>
-    /// Minimum cosine similarity for a rule to be considered a semantic match. Raised from 0.3 to 0.5 to
-    /// drop loosely-related hits (the noise that let unrelated topics surface); tune against the new
-    /// per-phase timing + embedding-coverage signals if recall suffers.
-    /// </summary>
-    private const double SimilarityThreshold = 0.5;
-
-    /// <summary>Number of nearest chunk neighbours requested from the vector index.</summary>
-    private const int VectorTopK = 100;
-
     /// <summary>Name of the Neo4j vector index over <c>(:RuleChunk).embedding</c>.</summary>
     private const string VectorIndexName = "chunk_embeddings";
 
     /// <summary>RRF dampening constant (standard value 60).</summary>
     private const int RrfK = 60;
 
-    /// <summary>Number of top candidates to diversify with MMR.</summary>
-    private const int MmrTopN = 15;
-
-    /// <summary>MMR relevance/diversity trade-off (1.0 = pure relevance, 0.0 = pure diversity).</summary>
-    private const double MmrLambda = 0.7;
-
+    private readonly RetrievalOptions _options;
     private readonly IEmbeddingService _embeddings;
     private readonly ICypherExecutor _cypher;
     private readonly ILogger<SemanticBooster> _logger;
@@ -51,14 +36,20 @@ internal sealed class SemanticBooster
     /// <param name="embeddings">Embedding service for generating query vectors.</param>
     /// <param name="cypher">Cypher executor for the vector index query and embedding retrieval.</param>
     /// <param name="logger">Logger for diagnostics.</param>
+    /// <param name="options">
+    /// Tunable retrieval thresholds/limits (similarity threshold, vector top-K, MMR top-N and lambda).
+    /// Null uses the defaults, which preserve the historical hard-coded behaviour.
+    /// </param>
     internal SemanticBooster(
         IEmbeddingService embeddings,
         ICypherExecutor cypher,
-        ILogger<SemanticBooster> logger)
+        ILogger<SemanticBooster> logger,
+        RetrievalOptions? options = null)
     {
         _embeddings = embeddings;
         _cypher = cypher;
         _logger = logger;
+        _options = options ?? new RetrievalOptions();
     }
 
     /// <summary>
@@ -117,10 +108,10 @@ internal sealed class SemanticBooster
         var fused = RrfFuse(scoredRules, semanticScores);
 
         // Diversify the top candidates via MMR over their embeddings.
-        var topIds = fused.Take(MmrTopN).Select(r => r.Rule.Id).ToList();
+        var topIds = fused.Take(_options.MmrTopN).Select(r => r.Rule.Id).ToList();
         var topEmbeddings = await FetchRepresentativeEmbeddingsAsync(topIds, ct).ConfigureAwait(false);
         if (topEmbeddings.Count > 1)
-            fused = RuleMmrReranker.Rerank(fused, topEmbeddings, MmrTopN, MmrLambda);
+            fused = RuleMmrReranker.Rerank(fused, topEmbeddings, _options.MmrTopN, _options.MmrLambda);
 
         _logger.LogDebug(
             "Semantic phase: RRF over {Sem} matches, MMR over {Emb} embedded top candidates | {Component}",
@@ -204,9 +195,9 @@ internal sealed class SemanticBooster
                 new
                 {
                     index = VectorIndexName,
-                    topK = VectorTopK,
+                    topK = _options.VectorTopK,
                     vector = queryEmbedding,
-                    threshold = SimilarityThreshold,
+                    threshold = _options.SimilarityThreshold,
                     userId,
                 },
                 ct).ConfigureAwait(false);
@@ -248,7 +239,7 @@ internal sealed class SemanticBooster
             var best = 0.0;
             foreach (var embedding in chunkEmbeddings)
                 best = Math.Max(best, CosineSimilarity(queryEmbedding, embedding));
-            if (best > SimilarityThreshold)
+            if (best > _options.SimilarityThreshold)
                 scores[id] = best;
         }
 

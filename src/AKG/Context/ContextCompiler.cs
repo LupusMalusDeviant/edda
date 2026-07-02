@@ -31,14 +31,12 @@ internal sealed class ContextCompiler : IContextCompiler
     /// <summary>Number of repository/upload heads stage 1 pre-prunes to (ADR-0009).</summary>
     private const int TopKHeads = 3;
 
-    /// <summary>Minimum head-centroid cosine similarity for a head to qualify in stage 1.</summary>
-    private const double HeadSimilarityThreshold = 0.4;
-
     private readonly ICypherExecutor _cypher;
     private readonly IEmbeddingService _embeddings;
     private readonly IHeadVectorStore? _headVectorStore;
     private readonly KeywordScorer _keywordScorer;
     private readonly SemanticBooster _semanticBooster;
+    private readonly RetrievalOptions _retrievalOptions;
     private readonly GraphExpander _graphExpander;
     private readonly WorldKnowledgeFetcher _worldFetcher;
     private readonly ToolboxResolver _toolboxResolver;
@@ -69,6 +67,10 @@ internal sealed class ContextCompiler : IContextCompiler
     /// most query-relevant repository/upload subtrees before loading rules. Null disables pre-pruning
     /// (the compiler then performs the full in-scope scan as before).
     /// </param>
+    /// <param name="options">
+    /// Optional retrieval thresholds/limits bound from <c>RETRIEVAL_*</c> configuration. Null uses the
+    /// defaults (the historical hard-coded values), so behaviour is unchanged unless overridden.
+    /// </param>
     public ContextCompiler(
         ICypherExecutor cypher,
         IEmbeddingService embeddingService,
@@ -77,18 +79,21 @@ internal sealed class ContextCompiler : IContextCompiler
         TimeProvider timeProvider,
         IRuleFeedbackService? feedbackService = null,
         IEntityStore? entityStore = null,
-        IHeadVectorStore? headVectorStore = null)
+        IHeadVectorStore? headVectorStore = null,
+        RetrievalOptions? options = null)
     {
         _cypher = cypher;
         _embeddings = embeddingService;
         _headVectorStore = headVectorStore;
         _timeProvider = timeProvider;
         _entityStore = entityStore;
+        _retrievalOptions = options ?? new RetrievalOptions();
         _keywordScorer = new KeywordScorer();
         _semanticBooster = new SemanticBooster(
             embeddingService,
             cypher,
-            loggerFactory.CreateLogger<SemanticBooster>());
+            loggerFactory.CreateLogger<SemanticBooster>(),
+            _retrievalOptions);
         _graphExpander = new GraphExpander(cypher);
         _worldFetcher = new WorldKnowledgeFetcher(cypher);
         _toolboxResolver = new ToolboxResolver();
@@ -332,7 +337,7 @@ internal sealed class ContextCompiler : IContextCompiler
         try
         {
             var heads = await _headVectorStore
-                .FindTopHeadsAsync(queryEmbedding, TopKHeads, HeadSimilarityThreshold, userId, ct)
+                .FindTopHeadsAsync(queryEmbedding, TopKHeads, _retrievalOptions.HeadSimilarityThreshold, userId, ct)
                 .ConfigureAwait(false);
             if (heads.Count == 0)
                 return [];
