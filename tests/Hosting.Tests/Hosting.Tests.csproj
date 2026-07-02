@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Integration tests boot the Blazor Web host in-memory via WebApplicationFactory. Referencing the
+       Web app (Microsoft.NET.Sdk.Web) requires the ASP.NET Core shared framework; Mvc.Testing provides
+       WebApplicationFactory + the in-memory TestServer (no Kestrel, no Docker/Neo4j). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\Web\Web.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

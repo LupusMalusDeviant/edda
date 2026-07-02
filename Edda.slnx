@@ -19,6 +19,7 @@
     <Project Path="tests/AKG.Tests/AKG.Tests.csproj" />
     <Project Path="tests/Core.Tests/Core.Tests.csproj" />
     <Project Path="tests/Embeddings.Tests/Embeddings.Tests.csproj" />
+    <Project Path="tests/Hosting.Tests/Hosting.Tests.csproj" />
     <Project Path="tests/Sandboxing.Tests/Sandboxing.Tests.csproj" />
     <Project Path="tests/Security.Tests/Security.Tests.csproj" />
     <Project Path="tests/Web.Tests/Web.Tests.csproj" />

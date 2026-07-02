@@ -199,3 +199,10 @@ app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 await app.Services.GetRequiredService<ISettingsService>().ReloadAsync();
 
 app.Run();
+
+/// <summary>
+/// Explicit partial entry-point type so integration tests can target the host via
+/// <c>WebApplicationFactory&lt;Program&gt;</c>. Top-level statements otherwise emit an internal
+/// <c>Program</c> that is not referenceable from the test assembly.
+/// </summary>
+public partial class Program { }
