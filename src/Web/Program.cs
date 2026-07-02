@@ -9,6 +9,7 @@ using Edda.Hosting.DependencyInjection;
 using Edda.Hosting.Middleware;
 using Edda.Security.Authentication;
 using Edda.Security.Networking;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -86,7 +87,33 @@ if (rateLimitOptions.IsEnabled)
     });
 }
 
+// Forwarded headers (issue A5): opt-in via EDDA_TRUSTED_PROXIES (comma-separated proxy IPs). Behind a
+// reverse proxy the direct peer is the proxy, so X-Forwarded-For/-Proto must be honored to recover the
+// real client IP + scheme — but ONLY from the listed proxies, or a client could spoof its source IP.
+// When unset the middleware is not added at all, so forwarded headers are ignored (safe default) and
+// RemoteIpAddress stays the direct peer. The framework's default trusted loopback network/proxy is
+// cleared so exactly the configured proxies are trusted, nothing more.
+var trustedProxies = TrustedProxyParser.Parse(builder.Configuration["EDDA_TRUSTED_PROXIES"]);
+if (trustedProxies.Count > 0)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+        foreach (var proxy in trustedProxies)
+            options.KnownProxies.Add(proxy);
+    });
+}
+
 var app = builder.Build();
+
+// Apply forwarded headers first — before rate limiting, logging and auth — so every downstream
+// component sees the real client IP/scheme. Only active when EDDA_TRUSTED_PROXIES is configured (A5).
+if (trustedProxies.Count > 0)
+{
+    app.UseForwardedHeaders();
+}
 
 if (!app.Environment.IsDevelopment())
 {

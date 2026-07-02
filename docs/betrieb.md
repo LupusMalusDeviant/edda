@@ -40,6 +40,7 @@ Die App bindet lokal auf `http://127.0.0.1:8080` (UI, REST, MCP). Der Container 
 | `EDDA_AUTH_TOKEN` | (leer) | optionaler Bearer-Token für `/api/akg/*` + `/mcp` |
 | `EDDA_BIND` | `127.0.0.1` | Host-Bind-Adresse (`0.0.0.0` = alle Interfaces, remote erreichbar) |
 | `EDDA_ALLOW_INSECURE_REMOTE` | (leer) | `true` hebt den Fail-Fast bei Remote-Bind ohne Token auf |
+| `EDDA_TRUSTED_PROXIES` | (leer) | kommagetrennte Proxy-IPs, deren `X-Forwarded-*` vertraut wird (leer = Header ignoriert) |
 | `TDK_SANDBOX_TYPE` | `docker` | docker/wasm/null |
 | `INGESTION_ENRICHER` | (leer) | `llm` aktiviert den opt-in LLM-Enricher (Verdichtung + Relationen) |
 | `INGESTION_ENTITY_EXTRACTION` | (leer) | `true` aktiviert die opt-in Entity-Extraktion beim Ingest |
@@ -57,6 +58,56 @@ die Authentifizierung selbst übernimmt —, lässt sich der Guard mit `EDDA_ALL
 deaktivieren. Der Guard wertet primär `EDDA_BIND` aus; beim direkten `dotnet run` ohne `EDDA_BIND`
 zieht er ersatzweise `ASPNETCORE_URLS` heran. Der interne All-Interfaces-Bind des Containers zählt
 nicht als Remote-Freigabe — dort entscheidet allein `EDDA_BIND` über die Host-seitige Erreichbarkeit.
+
+## Betrieb hinter einem Reverse-Proxy (Forwarded Headers)
+
+Hinter einem Reverse-Proxy (nginx, Caddy, Traefik …) ist der direkte Peer aller Requests der Proxy —
+`RemoteIpAddress` wäre also für jeden Request die Proxy-IP (oft Loopback), und IP-basierte Logik wie das
+Rate-Limiting würde alle Clients in einen Topf werfen. Damit Edda die echte Client-IP und das Schema
+(http/https) sieht, muss es die `X-Forwarded-For`/`X-Forwarded-Proto`-Header auswerten.
+
+Aus Sicherheitsgründen ist das **opt-in**: Edda vertraut diesen Headern nur, wenn die Proxy-IP in
+`EDDA_TRUSTED_PROXIES` steht (kommagetrennt). Ohne die Variable werden Forwarded-Header **ignoriert**
+(sicherer Default) — sonst könnte ein direkter Client seine Quell-IP fälschen. Es werden ausschließlich
+die gelisteten Proxys vertraut (die Framework-Defaults für Loopback werden bewusst entfernt); ein lokal
+laufender Proxy muss also mit seiner Loopback-Adresse (`127.0.0.1` bzw. `::1`) eingetragen werden.
+
+```bash
+# Reverse-Proxy läuft lokal auf demselben Host:
+EDDA_TRUSTED_PROXIES=127.0.0.1,::1
+```
+
+**nginx** (Ausschnitt) — terminiert TLS und setzt die Standard-Forwarded-Header:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name edda.example.com;
+    # ssl_certificate / ssl_certificate_key …
+
+    location / {
+        proxy_pass         http://127.0.0.1:8080;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # WebSocket/SSE (Blazor-Circuit, MCP-SSE):
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+    }
+}
+```
+
+**Caddy** (`Caddyfile`) — setzt die Forwarded-Header automatisch:
+
+```caddy
+edda.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Läuft der Proxy auf einem anderen Host, trägt man dessen IP(s) statt der Loopback-Adressen ein; bei einer
+Proxy-Kette müssen alle Hop-IPs aufgeführt werden.
 
 ## Volumes & Verzeichnisse
 
