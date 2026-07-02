@@ -1,3 +1,4 @@
+using System.Threading.RateLimiting;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Edda.Gateway.Api;
@@ -61,11 +62,44 @@ if (mcpEnabled)
     builder.Services.AddEddaMcpHandlers();
 }
 
+// Rate limiting on the /api and /mcp surface (issue A2): opt-in via EDDA_RATE_LIMIT_PER_MINUTE
+// (0 or unset = off, preserving the historical unlimited behaviour). A fixed window per client IP
+// caps token brute-force and request floods. The interactive Blazor Server circuit is excluded (see
+// the path-scoped middleware below), so real-time UI sessions stay unaffected.
+var rateLimitOptions = RateLimitOptions.Parse(builder.Configuration["EDDA_RATE_LIMIT_PER_MINUTE"]);
+if (rateLimitOptions.IsEnabled)
+{
+    builder.Services.AddRateLimiter(limiterOptions =>
+    {
+        limiterOptions.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        limiterOptions.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = rateLimitOptions.PermitsPerMinute,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0,
+                }));
+    });
+}
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
+}
+
+// Apply the IP rate limiter to the API and MCP surface only, ahead of authentication so that
+// unauthenticated brute-force attempts are throttled as well. The interactive UI and Blazor Server
+// circuit are never routed through this branch, so real-time sessions stay unaffected (issue A2).
+if (rateLimitOptions.IsEnabled)
+{
+    app.UseWhen(
+        context => context.Request.Path.StartsWithSegments("/api")
+                   || context.Request.Path.StartsWithSegments("/mcp"),
+        branch => branch.UseRateLimiter());
 }
 
 app.UseAntiforgery();

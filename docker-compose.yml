@@ -58,6 +58,8 @@ services:
       - EDDA_ALLOW_INSECURE_REMOTE=${EDDA_ALLOW_INSECURE_REMOTE:-}
       # Optional shared bearer token for /api/akg/* and /mcp (empty = loopback, no auth).
       - EDDA_AUTH_TOKEN=${EDDA_AUTH_TOKEN:-}
+      # Rate-Limiting fuer /api und /mcp (erlaubte Requests/Minute je IP). 0 = aus (Status quo).
+      - EDDA_RATE_LIMIT_PER_MINUTE=${EDDA_RATE_LIMIT_PER_MINUTE:-0}
       # TDK sandbox: docker (needs the mounted socket) | wasm (local python) | null
       - TDK_SANDBOX_TYPE=${TDK_SANDBOX_TYPE:-docker}
     depends_on:
