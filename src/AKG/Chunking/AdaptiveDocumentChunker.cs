@@ -49,11 +49,12 @@ public sealed class AdaptiveDocumentChunker : IDocumentChunker
         return chunks;
     }
 
-    private static List<string> Pack(
+    internal static List<string> Pack(
         IReadOnlyList<Block> blocks, int maxChars, int overlap, IReadOnlyList<string> textSeparators)
     {
         var pieces = new List<string>();
         var current = new StringBuilder();
+        Block? previous = null;
 
         foreach (var block in blocks)
         {
@@ -66,17 +67,36 @@ public sealed class AdaptiveDocumentChunker : IDocumentChunker
                     BlockKind.Code => RecursiveTextSplitter.Split(block.Text, maxChars, overlap, CodeSeparators),
                     _ => RecursiveTextSplitter.Split(block.Text, maxChars, overlap, textSeparators),
                 });
+                previous = block;
                 continue;
             }
 
             if (current.Length > 0 && current.Length + block.Text.Length > maxChars)
+            {
                 Flush(pieces, current);
+
+                // Carry overlap across the block boundary, but only between text blocks — never bleed
+                // code or table content into a neighbouring chunk (a code fragment must not reappear as
+                // prose overlap, and vice versa). Mirrors the within-block overlap in RecursiveTextSplitter:
+                // prepend the tail of the previous block, skipping it entirely when it would not fit.
+                if (overlap > 0 && previous is { Kind: BlockKind.Text } prevText && block.Kind == BlockKind.Text)
+                {
+                    var tail = Tail(prevText.Text, overlap);
+                    if (tail.Length + block.Text.Length <= maxChars)
+                        current.Append(tail);
+                }
+            }
+
             current.Append(block.Text);
+            previous = block;
         }
 
         Flush(pieces, current);
         return pieces.Where(piece => piece.Trim().Length > 0).ToList();
     }
+
+    /// <summary>Returns the last <paramref name="count"/> characters of <paramref name="value"/> (or all of it).</summary>
+    private static string Tail(string value, int count) => value.Length <= count ? value : value[^count..];
 
     private static void Flush(List<string> pieces, StringBuilder current)
     {
