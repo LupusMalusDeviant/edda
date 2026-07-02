@@ -6,6 +6,7 @@ using Edda.Web.Components;
 using Edda.Web.Services;
 using Edda.Hosting.Authentication;
 using Edda.Hosting.DependencyInjection;
+using Edda.Security.Authentication;
 using Edda.Security.Networking;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -115,10 +116,22 @@ if (mcpEnabled)
         branch => branch.Use(async (context, next) =>
         {
             var tokenStore = context.RequestServices.GetRequiredService<IMcpTokenStore>();
-            var header = context.Request.Headers.Authorization.ToString();
-            var token = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                ? header["Bearer ".Length..].Trim()
-                : context.Request.Query.TryGetValue("token", out var q) ? q.ToString() : null;
+            var token = BearerTokenParser.Parse(context.Request.Headers.Authorization.ToString());
+
+            // A6: the '?token=' query parameter is no longer accepted — query strings leak into server
+            // logs, browser history, and referrers. Only the Authorization header authenticates. Warn
+            // when a legacy client still sends '?token=' so operators can migrate. (stdio MCP is a
+            // separate host and does not pass through this HTTP gate.)
+            if (context.Request.Query.ContainsKey("token"))
+            {
+                context.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("Edda.Web.McpAuth")
+                    .LogWarning(
+                        "Ignoring deprecated '?token=' query parameter on {Path}; " +
+                        "use the 'Authorization: Bearer' header instead. | Mcp",
+                        context.Request.Path);
+            }
 
             var scopes = await tokenStore.ResolveAsync(token, context.RequestAborted);
             if (scopes is null)

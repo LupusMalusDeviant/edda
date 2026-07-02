@@ -38,7 +38,10 @@ bevor sie das Dateisystem durchsuchen.
 
 - **Ohne Token** (Default): loopback-Bind, jeder Request gilt als lokaler Admin (`sub=local`).
 - **Mit `EDDA_AUTH_TOKEN`**: `/api/akg/*` und `/mcp` verlangen
-  `Authorization: Bearer <token>` (oder `?token=<token>`), sonst 401.
+  `Authorization: Bearer <token>`, sonst 401. Für `/mcp` ist ausschließlich der
+  Header gültig — der frühere `?token=`-Query-Parameter wird aus Sicherheitsgründen
+  nicht mehr akzeptiert (Query-Strings landen in Logs, Browser-History und Referrern).
+  Wird er dennoch mitgeschickt, ignoriert der Server ihn und protokolliert eine Warnung.
 
 Der MCP-Nutzerkontext (`ToolExecutionContext.UserId`) kommt aus dem `sub`-Claim
 (HTTP) bzw. ist im stdio-Host `null` (Tools tolerieren das → `anonymous`/`local`).
