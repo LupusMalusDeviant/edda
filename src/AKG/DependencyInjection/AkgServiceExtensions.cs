@@ -157,7 +157,8 @@ public static class AkgServiceExtensions
                 sp.GetRequiredService<ISettingsService>().Current.Chunking, configuration),
             sp.GetRequiredService<ILogger<Neo4jEmbeddingCache>>(),
             sp.GetRequiredService<IActivityTracker>(),
-            int.TryParse(configuration?["EMBEDDING_REBUILD_PARALLELISM"], out var dop) && dop > 0 ? dop : 4));
+            int.TryParse(configuration?["EMBEDDING_REBUILD_PARALLELISM"], out var dop) && dop > 0 ? dop : 4,
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
 
         // Head-vector store (ADR-0009) — per-repo centroids for hierarchical stage-1 pre-pruning.
         services.AddSingleton<IHeadVectorStore>(sp => new Neo4jHeadVectorStore(

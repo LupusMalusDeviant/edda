@@ -2,8 +2,10 @@ using Edda.AKG.Chunking;
 using Edda.AKG.Embeddings;
 using Edda.AKG.Tests.TestUtilities;
 using Edda.Core.Abstractions;
+using Edda.Core.Exceptions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace Edda.AKG.Tests.Embeddings;
@@ -15,9 +17,25 @@ namespace Edda.AKG.Tests.Embeddings;
 /// </summary>
 public class Neo4jEmbeddingCacheTests
 {
-    private static Neo4jEmbeddingCache Cache(ICypherExecutor cypher, IEmbeddingService embeddings)
+    private static Neo4jEmbeddingCache Cache(
+        ICypherExecutor cypher, IEmbeddingService embeddings, TimeProvider? timeProvider = null)
         => new(cypher, embeddings, new AdaptiveDocumentChunker(), () => new ChunkingOptions(),
-            NullLogger<Neo4jEmbeddingCache>.Instance);
+            NullLogger<Neo4jEmbeddingCache>.Instance, timeProvider: timeProvider);
+
+    /// <summary>
+    /// Drives a rebuild that is awaiting <see cref="FakeTimeProvider"/>-backed retry delays to completion by
+    /// advancing the fake clock in a loop — so a backoff-driven test spends no real wall-clock time.
+    /// </summary>
+    private static async Task DriveToCompletionAsync(Task rebuild, FakeTimeProvider time)
+    {
+        while (!rebuild.IsCompleted)
+        {
+            time.Advance(TimeSpan.FromMinutes(1));
+            await Task.Yield();
+        }
+
+        await rebuild; // surface any exception the rebuild itself threw
+    }
 
     private static Mock<IEmbeddingService> EmbeddingsWithDimensions(int dimensions)
     {
@@ -132,6 +150,89 @@ public class Neo4jEmbeddingCacheTests
         sut.IsRebuilding.Should().BeFalse();
         // The failing rule's attempt is recorded so the backfill eventually gives up instead of looping forever.
         cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("embedAttempts = coalesce"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_TransientProviderError_RetriesWithBackoffThenEmbeds()
+    {
+        var cypher = SingleRuleCypher();
+        var time = new FakeTimeProvider();
+        var embedding = EmbeddingsWithDimensions(3);
+        // Two transient failures, then success — the in-call backoff must ride them out, not give up.
+        embedding
+            .SetupSequence(e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ProviderException("test", "rate limited", statusCode: 429))
+            .ThrowsAsync(new ProviderException("test", "rate limited", statusCode: 503))
+            .ReturnsAsync([[0.1f, 0.2f, 0.3f]]);
+
+        var sut = Cache(cypher, embedding.Object, time);
+
+        await DriveToCompletionAsync(sut.RebuildAsync(CancellationToken.None), time);
+
+        // 1 initial call + 2 retries, then the rule embeds successfully and no failure is booked.
+        embedding.Verify(
+            e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(3));
+        sut.EmbeddedSoFar.Should().Be(1);
+        cypher.ExecutedWriteQueries.Should().NotContain(q => q.Contains("embedAttempts = coalesce"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_PersistentTransientError_GivesUpAfterMaxRetriesAndRecordsFailure()
+    {
+        var cypher = SingleRuleCypher();
+        var time = new FakeTimeProvider();
+        var embedding = EmbeddingsWithDimensions(3);
+        embedding
+            .Setup(e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ProviderException("test", "still rate limited", statusCode: 503));
+
+        var sut = Cache(cypher, embedding.Object, time);
+
+        await DriveToCompletionAsync(sut.RebuildAsync(CancellationToken.None), time);
+
+        // 1 initial call + 3 retries (MaxTransientRetries) = 4, then it gives up and records the attempt.
+        embedding.Verify(
+            e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(4));
+        sut.EmbeddedSoFar.Should().Be(0);
+        cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("embedAttempts = coalesce"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_ProviderAuthError_DoesNotRetry_RecordsFailureImmediately()
+    {
+        var cypher = SingleRuleCypher();
+        var time = new FakeTimeProvider();
+        var embedding = EmbeddingsWithDimensions(3);
+        // Auth failures are not transient — retrying is futile, so the attempt is recorded at once.
+        embedding
+            .Setup(e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ProviderAuthException("test"));
+
+        var sut = Cache(cypher, embedding.Object, time);
+
+        // No backoff is scheduled for a non-transient failure, so the rebuild completes without clock driving.
+        await sut.RebuildAsync(CancellationToken.None);
+
+        embedding.Verify(
+            e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        sut.EmbeddedSoFar.Should().Be(0);
+        cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("embedAttempts = coalesce"));
+    }
+
+    /// <summary>Builds a cypher executor whose "rules to embed" query returns a single healthy rule.</summary>
+    private static FakeCypherExecutor SingleRuleCypher()
+    {
+        var cypher = new FakeCypherExecutor();
+        cypher.AddQueryHandler(q => q.Contains("bodyHash IS NULL")
+            ? new IReadOnlyDictionary<string, object?>[]
+            {
+                new Dictionary<string, object?> { ["id"] = "r1", ["body"] = "Alpha body", ["chunkStyle"] = null },
+            }
+            : cypher.DefaultResult);
+        return cypher;
     }
 
     [Fact]

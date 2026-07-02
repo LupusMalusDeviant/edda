@@ -2,7 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using Edda.AKG.Graph;
 using Edda.Core.Abstractions;
+using Edda.Core.Exceptions;
 using Edda.Core.Models;
+using Edda.Core.Resilience;
 using Microsoft.Extensions.Logging;
 
 namespace Edda.AKG.Embeddings;
@@ -24,12 +26,32 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
     private readonly ILogger<Neo4jEmbeddingCache> _logger;
     private readonly IActivityTracker? _activity;
     private readonly int _maxParallelism;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>
     /// Max embedding attempts per rule before the backfill treats it as failed and stops retrying it.
     /// A few permanently-failing rules can therefore never block the rest of the corpus from embedding.
+    /// This is the coarse, cross-cycle cap (persisted as <c>embedAttempts</c>); it complements the fast
+    /// in-call retries governed by <see cref="MaxTransientRetries"/>.
     /// </summary>
     private const int MaxEmbedAttempts = 5;
+
+    /// <summary>
+    /// Number of immediate in-call retries for a <em>transient</em> provider failure (rate limit, 5xx,
+    /// network blip) before the attempt is abandoned and recorded via <see cref="MaxEmbedAttempts"/>.
+    /// A short exponential backoff (<see cref="ExponentialBackoff"/>) separates the retries so a brief
+    /// provider hiccup no longer burns one of the scarce cross-cycle attempts.
+    /// </summary>
+    private const int MaxTransientRetries = 3;
+
+    /// <summary>Delay before the first transient retry; subsequent retries double it up to <see cref="MaxRetryDelay"/>.</summary>
+    private static readonly TimeSpan BaseRetryDelay = TimeSpan.FromSeconds(1);
+
+    /// <summary>Upper bound on a single transient-retry backoff delay.</summary>
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(30);
+
+    /// <summary>Maximum jitter added to a backoff delay (fraction of the delay) to avoid a thundering herd.</summary>
+    private const double RetryJitterFraction = 0.2;
 
     /// <summary>
     /// Serializes rebuilds: the background backfill and a manual/post-import rebuild must never run
@@ -71,6 +93,10 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
     /// uses its own session/HTTP request, so concurrency is safe; values &gt;1 mainly speed up
     /// network-bound (cloud) providers. Clamped to at least 1.
     /// </param>
+    /// <param name="timeProvider">
+    /// Clock abstraction used to delay between transient-failure retries. Defaults to
+    /// <see cref="TimeProvider.System"/>; tests inject a fake to make the backoff deterministic.
+    /// </param>
     public Neo4jEmbeddingCache(
         ICypherExecutor cypher,
         IEmbeddingService embeddings,
@@ -78,7 +104,8 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
         Func<ChunkingOptions> chunkingOptions,
         ILogger<Neo4jEmbeddingCache> logger,
         IActivityTracker? activity = null,
-        int maxParallelism = 4)
+        int maxParallelism = 4,
+        TimeProvider? timeProvider = null)
     {
         _cypher = cypher;
         _embeddings = embeddings;
@@ -87,6 +114,7 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
         _logger = logger;
         _activity = activity;
         _maxParallelism = Math.Max(1, maxParallelism);
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -379,7 +407,7 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
         var chunks = _chunker.Chunk(body, options, fileNameHint: ruleId, forcedStyle: chunkStyle);
         var texts = chunks.Select(c => c.Text).ToList();
 
-        var vectors = await _embeddings.EmbedBatchAsync(texts, ct).ConfigureAwait(false);
+        var vectors = await EmbedWithBackoffAsync(texts, ruleId, ct).ConfigureAwait(false);
         if (vectors.Count != chunks.Count)
         {
             _logger.LogWarning(
@@ -423,6 +451,44 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
 
         // A file's chunks changed → its repository/upload head centroid is now stale (ADR-0009 stage 1).
         await MarkHeadDirtyAsync(ruleId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Embeds a rule's chunk texts, retrying a <em>transient</em> provider failure (rate limit, 5xx,
+    /// network blip — any <see cref="ProviderException"/> that is not a <see cref="ProviderAuthException"/>)
+    /// with an exponential backoff plus jitter between attempts (see <see cref="ExponentialBackoff"/>).
+    /// Non-transient failures (auth errors, or any non-provider exception) propagate immediately so the
+    /// caller records the attempt and moves on — retrying them would be futile. Waiting is driven through
+    /// the injected <see cref="TimeProvider"/>, keeping the backoff deterministic under test.
+    /// </summary>
+    /// <param name="texts">The chunk texts to embed.</param>
+    /// <param name="ruleId">The rule id, for diagnostic logging only.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The embedding vectors for <paramref name="texts"/>.</returns>
+    private async Task<IReadOnlyList<float[]>> EmbedWithBackoffAsync(
+        IReadOnlyList<string> texts, string ruleId, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await _embeddings.EmbedBatchAsync(texts, ct).ConfigureAwait(false);
+            }
+            catch (ProviderException ex) when (ex is not ProviderAuthException && attempt < MaxTransientRetries)
+            {
+                var delay = ExponentialBackoff.WithJitter(
+                    ExponentialBackoff.ComputeDelay(attempt, BaseRetryDelay, MaxRetryDelay),
+                    RetryJitterFraction,
+                    Random.Shared.NextDouble());
+
+                _logger.LogWarning(ex,
+                    "Transient embedding failure for rule '{RuleId}' (attempt {Attempt}/{Max}); "
+                    + "retrying in {Delay} | {Component}",
+                    ruleId, attempt + 1, MaxTransientRetries, delay, "AKG");
+
+                await Task.Delay(delay, _timeProvider, ct).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>
