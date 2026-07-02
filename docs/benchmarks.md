@@ -74,3 +74,22 @@ Der Datensatz liegt als `docs/benchmark-baseline-dataset.json` bei. Ergebnis pro
   Tags/Concepts stehen. Das ist die erwartete Schwäche ohne semantische Phase — genau der Hebel, an dem
   eine Embedding-gestützte oder verbesserte Ranking-Strategie (B1) messbar zulegen sollte.
 - Latenz ist mit ~21 ms p50 unkritisch (InMemory, keyword-only).
+
+## B1 — Vorher/Nachher (Keyword-Tokenisierung + Sättigung)
+
+Änderung: `KeywordScorer` matcht Tags/Concepts jetzt gegen **ganze Task-Token** (statt `string.Contains`)
+und deckelt den Score per `log(1 + matchCount)` (Spec `docs/plans/0003-b1-keyword-tokenisierung.md`,
+Stufe 1). Gleiche Konfiguration wie oben (memory, keyword-only, k=5, derselbe Datensatz).
+
+| Metrik | Baseline (vorher) | B1 (nachher) | Δ |
+|---|---|---|---|
+| Recall@5 | 0.727 | **0.818** | **+0.091** |
+| Precision@5 | 0.164 | **0.182** | +0.018 |
+| MRR | 0.636 | **0.705** | **+0.069** |
+| nDCG@5 | 0.660 | **0.733** | **+0.073** |
+| Latenz p50 | 20.9 ms | 18.9 ms | −2.0 ms |
+
+**Ergebnis: messbar besser auf allen vier IR-Metriken** (Akzeptanz „neutral oder besser" erfüllt).
+Per-Fall: `secprin` (world-security-principles) verbessert sich von Recall 0.0 → 1.0, `except` von
+MRR 0.50 → 1.00. Es verbleiben zwei Fehltreffer (`secrets`, `arch`) — reine Keyword-Grenzen, die erst
+die semantische Phase (Embeddings) schließen dürfte. Latenz unverändert unkritisch.

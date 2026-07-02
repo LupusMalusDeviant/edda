@@ -160,4 +160,41 @@ public class KeywordScorerTests
 
         score.Should().BeGreaterThan(0);
     }
+
+    // ── B1: whole-token matching + score saturation ──
+
+    [Fact]
+    public void Score_TagIsSubstringOfTaskWord_DoesNotMatch()
+    {
+        var rule = MakeRule("test-rule", tags: ["test"]);
+
+        // "test" is a substring of "latest" but not a whole token → no match.
+        _scorer.Score([rule], MakeContext("the latest build"))[0].Score.Should().Be(0);
+        // A whole-token occurrence matches.
+        _scorer.Score([rule], MakeContext("run the test"))[0].Score.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void Score_HyphenatedTag_MatchesOnlyWhenAllTokensPresent()
+    {
+        var rule = MakeRule("apikey-rule", tags: ["api-key"]);
+
+        _scorer.Score([rule], MakeContext("rotate the api key"))[0].Score.Should().BeGreaterThan(0);
+        _scorer.Score([rule], MakeContext("the api is down"))[0].Score.Should().Be(0,
+            because: "'api-key' requires both 'api' and 'key' as whole task tokens");
+    }
+
+    [Fact]
+    public void Score_ManyMatches_ScoreSaturates()
+    {
+        var oneTag = MakeRule("one", tags: ["alpha"]);
+        var manyTags = MakeRule("many", tags: ["alpha", "beta", "gamma", "delta", "epsilon"]);
+        var context = MakeContext("alpha beta gamma delta epsilon");
+
+        var single = _scorer.Score([oneTag], context)[0].Score;    // matchCount 1
+        var many = _scorer.Score([manyTags], context)[0].Score;     // matchCount 5
+
+        many.Should().BeGreaterThan(single, because: "more matches still score higher");
+        many.Should().BeLessThan(5 * single, because: "log saturation makes the growth sub-linear");
+    }
 }
