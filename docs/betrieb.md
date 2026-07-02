@@ -59,6 +59,33 @@ deaktivieren. Der Guard wertet primär `EDDA_BIND` aus; beim direkten `dotnet ru
 zieht er ersatzweise `ASPNETCORE_URLS` heran. Der interne All-Interfaces-Bind des Containers zählt
 nicht als Remote-Freigabe — dort entscheidet allein `EDDA_BIND` über die Host-seitige Erreichbarkeit.
 
+## Remote-Betrieb hinter Reverse-Proxy (Caddy/nginx, TLS)
+
+Edda terminiert **selbst kein TLS** und macht **keine HTTPS-Weiterleitung** (kein `UseHttpsRedirection`):
+der Kestrel-Server liefert reines HTTP auf der gebundenen Adresse aus. Lokal (Loopback) ist das
+unkritisch; für **öffentlichen/Remote-Betrieb terminiert ein vorgelagerter Reverse-Proxy das TLS**
+(Let's Encrypt o. ä.) und reicht die Requests intern per HTTP an Edda weiter.
+
+Empfohlenes Setup für den Remote-Betrieb:
+
+1. **Edda nur intern erreichbar machen** — an Loopback binden (`EDDA_BIND=127.0.0.1`), sodass ausschließlich
+   der Proxy auf demselben Host zugreift. Der öffentliche Port gehört dem Proxy, nicht Kestrel.
+2. **Authentifizierung** — `EDDA_AUTH_TOKEN` setzen (Bearer-Token für `/api/akg/*` + `/mcp`). Übernimmt der
+   Proxy die Authentifizierung selbst und wird Edda bewusst an ein Nicht-Loopback-Interface gebunden, lässt
+   sich der Remote-Bind-Guard mit `EDDA_ALLOW_INSECURE_REMOTE=true` deaktivieren (siehe oben).
+3. **Forwarded-Header** — die Proxy-IP in `EDDA_TRUSTED_PROXIES` eintragen, damit Edda die echte Client-IP
+   und das Schema (http/https) sieht. Details samt nginx-/Caddy-Snippets im folgenden Abschnitt
+   „Betrieb hinter einem Reverse-Proxy (Forwarded Headers)".
+4. **TLS am Proxy terminieren:**
+   - **Caddy** holt und erneuert Let's-Encrypt-Zertifikate automatisch — das `Caddyfile` aus dem
+     Forwarded-Header-Abschnitt genügt bereits für HTTPS.
+   - **nginx** benötigt Zertifikate (z. B. via `certbot`) und die `ssl_certificate`/`ssl_certificate_key`-
+     Direktiven im `listen 443 ssl`-Block.
+
+Da Edda selbst nicht auf HTTPS umleitet, sollte der Proxy HTTP→HTTPS erzwingen: Caddy tut das
+automatisch; bei nginx per zusätzlichem `listen 80`-Server, der mit `return 301 https://$host$request_uri;`
+umleitet.
+
 ## Betrieb hinter einem Reverse-Proxy (Forwarded Headers)
 
 Hinter einem Reverse-Proxy (nginx, Caddy, Traefik …) ist der direkte Peer aller Requests der Proxy —
