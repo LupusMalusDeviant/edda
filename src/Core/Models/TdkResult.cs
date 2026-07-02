@@ -14,7 +14,17 @@ public sealed record TdkResult
     public IReadOnlyList<TdkViolation> Violations { get; init; } = [];
 
     /// <summary>
-    /// Singleton representing a clean validation with no violations.
+    /// Engine/infrastructure failures encountered while running validators (sandbox crash, timeout,
+    /// non-zero exit, or invalid validator output). These are surfaced to the caller but are NOT counted
+    /// as rule pass/fail outcomes, so an infrastructure problem never skews a rule's confidence.
+    /// </summary>
+    public IReadOnlyList<TdkEngineError> EngineErrors { get; init; } = [];
+
+    /// <summary><see langword="true"/> when at least one validator could not be executed.</summary>
+    public bool HasEngineErrors => EngineErrors.Count > 0;
+
+    /// <summary>
+    /// Singleton representing a clean validation with no violations and no engine errors.
     /// Use instead of allocating a new instance for the common case.
     /// </summary>
     public static TdkResult NoViolations { get; } =
@@ -35,3 +45,21 @@ public sealed record TdkViolation(
     string Severity,
     int? Line = null,
     string? Suggestion = null);
+
+/// <summary>
+/// An engine/infrastructure failure while running a validator (sandbox crash, timeout, non-zero exit,
+/// or invalid validator output) — as opposed to a rule violation. Surfaced to the caller so a failed
+/// validator is visible rather than silently ignored, but deliberately not booked as a pass/fail
+/// outcome, since an infrastructure error is not a business result.
+/// </summary>
+/// <param name="RuleId">The rule whose validator failed to run.</param>
+/// <param name="Reason">Short description of what went wrong.</param>
+/// <param name="ExitCode">Validator process exit code, when available.</param>
+/// <param name="Stderr">A short excerpt of the validator's standard error, when available.</param>
+/// <param name="TimedOut"><see langword="true"/> when the validator exceeded its time budget.</param>
+public sealed record TdkEngineError(
+    string RuleId,
+    string Reason,
+    int? ExitCode = null,
+    string? Stderr = null,
+    bool TimedOut = false);

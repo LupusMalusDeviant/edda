@@ -18,6 +18,9 @@ public sealed class TdkEngine : ITdkEngine
         PropertyNameCaseInsensitive = true
     };
 
+    /// <summary>Maximum length of a validator stderr excerpt kept in an engine-error report.</summary>
+    private const int MaxStderrExcerpt = 500;
+
     private readonly ISandboxFactory _sandboxFactory;
     private readonly IRuleConfidenceStore _confidenceStore;
     private readonly IRuleFeedbackService? _feedbackService;
@@ -74,12 +77,13 @@ public sealed class TdkEngine : ITdkEngine
 
         // 3. Validate each (rule × code block) combination
         var allViolations = new List<TdkViolation>();
+        var engineErrors = new List<TdkEngineError>();
 
         foreach (var rule in validatorRules)
         {
             foreach (var block in codeBlocks)
             {
-                await ValidateBlockAsync(rule, block, request, allViolations, cancellationToken)
+                await ValidateBlockAsync(rule, block, request, allViolations, engineErrors, cancellationToken)
                     .ConfigureAwait(false);
             }
         }
@@ -90,9 +94,20 @@ public sealed class TdkEngine : ITdkEngine
                 "TDK: found {ViolationCount} violation(s)", allViolations.Count);
         }
 
-        return allViolations.Count > 0
-            ? new TdkResult { HasViolations = true, Violations = allViolations }
-            : TdkResult.NoViolations;
+        if (engineErrors.Count > 0)
+        {
+            _logger.LogWarning(
+                "TDK: {ErrorCount} validator(s) could not be executed", engineErrors.Count);
+        }
+
+        return allViolations.Count == 0 && engineErrors.Count == 0
+            ? TdkResult.NoViolations
+            : new TdkResult
+            {
+                HasViolations = allViolations.Count > 0,
+                Violations = allViolations,
+                EngineErrors = engineErrors,
+            };
     }
 
     /// <summary>
@@ -106,11 +121,18 @@ public sealed class TdkEngine : ITdkEngine
             _ = _feedbackService.RecordTdkOutcomeAsync(ruleId, passed, userId: null, ct);
     }
 
+    /// <summary>Truncates a validator's stderr to a short excerpt for the engine-error report.</summary>
+    private static string? Truncate(string? text)
+        => string.IsNullOrEmpty(text) || text.Length <= MaxStderrExcerpt
+            ? text
+            : text[..MaxStderrExcerpt] + "…";
+
     private async Task ValidateBlockAsync(
         KnowledgeRule rule,
         CodeBlock block,
         AgentRequest request,
         List<TdkViolation> allViolations,
+        List<TdkEngineError> engineErrors,
         CancellationToken ct)
     {
         ISandbox? sandbox = null;
@@ -145,9 +167,11 @@ public sealed class TdkEngine : ITdkEngine
             }
             catch (Exception ex)
             {
+                // Infrastructure failure (sandbox threw) — surface it, but do NOT record a pass/fail
+                // outcome: an engine error is not a business result and must not skew rule confidence.
                 _logger.LogWarning(ex,
                     "TDK: sandbox execution threw for rule {RuleId} — skipping rule", rule.Id);
-                RecordTdkOutcome(rule.Id, passed: false, ct);
+                engineErrors.Add(new TdkEngineError(rule.Id, "sandbox execution failed"));
                 return;
             }
 
@@ -156,7 +180,12 @@ public sealed class TdkEngine : ITdkEngine
                 _logger.LogWarning(
                     "TDK: validator crashed for rule {RuleId} (exitCode={ExitCode}, timedOut={TimedOut}): {Stderr}",
                     rule.Id, result.ExitCode, result.TimedOut, result.Stderr);
-                RecordTdkOutcome(rule.Id, passed: false, ct);
+                engineErrors.Add(new TdkEngineError(
+                    rule.Id,
+                    result.TimedOut ? "validator timed out" : "validator exited with an error",
+                    result.ExitCode,
+                    Truncate(result.Stderr),
+                    result.TimedOut));
                 return;
             }
 
@@ -169,17 +198,18 @@ public sealed class TdkEngine : ITdkEngine
             {
                 _logger.LogWarning(ex,
                     "TDK: validator returned invalid JSON for rule {RuleId} — skipping", rule.Id);
-                RecordTdkOutcome(rule.Id, passed: false, ct);
+                engineErrors.Add(new TdkEngineError(rule.Id, "validator returned invalid JSON"));
                 return;
             }
 
             if (output is null)
             {
                 _logger.LogWarning("TDK: validator returned null output for rule {RuleId} — skipping", rule.Id);
-                RecordTdkOutcome(rule.Id, passed: false, ct);
+                engineErrors.Add(new TdkEngineError(rule.Id, "validator returned no output"));
                 return;
             }
 
+            // Only a validator that actually ran and produced a verdict records a pass/fail outcome.
             RecordTdkOutcome(rule.Id, passed: output.Pass, ct);
 
             if (!output.Pass)

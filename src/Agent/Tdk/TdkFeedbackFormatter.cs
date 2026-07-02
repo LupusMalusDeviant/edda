@@ -42,4 +42,22 @@ public static class TdkFeedbackFormatter
         sb.AppendLine("Please revise your response to address these violations.");
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Builds a short markdown notice listing validators that could not be executed, so the caller
+    /// knows the validation was incomplete rather than clean.
+    /// </summary>
+    /// <param name="errors">One or more engine errors. Must not be empty.</param>
+    /// <returns>A markdown-formatted warning block.</returns>
+    public static string FormatEngineErrors(IReadOnlyList<TdkEngineError> errors)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("⚠️ **Some validators could not run** — the following rules were not checked:");
+        foreach (var e in errors)
+        {
+            sb.AppendLine($"- Rule `{e.RuleId}`: {e.Reason}");
+        }
+
+        return sb.ToString();
+    }
 }

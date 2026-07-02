@@ -94,12 +94,21 @@ internal sealed class TdkValidateTool : IAgentTool
                 code, akgContext.ActiveRules, request, cancellationToken);
 
             _logger.LogInformation(
-                "tdk_validate: {ViolationCount} violations across {RuleCount} active rules | userId={UserId}",
-                tdkResult.Violations.Count, akgContext.ActiveRules.Count, userId);
+                "tdk_validate: {ViolationCount} violation(s), {EngineErrorCount} engine error(s) across " +
+                "{RuleCount} active rules | userId={UserId}",
+                tdkResult.Violations.Count, tdkResult.EngineErrors.Count, akgContext.ActiveRules.Count, userId);
 
-            return tdkResult.HasViolations
-                ? ToolResult.Ok(call.Id, Definition.Name, TdkFeedbackFormatter.Format(tdkResult.Violations))
-                : ToolResult.Ok(call.Id, Definition.Name, "✓ No knowledge-base violations detected.");
+            var body = tdkResult.HasViolations
+                ? TdkFeedbackFormatter.Format(tdkResult.Violations)
+                : "✓ No knowledge-base violations detected.";
+
+            // A validator that failed to run must be visible: the check was incomplete, not clean.
+            if (tdkResult.HasEngineErrors)
+            {
+                body += "\n\n" + TdkFeedbackFormatter.FormatEngineErrors(tdkResult.EngineErrors);
+            }
+
+            return ToolResult.Ok(call.Id, Definition.Name, body);
         }
         catch (ArgumentException ex)
         {

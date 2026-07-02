@@ -90,4 +90,22 @@ public class TdkFeedbackFormatterTests
         result.Should().NotContain("(line ");
         result.Should().NotContain("Suggestion:");
     }
+
+    [Fact]
+    public void FormatEngineErrors_ListsFailedValidators()
+    {
+        var errors = new List<TdkEngineError>
+        {
+            new("r1", "validator exited with an error", ExitCode: 127),
+            new("r2", "validator timed out", TimedOut: true)
+        };
+
+        var result = TdkFeedbackFormatter.FormatEngineErrors(errors);
+
+        result.Should().Contain("could not run");
+        result.Should().Contain("r1");
+        result.Should().Contain("r2");
+        result.Should().Contain("validator exited with an error");
+        result.Should().Contain("validator timed out");
+    }
 }

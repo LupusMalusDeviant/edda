@@ -216,7 +216,7 @@ public class TdkEngineTests
     }
 
     [Fact]
-    public async Task TdkEngine_ValidatorCrash_RecordsFailInConfidenceStore()
+    public async Task TdkEngine_ValidatorCrash_DoesNotRecordOutcome_ButReportsEngineError()
     {
         var sandbox = SetupMockSandbox(string.Empty, exitCode: 127);
         _sandboxFactory.Setup(f => f.CreateAsync(It.IsAny<CancellationToken>()))
@@ -231,13 +231,17 @@ public class TdkEngineTests
             }
         };
 
-        await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
+        var result = await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
 
-        _confidenceStore.Verify(s => s.RecordOutcome("r1", false), Times.Once);
+        // F3: an infrastructure failure must NOT be booked as a business pass/fail outcome.
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        result.HasViolations.Should().BeFalse();
+        result.EngineErrors.Should().ContainSingle(e => e.RuleId == "r1");
+        result.EngineErrors[0].ExitCode.Should().Be(127);
     }
 
     [Fact]
-    public async Task TdkEngine_InvalidJson_SkipsAndRecordsFailure()
+    public async Task TdkEngine_InvalidJson_DoesNotRecordOutcome_ButReportsEngineError()
     {
         var sandbox = SetupMockSandbox("NOT_VALID_JSON", exitCode: 0);
         _sandboxFactory.Setup(f => f.CreateAsync(It.IsAny<CancellationToken>()))
@@ -255,7 +259,30 @@ public class TdkEngineTests
         var result = await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
 
         result.HasViolations.Should().BeFalse();
-        _confidenceStore.Verify(s => s.RecordOutcome("r1", false), Times.Once);
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        result.EngineErrors.Should().ContainSingle(e => e.RuleId == "r1");
+    }
+
+    [Fact]
+    public async Task TdkEngine_ValidatorTimeout_ReportsTimedOutEngineError_WithoutRecordingOutcome()
+    {
+        var sandbox = SetupMockSandbox(string.Empty, exitCode: 1, timedOut: true);
+        _sandboxFactory.Setup(f => f.CreateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sandbox.Object);
+
+        var rules = new List<KnowledgeRule>
+        {
+            new()
+            {
+                Id = "r1", Type = "rule", Domain = "general", Priority = RulePriority.Medium,
+                Body = "Slow rule.", ValidatorScript = "slow_validator.py"
+            }
+        };
+
+        var result = await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
+
+        result.EngineErrors.Should().ContainSingle(e => e.RuleId == "r1" && e.TimedOut);
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
     }
 
     private static Mock<ISandbox> SetupMockSandbox(

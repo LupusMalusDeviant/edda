@@ -63,6 +63,23 @@
             </tbody>
         </table>
     }
+
+    @if (_result.HasEngineErrors)
+    {
+        <div class="alert alert-warning" style="max-width:900px;">
+            <strong>⚠️ Einige Validatoren konnten nicht ausgeführt werden</strong> — diese Regeln wurden nicht geprüft:
+            <ul class="mb-0">
+                @foreach (var e in _result.EngineErrors)
+                {
+                    <li>
+                        <code>@e.RuleId</code>: @e.Reason
+                        @if (e.ExitCode is int ec) { <text> (Exit-Code @ec)</text> }
+                        @if (e.TimedOut) { <text> (Timeout)</text> }
+                    </li>
+                }
+            </ul>
+        </div>
+    }
 }
 
 @code {
