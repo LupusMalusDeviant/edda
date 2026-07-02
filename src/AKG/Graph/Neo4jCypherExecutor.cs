@@ -41,6 +41,9 @@ internal sealed class Neo4jCypherExecutor : ICypherExecutor
         CancellationToken ct = default)
     {
         await using var session = _driver.AsyncSession();
-        await session.RunAsync(cypher, parameters);
+        var cursor = await session.RunAsync(cypher, parameters);
+        // Consume the cursor so the write is deterministically flushed here, rather than relying on the
+        // session's disposal to drain any pending result. (QueryAsync already drains via ToListAsync.)
+        await cursor.ConsumeAsync();
     }
 }
