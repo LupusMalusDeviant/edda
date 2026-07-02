@@ -52,6 +52,8 @@ builder.Services.AddEddaLocalAuth();
 // Blazor Server UI.
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddScoped<ILocalizationService, LocalizationService>();
+// Sanitised Markdown rendering for rule bodies (E7) — stateless, so a singleton.
+builder.Services.AddSingleton<IMarkdownRenderer, MarkdigMarkdownRenderer>();
 // Connection-test + model-listing for the provider config UI (Ollama /api/tags, OpenAI-compatible /v1/models, …).
 builder.Services.AddSingleton<IProviderProbe, ProviderProbe>();
 builder.Services.AddHealthChecks();

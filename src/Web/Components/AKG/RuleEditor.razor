@@ -1,6 +1,7 @@
 @inject ILocalizationService Loc
 @inject IKnowledgeGraph KnowledgeGraph
 @inject IIdentityContext Identity
+@inject IMarkdownRenderer Markdown
 @implements IDisposable
 
 <div class="rule-editor card">
@@ -42,7 +43,25 @@
         </div>
         <div class="mb-2">
             <label class="form-label">@Loc["knowledge.rule.body"]</label>
-            <textarea class="form-control form-control-sm font-monospace" rows="6" @bind="_body" />
+            <ul class="nav nav-tabs mb-1" style="font-size:0.85rem;">
+                <li class="nav-item">
+                    <button type="button" class="nav-link @(_showPreview ? "" : "active")"
+                            @onclick="() => _showPreview = false">@Loc["knowledge.rule.tab.edit"]</button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link @(_showPreview ? "active" : "")"
+                            @onclick="() => _showPreview = true">@Loc["knowledge.rule.tab.preview"]</button>
+                </li>
+            </ul>
+            @if (_showPreview)
+            {
+                <div class="rule-body markdown-body p-2 rounded border"
+                     style="min-height:9rem;max-height:300px;overflow-y:auto;">@Markdown.RenderToHtml(_body)</div>
+            }
+            else
+            {
+                <textarea class="form-control form-control-sm font-monospace" rows="6" @bind="_body" />
+            }
         </div>
         <div class="mb-2">
             <label class="form-label">@Loc["knowledge.rule.tags"]</label>
@@ -116,6 +135,7 @@
     private bool   _saving;
     private bool   _success;
     private bool   _isDelete;
+    private bool   _showPreview;
     private string? _error;
 
     /// <summary>Subscribes to locale changes.</summary>

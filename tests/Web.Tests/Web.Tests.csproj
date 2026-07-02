@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Referencing the Blazor Web app (Microsoft.NET.Sdk.Web) requires the ASP.NET Core shared
+       framework so types such as MarkupString resolve. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\Web\Web.csproj" />
+  </ItemGroup>
+
+</Project>

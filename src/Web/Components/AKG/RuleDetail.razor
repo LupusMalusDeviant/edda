@@ -1,4 +1,5 @@
 @inject ILocalizationService Loc
+@inject IMarkdownRenderer Markdown
 @implements IDisposable
 
 <div class="rule-detail card h-100">
@@ -31,7 +32,7 @@
             {
                 <div class="mb-3">
                     <strong>@Loc["knowledge.rule.body"]</strong>
-                    <div class="rule-body mt-1 p-2 rounded" style="background:#1a1a2e;color:#e2e8f0;font-size:0.85rem;white-space:pre-wrap;max-height:300px;overflow-y:auto;">@Rule.Body</div>
+                    <div class="rule-body markdown-body mt-1 p-2 rounded" style="background:#1a1a2e;color:#e2e8f0;font-size:0.85rem;max-height:300px;overflow-y:auto;">@Markdown.RenderToHtml(Rule.Body)</div>
                 </div>
             }
 
