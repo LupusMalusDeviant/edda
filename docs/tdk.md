@@ -26,6 +26,24 @@ Code **aktiv ablehnen**, statt Konventionen nur zu beschreiben. Eine Regel träg
 Ohne Docker/Python schlägt die Sandbox-Erstellung fehl; die UI-Seite `/tdk` zeigt den Fehler
 lesbar an. Für reine Retrieval-Nutzung ohne Code-Validierung ist `null` ausreichend.
 
+### Ressourcen-Grenzen und Restrisiko der `wasm`-Sandbox
+
+Die `docker`-Sandbox ist gehärtet (256 MB RAM, 50 % CPU, `--network=none`) und die erste Wahl für
+**nicht vertrauenswürdige** Validatoren. Der `wasm`-Pfad startet Python als lokalen Subprozess **ohne
+Container-Isolation**; er ist mit **Best-Effort-Grenzen** abgesichert, die einen versehentlichen
+Denial-of-Service auf dem Host eindämmen, aber **keine** vollständige Isolation bieten:
+
+- **Hartes Wall-Clock-Kill:** Nach dem Timeout wird der gesamte Prozessbaum beendet (`Kill(entireProcessTree)`).
+- **Niedrige Priorität:** Der Prozess läuft mit `BelowNormal`, damit ein CPU-lastiges Skript den Host nicht aushungert.
+- **Ausgabe-Limit:** stdout/stderr werden je auf ~1 MB gedeckelt; darüber hinaus wird der Lauf abgebrochen (Schutz gegen Ausgabe-Flut).
+- **Linux `ulimit`:** Zusätzlich werden CPU-Zeit (≈ Timeout), Dateigröße (10 MB) und Adressraum (1 GiB) per `ulimit` begrenzt.
+
+**Restrisiko:** Es gibt **keine** cgroup-basierte RAM-/CPU-Isolation, keine Netzwerk-Sperre und keine
+Dateisystem-Isolation im `wasm`-Modus — ein bösartiges Skript kann innerhalb der obigen Grenzen weiterhin
+Host-Ressourcen und -Dateien im Rahmen der Prozessrechte nutzen. Für nicht vertrauenswürdige Validatoren
+**`TDK_SANDBOX_TYPE=docker` verwenden**; `wasm` ist für lokale, kuratierte Validatoren gedacht, wenn kein
+Docker verfügbar ist. Vollständige cgroup-/Namespace-Isolation ist bewusst außerhalb des Umfangs dieses Pfads.
+
 ## Validator-Skript-Format
 
 Ein Validator liest `TdkValidatorInput` (Code, Sprache, RuleId, UserMessage) von stdin als JSON
