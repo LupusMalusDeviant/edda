@@ -1,0 +1,42 @@
+# GitHub-Actions-CI: baut die Solution und fuehrt alle Tests bei push/PR aus (Issue D8).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: .NET SDK einrichten (Version aus global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Edda.slnx
+
+      - name: Build (TreatWarningsAsErrors, 0 Warnings erwartet)
+        run: dotnet build Edda.slnx --configuration Release --no-restore
+
+      - name: Test (reine Unit-Tests, ohne Infrastruktur)
+        run: dotnet test Edda.slnx --configuration Release --no-build --verbosity normal
+
+  # Optionaler Smoke: baut das Docker-Image (ohne Start). continue-on-error laesst die CI
+  # nicht scheitern, falls das Container-Build im Runner Probleme macht.
+  docker-build:
+    name: Docker Build Smoke (optional)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker-Image bauen
+        run: docker build -t edda:ci .
