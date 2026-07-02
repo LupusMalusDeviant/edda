@@ -53,6 +53,26 @@ public class NodeMapperTests
         result.InvalidatedBy.Should().BeNull();
     }
 
+    // ── F1: validatorScript mapping ─────────────────────────────────────
+
+    [Fact]
+    public void MapRowObject_WithValidatorScript_MapsIt()
+    {
+        var dict = new Dictionary<string, object?>
+        {
+            ["id"] = "sec",
+            ["type"] = "Constraint",
+            ["domain"] = "security",
+            ["priority"] = "Critical",
+            ["body"] = "b",
+            ["validatorScript"] = "import sys\nprint('hi')",
+        };
+
+        var result = NodeMapper.MapRowObject(dict);
+
+        result.ValidatorScript.Should().Be("import sys\nprint('hi')");
+    }
+
     // ── MapRowObject with INode ─────────────────────────────────────────
 
     [Fact]

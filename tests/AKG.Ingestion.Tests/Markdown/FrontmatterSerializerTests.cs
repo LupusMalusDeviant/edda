@@ -128,4 +128,21 @@ public sealed class FrontmatterSerializerTests
         markdown.Should().NotContain("tenantId:");
         parsed.TenantId.Should().Be(Tenants.DefaultTenantId);
     }
+
+    [Fact]
+    public void Serialize_ThenParse_RoundTripsValidatorScript()
+    {
+        var rule = new KnowledgeRule
+        {
+            Id = "sec-secrets", Type = "Constraint", Domain = "security",
+            Priority = RulePriority.Critical, Body = "The body.",
+            ValidatorScript = "import json, sys\ndata = json.load(sys.stdin)\nprint(\"ok\")",
+        };
+
+        var markdown = _serializer.Serialize(rule, "No Secrets");
+        var parsed = new KnowledgeRuleParser().Parse(markdown);
+
+        markdown.Should().Contain("validatorScript: |");
+        parsed.ValidatorScript.Should().Be(rule.ValidatorScript);
+    }
 }

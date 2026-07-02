@@ -34,17 +34,25 @@ public sealed class KnowledgeImporter : IKnowledgeImporter
     private readonly IKnowledgeGraph _graph;
     private readonly IArchiveExtractor _archive;
     private readonly IPdfTextExtractor _pdf;
+    private readonly bool _allowImportedValidators;
     private readonly IngestionItemMapper _mapper = new();
 
     /// <summary>Initializes a new instance of the <see cref="KnowledgeImporter"/> class.</summary>
     /// <param name="graph">The knowledge graph imported rules are upserted into.</param>
     /// <param name="archive">Extractor for ZIP collections.</param>
     /// <param name="pdf">Extractor for PDF text.</param>
-    public KnowledgeImporter(IKnowledgeGraph graph, IArchiveExtractor archive, IPdfTextExtractor pdf)
+    /// <param name="allowImportedValidators">
+    /// When <see langword="false"/> (the default), <c>validatorScript</c> is stripped from imported bundle
+    /// rules so foreign bundles cannot smuggle executable TDK validators into the graph — analogous to the
+    /// vector hygiene of record imports. Set via <c>IMPORT_ALLOW_VALIDATORS=true</c> for trusted bundles.
+    /// </param>
+    public KnowledgeImporter(
+        IKnowledgeGraph graph, IArchiveExtractor archive, IPdfTextExtractor pdf, bool allowImportedValidators = false)
     {
         _graph = graph;
         _archive = archive;
         _pdf = pdf;
+        _allowImportedValidators = allowImportedValidators;
     }
 
     /// <inheritdoc />
@@ -201,7 +209,11 @@ public sealed class KnowledgeImporter : IKnowledgeImporter
             ct.ThrowIfCancellationRequested();
             try
             {
-                await _graph.UpsertRuleAsync(rule, ct).ConfigureAwait(false);
+                // F17: never accept executable validators from a foreign bundle unless explicitly allowed.
+                var toImport = _allowImportedValidators || rule.ValidatorScript is null
+                    ? rule
+                    : rule with { ValidatorScript = null };
+                await _graph.UpsertRuleAsync(toImport, ct).ConfigureAwait(false);
                 imported++;
             }
             catch (Exception ex)

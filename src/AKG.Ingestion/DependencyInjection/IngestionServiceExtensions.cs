@@ -22,6 +22,7 @@ public static class IngestionServiceExtensions
     private const string CacheRootKey = "INGEST_GIT_CACHE";
     private const string UsernameKey = "INGEST_GIT_USERNAME";
     private const string TokenKey = "INGEST_GIT_TOKEN";
+    private const string ImportAllowValidatorsKey = "IMPORT_ALLOW_VALIDATORS";
     private const string DefaultCacheRoot = "data/ingest-cache";
 
     /// <summary>
@@ -69,7 +70,13 @@ public static class IngestionServiceExtensions
 
         // Upload import (.md / .zip / .pdf): mapped through the same item builder + mapper as Git ingestion,
         // so uploads form a connected hierarchy instead of flat nodes (extractors are registered by AKG).
-        services.AddSingleton<IKnowledgeImporter, KnowledgeImporter>();
+        // Foreign bundles have their validatorScript stripped by default (F17); IMPORT_ALLOW_VALIDATORS=true opts in.
+        var allowImportedValidators = bool.TryParse(configuration[ImportAllowValidatorsKey], out var allow) && allow;
+        services.AddSingleton<IKnowledgeImporter>(sp => new KnowledgeImporter(
+            sp.GetRequiredService<IKnowledgeGraph>(),
+            sp.GetRequiredService<IArchiveExtractor>(),
+            sp.GetRequiredService<IPdfTextExtractor>(),
+            allowImportedValidators));
 
         return services;
     }

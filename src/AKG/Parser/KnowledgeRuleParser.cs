@@ -60,6 +60,7 @@ public sealed class KnowledgeRuleParser
         var ownerId = GetString(fields, "ownerId");
         var tenantIdStr = GetString(fields, "tenantId");
         var author = GetString(fields, "author");
+        var validatorScript = GetString(fields, "validatorScript");
         var createdStr = GetString(fields, "created");
         DateOnly? created = null;
         if (!string.IsNullOrWhiteSpace(createdStr) && DateOnly.TryParse(createdStr, out var parsedDate))
@@ -104,6 +105,7 @@ public sealed class KnowledgeRuleParser
             RelatesTo = relations,
             WhenRelevant = whenRelevant,
             AppliesTo = appliesTo,
+            ValidatorScript = string.IsNullOrWhiteSpace(validatorScript) ? null : validatorScript,
         };
     }
 
@@ -194,6 +196,12 @@ public sealed class KnowledgeRuleParser
                 result[key] = ParseInlineList(value);
                 i++;
             }
+            else if (IsBlockScalarIndicator(value))
+            {
+                // YAML block scalar (e.g. `validatorScript: |`): the following, more-indented lines form
+                // a multi-line string with newlines preserved (literal) or folded to spaces (`>`).
+                result[key] = ReadBlockScalar(lines, ref i, folded: value.StartsWith('>'));
+            }
             else
             {
                 result[key] = value;
@@ -202,6 +210,55 @@ public sealed class KnowledgeRuleParser
         }
 
         return result;
+    }
+
+    /// <summary>Whether a frontmatter value is a YAML block-scalar indicator (<c>|</c>, <c>|-</c>, <c>&gt;</c>, <c>&gt;-</c>).</summary>
+    private static bool IsBlockScalarIndicator(string value)
+        => value is "|" or "|-" or "|+" or ">" or ">-" or ">+";
+
+    /// <summary>
+    /// Reads a YAML block-scalar body starting at the line after the indicator (<paramref name="i"/> points
+    /// at the indicator line). Consumes all subsequent lines that are blank or indented beyond column 0;
+    /// the common leading indentation is stripped and trailing blank lines are clipped. Advances
+    /// <paramref name="i"/> past the block.
+    /// </summary>
+    /// <param name="lines">All frontmatter lines.</param>
+    /// <param name="i">The current line index (at the indicator); advanced past the block on return.</param>
+    /// <param name="folded">When <see langword="true"/> (<c>&gt;</c>), newlines are folded to single spaces.</param>
+    /// <returns>The block-scalar content.</returns>
+    internal static string ReadBlockScalar(string[] lines, ref int i, bool folded)
+    {
+        i++; // Move past the "key: |" indicator line.
+        var blockLines = new List<string>();
+        int? indent = null;
+
+        while (i < lines.Length)
+        {
+            var raw = lines[i];
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                blockLines.Add(string.Empty);
+                i++;
+                continue;
+            }
+
+            var leading = raw.Length - raw.AsSpan().TrimStart().Length;
+            if (leading == 0)
+                break; // Dedent to key level → the block has ended.
+
+            indent ??= leading;
+            var strip = Math.Min(indent.Value, leading);
+            blockLines.Add(raw[strip..]);
+            i++;
+        }
+
+        // Clip trailing blank lines (YAML default chomping).
+        while (blockLines.Count > 0 && blockLines[^1].Length == 0)
+            blockLines.RemoveAt(blockLines.Count - 1);
+
+        return folded
+            ? string.Join(' ', blockLines.Where(l => l.Length > 0))
+            : string.Join('\n', blockLines);
     }
 
     /// <summary>

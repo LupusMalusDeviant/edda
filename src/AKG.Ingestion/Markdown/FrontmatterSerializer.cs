@@ -50,6 +50,14 @@ public sealed class FrontmatterSerializer
             AppendRelation(sb, "related", relations.Related);
         }
 
+        // TDK validator script as a YAML literal block scalar, so the parser round-trips it (F1).
+        if (!string.IsNullOrWhiteSpace(rule.ValidatorScript))
+        {
+            sb.Append("validatorScript: |\n");
+            foreach (var line in rule.ValidatorScript.Replace("\r\n", "\n").Split('\n'))
+                sb.Append("  ").Append(line).Append('\n');
+        }
+
         sb.Append("---\n\n");
         sb.Append(rule.Body);
         sb.Append('\n');

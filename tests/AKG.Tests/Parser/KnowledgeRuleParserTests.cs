@@ -242,4 +242,43 @@ public class KnowledgeRuleParserTests
 
         result.Should().BeEquivalentTo(new[] { "item1", "item2", "item3" });
     }
+
+    // ── F1: validatorScript block-scalar parsing (the load-path regression guard) ──
+
+    private const string ValidatorMarkdown =
+        """
+        ---
+        id: sec-secrets
+        title: No Secrets
+        domain: security
+        type: Constraint
+        priority: Critical
+        validatorScript: |
+          import json, sys
+          data = json.load(sys.stdin)
+          print(json.dumps({"pass": True, "violations": []}))
+        ---
+        Rule body here.
+        """;
+
+    [Fact]
+    public void Parse_ValidatorScriptBlockScalar_ExtractsMultilineScript()
+    {
+        var rule = _parser.Parse(ValidatorMarkdown);
+
+        rule.ValidatorScript.Should().NotBeNull();
+        rule.ValidatorScript.Should().Contain("import json, sys");
+        rule.ValidatorScript.Should().Contain("data = json.load(sys.stdin)");
+        rule.ValidatorScript!.Should().Contain("\n", because: "the multi-line script must be preserved");
+        rule.ValidatorScript.Should().NotContain("---", because: "the block ends at the frontmatter delimiter");
+        rule.Body.Should().Be("Rule body here.", because: "the block scalar must not swallow the body");
+    }
+
+    [Fact]
+    public void Parse_NoValidatorScript_LeavesValidatorScriptNull()
+    {
+        var rule = _parser.Parse(FullMarkdown);
+
+        rule.ValidatorScript.Should().BeNull();
+    }
 }

@@ -100,7 +100,8 @@ internal sealed class RuleLoader : IRuleLoader
                 r.exceptionFor = $exceptionFor,
                 r.requires = $requires,
                 r.supersedes = $supersedes,
-                r.related = $related
+                r.related = $related,
+                r.validatorScript = $validatorScript
             """,
             new
             {
@@ -117,6 +118,7 @@ internal sealed class RuleLoader : IRuleLoader
                 requires,
                 supersedes,
                 related,
+                validatorScript = rule.ValidatorScript,
             },
             ct).ConfigureAwait(false);
 

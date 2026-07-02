@@ -45,4 +45,27 @@ public class RuleLoaderTests
         loaded.Should().Be(0);
         _cypher.ExecutedWriteQueries.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task LoadFromDirectoryAsync_RuleWithValidatorScript_PersistsIt()
+    {
+        _fs.AddFile(
+            "knowledge/sec.md",
+            """
+            ---
+            id: sec
+            title: Sec
+            domain: security
+            validatorScript: |
+              print("hi")
+            ---
+            Body.
+            """);
+        var loader = CreateLoader();
+
+        await loader.LoadFromDirectoryAsync("knowledge", CancellationToken.None);
+
+        _cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("r.validatorScript = $validatorScript"),
+            because: "F1: the upsert must persist the validator script");
+    }
 }

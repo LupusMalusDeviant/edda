@@ -15,7 +15,8 @@ public sealed class KnowledgeImporterTests
 {
     private static (KnowledgeImporter Sut, List<KnowledgeRule> Upserted) CreateSut(
         IReadOnlyList<ArchiveTextEntry>? archiveEntries = null,
-        string? pdfText = null)
+        string? pdfText = null,
+        bool allowValidators = false)
     {
         var upserted = new List<KnowledgeRule>();
         var graph = new Mock<IKnowledgeGraph>();
@@ -30,7 +31,23 @@ public sealed class KnowledgeImporterTests
         var pdf = new Mock<IPdfTextExtractor>();
         pdf.Setup(p => p.Extract(It.IsAny<byte[]>())).Returns(pdfText ?? string.Empty);
 
-        return (new KnowledgeImporter(graph.Object, archive.Object, pdf.Object), upserted);
+        return (new KnowledgeImporter(graph.Object, archive.Object, pdf.Object, allowValidators), upserted);
+    }
+
+    private static byte[] BundleJson(string ruleId, string? validatorScript)
+    {
+        var bundle = new KnowledgeBundle
+        {
+            Rules =
+            [
+                new KnowledgeRule
+                {
+                    Id = ruleId, Type = "Constraint", Domain = "security",
+                    Priority = RulePriority.Critical, Body = "body", ValidatorScript = validatorScript,
+                },
+            ],
+        };
+        return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(bundle, KnowledgeBundleSerialization.Options));
     }
 
     private static byte[] Bytes(string text = "x") => Encoding.UTF8.GetBytes(text);
@@ -127,6 +144,30 @@ public sealed class KnowledgeImporterTests
         result.Imported.Should().Be(1);
         upserted.Single().Id.Should().Be("my-rule");
         upserted.Single().Priority.Should().Be(RulePriority.High);
+    }
+
+    [Fact]
+    public async Task ImportAsync_Bundle_StripsValidatorScriptByDefault()
+    {
+        var (sut, upserted) = CreateSut();
+
+        var result = await sut.ImportAsync("bundle.json", BundleJson("r1", "print('exec')"), domain: null);
+
+        result.Imported.Should().Be(1);
+        upserted.Single(r => r.Id == "r1").ValidatorScript.Should().BeNull(
+            because: "F17: foreign bundles must not smuggle executable validators by default");
+    }
+
+    [Fact]
+    public async Task ImportAsync_Bundle_KeepsValidatorScriptWhenAllowed()
+    {
+        var (sut, upserted) = CreateSut(allowValidators: true);
+
+        var result = await sut.ImportAsync("bundle.json", BundleJson("r1", "print('exec')"), domain: null);
+
+        result.Imported.Should().Be(1);
+        upserted.Single(r => r.Id == "r1").ValidatorScript.Should().Be("print('exec')",
+            because: "IMPORT_ALLOW_VALIDATORS=true opts into trusting bundle validators");
     }
 
     [Fact]
