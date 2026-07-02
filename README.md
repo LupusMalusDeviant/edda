@@ -6,6 +6,10 @@ jeder beliebige Agent/LLM kann den Wissensgraphen über MCP anbinden (**read-onl
 
 Stack: .NET 10 · C# 13 · Neo4j 5 (oder Memgraph) · Blazor Server · ModelContextProtocol 1.4
 
+> **Neu hier?** Der **[Erste-Schritte-Guide](docs/erste-schritte.md)** führt in 15 Minuten durch
+> Installation → erste Regel anlegen → Agent anbinden → TDK-Validierung. Unbekannte Begriffe klärt das
+> **[Glossar](docs/glossar.md)**.
+
 ---
 
 ## Für wen & wofür
@@ -135,6 +139,8 @@ Vollständige Vorlage mit allen Variablen: **`.env.example`**.
 
 | Datei | Inhalt |
 |-------|--------|
+| `docs/erste-schritte.md` | **Einstieg:** geführtes 15-Minuten-Tutorial |
+| `docs/glossar.md` | Alle Fachbegriffe erklärt |
 | `CLAUDE.md` | Architektur, Projektliste, Regeln |
 | `docs/architektur.md` | Projektgraph + DI-Fluss |
 | `docs/mcp.md` | MCP HTTP + stdio, Allowlist, Auth |
