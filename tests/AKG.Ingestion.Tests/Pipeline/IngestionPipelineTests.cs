@@ -1,5 +1,6 @@
 using Edda.AKG.Ingestion.Enrichment;
 using Edda.AKG.Ingestion.Pipeline;
+using Edda.AKG.Ingestion.Sync;
 using Edda.AKG.Ingestion.Tests.TestUtilities;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
@@ -53,6 +54,11 @@ public sealed class IngestionPipelineTests
         => new(
             [new FakeIngestionSource("git", items)], enricher, _fs, _graph.Object,
             _entityIngestion.Object, _identity.Object, _configuration.Object);
+
+    private IngestionPipeline CreatePipelineWithStore(ISyncStateStore syncState, params IngestionItem[] items)
+        => new(
+            [new FakeIngestionSource("git", items)], new NullIngestionEnricher(), _fs, _graph.Object,
+            _entityIngestion.Object, _identity.Object, _configuration.Object, syncState);
 
     private static IngestionRequest Request(bool enrich = false, string? target = null)
         => new() { SourceKind = "git", Source = new IngestionSourceConfig(), EnableEnrichment = enrich, TargetDirectory = target };
@@ -214,5 +220,84 @@ public sealed class IngestionPipelineTests
         _entityIngestion.Verify(
             e => e.IngestTextAsync("Body", It.IsAny<string?>(), "local", "git", It.IsAny<CancellationToken>()),
             Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task IngestAsync_SecondRunWithoutChanges_ImportsZeroAndSkipsAll()
+    {
+        // C5 acceptance: a second run over an unchanged (fake git) source ingests 0 items.
+        var store = new FileSyncStateStore(_fs);
+        var pipeline = CreatePipelineWithStore(store, Item("git:r:a", "a.md"), Item("git:r:b", "b.md"));
+
+        var first = await pipeline.IngestAsync(Request());
+        var second = await pipeline.IngestAsync(Request());
+
+        first.Imported.Should().Be(2);
+        second.Imported.Should().Be(0);
+        second.Skipped.Should().Be(2);
+        _upserted.Should().HaveCount(2);   // the second run re-upserts nothing
+    }
+
+    [Fact]
+    public async Task IngestAsync_ChangedItem_ReimportsOnlyChanged()
+    {
+        var store = new FileSyncStateStore(_fs);
+        await CreatePipelineWithStore(store, Item("git:r:a", "a.md"), Item("git:r:b", "b.md")).IngestAsync(Request());
+
+        var changedA = new IngestionItem
+        {
+            Id = "git:r:a", Title = "Title", Body = "CHANGED", SourceKind = "git", RelativePath = "a.md",
+        };
+        var result = await CreatePipelineWithStore(store, changedA, Item("git:r:b", "b.md")).IngestAsync(Request());
+
+        result.Imported.Should().Be(1);
+        result.Skipped.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task IngestAsync_ForceFullSync_ReimportsEverything()
+    {
+        var store = new FileSyncStateStore(_fs);
+        var pipeline = CreatePipelineWithStore(store, Item("git:r:a", "a.md"), Item("git:r:b", "b.md"));
+
+        await pipeline.IngestAsync(Request());
+        var forced = await pipeline.IngestAsync(Request() with { ForceFullSync = true });
+
+        forced.Imported.Should().Be(2);
+        forced.Skipped.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task IngestAsync_WithoutSyncStateStore_AlwaysFullIngest()
+    {
+        var pipeline = CreatePipeline(new NullIngestionEnricher(), Item("git:r:a", "a.md"));
+
+        var first = await pipeline.IngestAsync(Request());
+        var second = await pipeline.IngestAsync(Request());
+
+        first.Imported.Should().Be(1);
+        second.Imported.Should().Be(1);   // no store → no skip → full ingest every run
+        second.Skipped.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task IngestAsync_FailedItem_NotRecordedInState_RetriedNextRun()
+    {
+        var store = new FileSyncStateStore(_fs);
+        var pipeline = CreatePipelineWithStore(store, Item("git:r:a", "a.md"));
+
+        _graph
+            .Setup(g => g.UpsertRuleAsync(It.IsAny<KnowledgeRule>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        var first = await pipeline.IngestAsync(Request());
+        first.Failed.Should().Be(1);
+
+        _graph
+            .Setup(g => g.UpsertRuleAsync(It.IsAny<KnowledgeRule>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((KnowledgeRule rule, CancellationToken _) => rule);
+        var second = await pipeline.IngestAsync(Request());
+
+        second.Imported.Should().Be(1);   // the failed item was not recorded → retried, not skipped
+        second.Skipped.Should().Be(0);
     }
 }

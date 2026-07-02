@@ -177,4 +177,10 @@ public sealed record IngestionRequest
     /// (a dedicated ingested-knowledge directory kept separate from hand-authored rules).
     /// </summary>
     public string? TargetDirectory { get; init; }
+
+    /// <summary>
+    /// When true, re-ingests every item regardless of the incremental-sync manifest (C5) — the pre-C5 full
+    /// ingest. Defaults to false, so unchanged items are skipped when a sync-state store is configured.
+    /// </summary>
+    public bool ForceFullSync { get; init; }
 }

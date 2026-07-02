@@ -1,5 +1,6 @@
 using Edda.AKG.Ingestion.Mapping;
 using Edda.AKG.Ingestion.Markdown;
+using Edda.AKG.Ingestion.Sync;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Configuration;
@@ -31,6 +32,7 @@ public sealed class IngestionPipeline : IIngestionPipeline
     private readonly IEntityIngestionService _entityIngestion;
     private readonly IIdentityContext _identity;
     private readonly IConfiguration _configuration;
+    private readonly ISyncStateStore? _syncState;
     private readonly IngestionItemMapper _mapper = new();
     private readonly FrontmatterSerializer _serializer = new();
 
@@ -42,6 +44,11 @@ public sealed class IngestionPipeline : IIngestionPipeline
     /// <param name="entityIngestion">Service that extracts and persists entities per item when opted in.</param>
     /// <param name="identity">Identity context that owns the entities extracted during a run (Regel 6).</param>
     /// <param name="configuration">Configuration source for the entity-extraction opt-in toggle.</param>
+    /// <param name="syncState">
+    /// Optional incremental-sync store (C5). When provided, items whose source content is unchanged since the
+    /// last run are skipped. Null (the default) disables incremental sync — every run is a full ingest, exactly
+    /// as before C5.
+    /// </param>
     public IngestionPipeline(
         IEnumerable<IIngestionSource> sources,
         IIngestionEnricher enricher,
@@ -49,7 +56,8 @@ public sealed class IngestionPipeline : IIngestionPipeline
         IKnowledgeGraph graph,
         IEntityIngestionService entityIngestion,
         IIdentityContext identity,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ISyncStateStore? syncState = null)
     {
         _sources = sources.ToList();
         _enricher = enricher;
@@ -58,6 +66,7 @@ public sealed class IngestionPipeline : IIngestionPipeline
         _entityIngestion = entityIngestion;
         _identity = identity;
         _configuration = configuration;
+        _syncState = syncState;
     }
 
     /// <inheritdoc />
@@ -107,8 +116,18 @@ public sealed class IngestionPipeline : IIngestionPipeline
             : request.TargetDirectory;
 
         var imported = 0;
+        var skipped = 0;
         var failed = 0;
         var errors = new List<IngestionError>();
+
+        // C5: incremental sync — load the prior per-instance content-hash manifest and skip unchanged items.
+        // Disabled (full ingest) when no store is configured or ForceFullSync is set.
+        var instanceKey = IngestionInstanceKey.For(request);
+        var incremental = _syncState is not null && !request.ForceFullSync;
+        var priorHashes = incremental
+            ? (await _syncState!.LoadAsync(instanceKey, cancellationToken).ConfigureAwait(false)).ItemHashes
+            : (IReadOnlyDictionary<string, string>)new Dictionary<string, string>(StringComparer.Ordinal);
+        var newHashes = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // Auto entity-extraction is opt-in and separate from the enricher: resolve the toggle and the owning
         // user once per run (Regel 6 — the owner is the ingesting identity, never a request field).
@@ -124,6 +143,18 @@ public sealed class IngestionPipeline : IIngestionPipeline
             foreach (var raw in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                // C5: skip items whose source content is unchanged since the last run (no upsert, no re-embed).
+                var contentHash = IngestionContentHash.Compute(raw);
+                if (incremental
+                    && priorHashes.TryGetValue(raw.Id, out var previous)
+                    && string.Equals(previous, contentHash, StringComparison.Ordinal))
+                {
+                    skipped++;
+                    newHashes[raw.Id] = contentHash;   // carry forward so the next run still compares correctly
+                    continue;
+                }
+
                 try
                 {
                     var item = request.EnableEnrichment
@@ -152,6 +183,9 @@ public sealed class IngestionPipeline : IIngestionPipeline
                             .IngestTextAsync(raw.Body, rule.Domain, entityOwner, request.SourceKind, cancellationToken)
                             .ConfigureAwait(false);
                     }
+
+                    // C5: record the hash only on success → a failed item is retried on the next run.
+                    newHashes[raw.Id] = contentHash;
                 }
                 catch (OperationCanceledException)
                 {
@@ -165,7 +199,23 @@ public sealed class IngestionPipeline : IIngestionPipeline
             }
         }
 
-        return new IngestionResult { Imported = imported, Failed = failed, Errors = errors };
+        // C5: persist the new manifest best-effort — a save failure only forfeits the next run's skip
+        // optimization, it never corrupts the graph (the rules are already upserted).
+        if (_syncState is not null)
+        {
+            try
+            {
+                await _syncState
+                    .SaveAsync(instanceKey, new IngestionSyncState { ItemHashes = newHashes }, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception) when (cancellationToken.IsCancellationRequested is false)
+            {
+                // Best-effort — swallow; the next run simply falls back to a full ingest.
+            }
+        }
+
+        return new IngestionResult { Imported = imported, Skipped = skipped, Failed = failed, Errors = errors };
     }
 
     private static async Task<List<IngestionItem>> CollectAsync(

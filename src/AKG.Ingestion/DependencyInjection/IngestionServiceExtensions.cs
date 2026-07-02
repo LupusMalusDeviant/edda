@@ -7,6 +7,7 @@ using Edda.AKG.Ingestion.GitLab;
 using Edda.AKG.Ingestion.Llm;
 using Edda.AKG.Ingestion.Pipeline;
 using Edda.AKG.Ingestion.Sources;
+using Edda.AKG.Ingestion.Sync;
 using Edda.Core.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +48,10 @@ public static class IngestionServiceExtensions
         services.AddSingleton<IGitClient>(_ => new LibGit2SharpGitClient(cacheRoot, username, token));
         services.AddSingleton<GitMarkdownSource>();
         services.AddSingleton<IIngestionSource>(sp => sp.GetRequiredService<GitMarkdownSource>());
+
+        // C5: per-instance incremental-sync manifest under data/sync-state (skips unchanged items on re-ingest).
+        // MS-DI fills the pipeline's optional ISyncStateStore parameter from this registration.
+        services.AddSingleton<ISyncStateStore>(sp => new FileSyncStateStore(sp.GetRequiredService<IFileSystem>()));
         services.AddSingleton<IIngestionPipeline, IngestionPipeline>();
         AddEnricher(services);
         AddEntityExtraction(services);
