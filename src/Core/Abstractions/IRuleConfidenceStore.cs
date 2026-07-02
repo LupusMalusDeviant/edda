@@ -16,7 +16,12 @@ public interface IRuleConfidenceStore
     /// <see langword="true"/> when the validator found no violations;
     /// <see langword="false"/> when violations were detected or the validator crashed.
     /// </param>
-    void RecordOutcome(string ruleId, bool passed);
+    /// <param name="validatorHash">
+    /// Optional SHA-256 hash of the validator script that produced this outcome (F7). When it differs from
+    /// the hash of the rule's previously recorded outcomes, the sliding window is reset first — old outcomes
+    /// measured a different script and must not skew the multiplier. Null skips the version check.
+    /// </param>
+    void RecordOutcome(string ruleId, bool passed, string? validatorHash = null);
 
     /// <summary>
     /// Returns the confidence multiplier for a rule based on its validation history.

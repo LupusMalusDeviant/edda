@@ -73,6 +73,33 @@ public class NodeMapperTests
         result.ValidatorScript.Should().Be("import sys\nprint('hi')");
     }
 
+    [Fact]
+    public void MapRowObject_WithValidatorEnabledFalseAndHash_MapsThem()
+    {
+        var dict = new Dictionary<string, object?>
+        {
+            ["id"] = "sec", ["type"] = "Constraint", ["domain"] = "security",
+            ["priority"] = "Critical", ["body"] = "b",
+            ["validatorEnabled"] = false, ["validatorHash"] = "abc123",
+        };
+
+        var result = NodeMapper.MapRowObject(dict);
+
+        result.ValidatorEnabled.Should().BeFalse();
+        result.ValidatorHash.Should().Be("abc123");
+    }
+
+    [Fact]
+    public void MapRowObject_NoValidatorEnabledProperty_DefaultsToTrue()
+    {
+        var dict = new Dictionary<string, object?>
+        {
+            ["id"] = "r", ["type"] = "Rule", ["domain"] = "general", ["priority"] = "Medium", ["body"] = "b",
+        };
+
+        NodeMapper.MapRowObject(dict).ValidatorEnabled.Should().BeTrue();
+    }
+
     // ── MapRowObject with INode ─────────────────────────────────────────
 
     [Fact]

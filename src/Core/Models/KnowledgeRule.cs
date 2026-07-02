@@ -48,6 +48,18 @@ public sealed record KnowledgeRule
     public string? ValidatorScript { get; init; }
 
     /// <summary>
+    /// Whether this rule's TDK validator is active (F7 kill-switch). <see langword="false"/> disables the
+    /// validator without deleting it — the TDK engine skips it. Defaults to <see langword="true"/>.
+    /// </summary>
+    public bool ValidatorEnabled { get; init; } = true;
+
+    /// <summary>
+    /// SHA-256 hash (lowercase hex) of <see cref="ValidatorScript"/>, persisted for confidence-history
+    /// traceability (F7). Null when there is no validator. Recomputed from the script on each load.
+    /// </summary>
+    public string? ValidatorHash { get; init; }
+
+    /// <summary>
     /// Optional list of source languages this rule's TDK validator targets (e.g. <c>python</c>,
     /// <c>csharp</c>). Empty means the validator applies to code blocks in any language. Lets the TDK
     /// engine skip a (rule × block) pair whose block language the rule does not target — before a

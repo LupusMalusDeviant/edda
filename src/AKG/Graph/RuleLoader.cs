@@ -101,7 +101,9 @@ internal sealed class RuleLoader : IRuleLoader
                 r.requires = $requires,
                 r.supersedes = $supersedes,
                 r.related = $related,
-                r.validatorScript = $validatorScript
+                r.validatorScript = $validatorScript,
+                r.validatorEnabled = $validatorEnabled,
+                r.validatorHash = $validatorHash
             """,
             new
             {
@@ -119,6 +121,9 @@ internal sealed class RuleLoader : IRuleLoader
                 supersedes,
                 related,
                 validatorScript = rule.ValidatorScript,
+                validatorEnabled = rule.ValidatorEnabled,
+                // F7: persist the script hash for confidence-history traceability (recomputed on each load).
+                validatorHash = ValidatorScriptHash.Compute(rule.ValidatorScript),
             },
             ct).ConfigureAwait(false);
 

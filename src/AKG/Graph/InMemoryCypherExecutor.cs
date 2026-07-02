@@ -251,7 +251,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
                  {
                      "id", "type", "domain", "priority", "body", "tags", "ownerId",
                      "implies", "conflictsWith", "exceptionFor", "requires", "supersedes", "related", "chunkStyle",
-                     "validatorScript",
+                     "validatorScript", "validatorEnabled", "validatorHash",
                  })
         {
             rule[key] = p.GetValueOrDefault(key);

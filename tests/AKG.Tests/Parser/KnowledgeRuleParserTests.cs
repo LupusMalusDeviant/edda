@@ -281,4 +281,29 @@ public class KnowledgeRuleParserTests
 
         rule.ValidatorScript.Should().BeNull();
     }
+
+    // ── F7: validatorEnabled kill-switch flag ──
+
+    [Fact]
+    public void Parse_ValidatorEnabledFalse_DisablesValidator()
+    {
+        var markdown =
+            """
+            ---
+            id: r
+            title: R
+            domain: security
+            validatorEnabled: false
+            ---
+            Body.
+            """;
+
+        _parser.Parse(markdown).ValidatorEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Parse_NoValidatorEnabled_DefaultsToTrue()
+    {
+        _parser.Parse(FullMarkdown).ValidatorEnabled.Should().BeTrue();
+    }
 }

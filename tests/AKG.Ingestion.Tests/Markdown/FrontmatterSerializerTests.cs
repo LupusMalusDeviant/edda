@@ -145,4 +145,34 @@ public sealed class FrontmatterSerializerTests
         markdown.Should().Contain("validatorScript: |");
         parsed.ValidatorScript.Should().Be(rule.ValidatorScript);
     }
+
+    [Fact]
+    public void Serialize_ThenParse_RoundTripsDisabledValidatorFlag()
+    {
+        var rule = new KnowledgeRule
+        {
+            Id = "r", Type = "Constraint", Domain = "security", Priority = RulePriority.Critical,
+            Body = "b", ValidatorScript = "print('x')", ValidatorEnabled = false,
+        };
+
+        var markdown = _serializer.Serialize(rule, "R");
+        var parsed = new KnowledgeRuleParser().Parse(markdown);
+
+        markdown.Should().Contain("validatorEnabled: false");
+        parsed.ValidatorEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Serialize_EnabledValidator_OmitsValidatorEnabledLine()
+    {
+        var rule = new KnowledgeRule
+        {
+            Id = "r", Type = "Constraint", Domain = "security", Priority = RulePriority.Critical,
+            Body = "b", ValidatorScript = "print('x')",   // ValidatorEnabled defaults to true
+        };
+
+        var markdown = _serializer.Serialize(rule, "R");
+
+        markdown.Should().NotContain("validatorEnabled:");
+    }
 }

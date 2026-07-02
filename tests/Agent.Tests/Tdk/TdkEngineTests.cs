@@ -189,7 +189,7 @@ public class TdkEngineTests
 
         await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
 
-        _confidenceStore.Verify(s => s.RecordOutcome("r1", true), Times.Once);
+        _confidenceStore.Verify(s => s.RecordOutcome("r1", true, It.IsAny<string?>()), Times.Once);
     }
 
     [Fact]
@@ -212,7 +212,28 @@ public class TdkEngineTests
 
         await _sut.ValidateAsync("```python\nbad_code\n```", rules, CreateDefaultRequest());
 
-        _confidenceStore.Verify(s => s.RecordOutcome("r1", false), Times.Once);
+        _confidenceStore.Verify(s => s.RecordOutcome("r1", false, It.IsAny<string?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task TdkEngine_ValidatorDisabled_SkipsValidation_WithoutSandboxOrOutcome()
+    {
+        // F7 kill-switch: a rule with a validator but ValidatorEnabled=false must not run.
+        var rules = new List<KnowledgeRule>
+        {
+            new()
+            {
+                Id = "r1", Type = "rule", Domain = "general", Priority = RulePriority.Medium,
+                Body = "Never do X.", ValidatorScript = "validator.py", ValidatorEnabled = false,
+            }
+        };
+
+        var result = await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
+
+        result.HasViolations.Should().BeFalse();
+        _sandboxFactory.Verify(f => f.CreateAsync(It.IsAny<CancellationToken>()), Times.Never);
+        _confidenceStore.Verify(
+            s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -234,7 +255,7 @@ public class TdkEngineTests
         var result = await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
 
         // F3: an infrastructure failure must NOT be booked as a business pass/fail outcome.
-        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
         result.HasViolations.Should().BeFalse();
         result.EngineErrors.Should().ContainSingle(e => e.RuleId == "r1");
         result.EngineErrors[0].ExitCode.Should().Be(127);
@@ -259,7 +280,7 @@ public class TdkEngineTests
         var result = await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
 
         result.HasViolations.Should().BeFalse();
-        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
         result.EngineErrors.Should().ContainSingle(e => e.RuleId == "r1");
     }
 
@@ -282,7 +303,7 @@ public class TdkEngineTests
         var result = await _sut.ValidateAsync("```python\ncode\n```", rules, CreateDefaultRequest());
 
         result.EngineErrors.Should().ContainSingle(e => e.RuleId == "r1" && e.TimedOut);
-        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -306,7 +327,7 @@ public class TdkEngineTests
         result.EngineErrors.Should().BeEmpty();
         _sandboxFactory.Verify(f => f.CreateAsync(It.IsAny<CancellationToken>()), Times.Never,
             "a rule that does not target the block language must be skipped before a sandbox is created");
-        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        _confidenceStore.Verify(s => s.RecordOutcome(It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<string?>()), Times.Never);
     }
 
     [Fact]
@@ -367,7 +388,7 @@ public class TdkEngineTests
         second.HasViolations.Should().BeTrue("the cached outcome still reports the violation");
         _sandboxFactory.Verify(f => f.CreateAsync(It.IsAny<CancellationToken>()), Times.Once,
             "the identical second validation must reuse the cache instead of re-running the sandbox");
-        _confidenceStore.Verify(s => s.RecordOutcome("r1", false), Times.Once,
+        _confidenceStore.Verify(s => s.RecordOutcome("r1", false, It.IsAny<string?>()), Times.Once,
             "only the real validator run records a confidence outcome; a cache hit does not");
     }
 

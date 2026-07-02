@@ -50,6 +50,10 @@ public sealed class FrontmatterSerializer
             AppendRelation(sb, "related", relations.Related);
         }
 
+        // F7 kill-switch: only emit when disabled (the parser defaults to enabled when the key is absent).
+        if (!rule.ValidatorEnabled)
+            sb.Append("validatorEnabled: false\n");
+
         // TDK validator script as a YAML literal block scalar, so the parser round-trips it (F1).
         if (!string.IsNullOrWhiteSpace(rule.ValidatorScript))
         {

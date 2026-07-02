@@ -62,8 +62,9 @@ public sealed class TdkEngine : ITdkEngine
         AgentRequest request,
         CancellationToken cancellationToken = default)
     {
-        // 1. Only rules with a ValidatorScript
-        var validatorRules = rules.Where(r => r.ValidatorScript != null).ToList();
+        // 1. Only rules with a ValidatorScript whose validator is enabled (F7 kill-switch: a disabled
+        //    validator stays in the graph but does not run).
+        var validatorRules = rules.Where(r => r.ValidatorScript != null && r.ValidatorEnabled).ToList();
         if (validatorRules.Count == 0)
         {
             _logger.LogDebug("TDK: no validator rules active — skipping validation");
@@ -132,9 +133,10 @@ public sealed class TdkEngine : ITdkEngine
     /// Records a TDK outcome to both the sliding-window confidence store (F04)
     /// and the long-term feedback service (F32), if configured.
     /// </summary>
-    private void RecordTdkOutcome(string ruleId, bool passed, CancellationToken ct)
+    private void RecordTdkOutcome(string ruleId, bool passed, string? validatorHash, CancellationToken ct)
     {
-        _confidenceStore.RecordOutcome(ruleId, passed);
+        // F7: the hash lets the confidence store reset a rule's window when its validator script changes.
+        _confidenceStore.RecordOutcome(ruleId, passed, validatorHash);
         if (_feedbackService is not null)
             _ = _feedbackService.RecordTdkOutcomeAsync(ruleId, passed, userId: null, ct);
     }
@@ -242,7 +244,7 @@ public sealed class TdkEngine : ITdkEngine
             }
 
             // Only a validator that actually ran and produced a verdict records a pass/fail outcome.
-            RecordTdkOutcome(rule.Id, passed: output.Pass, ct);
+            RecordTdkOutcome(rule.Id, passed: output.Pass, ValidatorScriptHash.Compute(rule.ValidatorScript), ct);
 
             var violations = output.Violations
                 .Select(v => new TdkViolation(v.RuleId, v.Message, v.Severity, v.Line, v.Suggestion))

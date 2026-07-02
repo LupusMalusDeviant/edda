@@ -113,4 +113,41 @@ public class SlidingWindowRuleConfidenceStoreTests
         _store.GetMultiplier("rule-a").Should().BeApproximately(1.0, 0.0001);
         _store.GetMultiplier("rule-b").Should().BeApproximately(0.3, 0.0001);
     }
+
+    // ── F7: validator-script versioning resets the confidence window ──
+
+    [Fact]
+    public void RecordOutcome_ValidatorHashChanged_ResetsWindow()
+    {
+        for (var i = 0; i < 5; i++)
+            _store.RecordOutcome("r1", passed: false, "v1");
+        _store.GetMultiplier("r1").Should().BeApproximately(0.3, 0.0001, because: "all v1 outcomes failed");
+
+        // Script changed (v1 → v2): the stale failures must be discarded before the new outcome counts.
+        _store.RecordOutcome("r1", passed: true, "v2");
+
+        _store.GetMultiplier("r1").Should().BeApproximately(1.0, 0.0001,
+            because: "only the single passing outcome under v2 remains in the window");
+    }
+
+    [Fact]
+    public void RecordOutcome_SameValidatorHash_DoesNotReset()
+    {
+        for (var i = 0; i < 5; i++)
+            _store.RecordOutcome("r1", passed: false, "v1");
+        _store.RecordOutcome("r1", passed: true, "v1");
+
+        // 5 fails + 1 pass under the same hash → 0.3 + (1/6 × 0.7) ≈ 0.4167
+        _store.GetMultiplier("r1").Should().BeApproximately(0.3 + (1.0 / 6.0) * 0.7, 0.0001);
+    }
+
+    [Fact]
+    public void RecordOutcome_NullHash_SkipsVersionCheck()
+    {
+        _store.RecordOutcome("r1", passed: false, "v1");
+        _store.RecordOutcome("r1", passed: false, null);   // null → no reset, no hash update
+        _store.RecordOutcome("r1", passed: false, null);
+
+        _store.GetMultiplier("r1").Should().BeApproximately(0.3, 0.0001, because: "three failures, no reset");
+    }
 }

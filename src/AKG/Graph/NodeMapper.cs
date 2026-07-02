@@ -51,6 +51,8 @@ internal static class NodeMapper
             ValidUntil = ParseTimestamp(node.Properties.TryGetValue("validUntil", out var vu) ? vu : null),
             InvalidatedBy = node.Properties.TryGetValue("invalidatedBy", out var ib) ? ib?.ToString() : null,
             ValidatorScript = node.Properties.TryGetValue("validatorScript", out var vs) ? vs?.ToString() : null,
+            ValidatorEnabled = !(node.Properties.TryGetValue("validatorEnabled", out var ve) && (ve is false || ve as string == "false")),
+            ValidatorHash = node.Properties.TryGetValue("validatorHash", out var vh) ? vh?.ToString() : null,
         };
     }
 
@@ -112,6 +114,8 @@ internal static class NodeMapper
             ValidUntil = ParseTimestamp(props.TryGetValue("validUntil", out var vu) ? vu : null),
             InvalidatedBy = props.TryGetValue("invalidatedBy", out var ib) ? ib?.ToString() : null,
             ValidatorScript = props.TryGetValue("validatorScript", out var vs) ? vs?.ToString() : null,
+            ValidatorEnabled = !(props.TryGetValue("validatorEnabled", out var ve) && (ve is false || ve as string == "false")),
+            ValidatorHash = props.TryGetValue("validatorHash", out var vh) ? vh?.ToString() : null,
         };
     }
 
@@ -132,6 +136,8 @@ internal static class NodeMapper
             ValidUntil = ParseTimestamp(dict.TryGetValue("validUntil", out var vu) ? vu : null),
             InvalidatedBy = dict.TryGetValue("invalidatedBy", out var ib) ? ib?.ToString() : null,
             ValidatorScript = dict.TryGetValue("validatorScript", out var vs) ? vs?.ToString() : null,
+            ValidatorEnabled = !(dict.TryGetValue("validatorEnabled", out var ve) && (ve is false || ve as string == "false")),
+            ValidatorHash = dict.TryGetValue("validatorHash", out var vh) ? vh?.ToString() : null,
         };
     }
 

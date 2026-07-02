@@ -61,6 +61,8 @@ public sealed class KnowledgeRuleParser
         var tenantIdStr = GetString(fields, "tenantId");
         var author = GetString(fields, "author");
         var validatorScript = GetString(fields, "validatorScript");
+        // F7 kill-switch: enabled unless the frontmatter explicitly sets `validatorEnabled: false`.
+        var validatorEnabled = !string.Equals(GetString(fields, "validatorEnabled"), "false", StringComparison.OrdinalIgnoreCase);
         var createdStr = GetString(fields, "created");
         DateOnly? created = null;
         if (!string.IsNullOrWhiteSpace(createdStr) && DateOnly.TryParse(createdStr, out var parsedDate))
@@ -106,6 +108,7 @@ public sealed class KnowledgeRuleParser
             WhenRelevant = whenRelevant,
             AppliesTo = appliesTo,
             ValidatorScript = string.IsNullOrWhiteSpace(validatorScript) ? null : validatorScript,
+            ValidatorEnabled = validatorEnabled,
         };
     }
 

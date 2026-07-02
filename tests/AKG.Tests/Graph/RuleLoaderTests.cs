@@ -68,4 +68,27 @@ public class RuleLoaderTests
         _cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("r.validatorScript = $validatorScript"),
             because: "F1: the upsert must persist the validator script");
     }
+
+    [Fact]
+    public async Task LoadFromDirectoryAsync_RuleWithValidator_PersistsEnabledFlagAndHash()
+    {
+        _fs.AddFile(
+            "knowledge/sec.md",
+            """
+            ---
+            id: sec
+            title: Sec
+            domain: security
+            validatorScript: |
+              print("hi")
+            ---
+            Body.
+            """);
+
+        await CreateLoader().LoadFromDirectoryAsync("knowledge", CancellationToken.None);
+
+        _cypher.ExecutedWriteQueries.Should().Contain(
+            q => q.Contains("r.validatorEnabled = $validatorEnabled") && q.Contains("r.validatorHash = $validatorHash"),
+            because: "F7: the upsert must persist the kill-switch flag and the script hash");
+    }
 }

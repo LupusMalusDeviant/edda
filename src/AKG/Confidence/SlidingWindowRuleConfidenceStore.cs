@@ -18,13 +18,28 @@ public sealed class SlidingWindowRuleConfidenceStore : IRuleConfidenceStore
     private readonly ConcurrentDictionary<string, Queue<bool>> _windows =
         new(StringComparer.Ordinal);
 
+    // F7: the validator-script hash the current window's outcomes were measured against, per rule.
+    private readonly Dictionary<string, string?> _hashes = new(StringComparer.Ordinal);
+
     private readonly object _lock = new();
 
     /// <inheritdoc />
-    public void RecordOutcome(string ruleId, bool passed)
+    public void RecordOutcome(string ruleId, bool passed, string? validatorHash = null)
     {
         lock (_lock)
         {
+            // F7: if the validator script changed since the last recorded outcome, the old outcomes measured
+            // different code — reset the window so the multiplier reflects only the current script.
+            if (validatorHash is not null
+                && _hashes.TryGetValue(ruleId, out var previousHash)
+                && !string.Equals(previousHash, validatorHash, StringComparison.Ordinal))
+            {
+                _windows.TryRemove(ruleId, out _);
+            }
+
+            if (validatorHash is not null)
+                _hashes[ruleId] = validatorHash;
+
             if (!_windows.TryGetValue(ruleId, out var window))
             {
                 window = new Queue<bool>(WindowSize);
