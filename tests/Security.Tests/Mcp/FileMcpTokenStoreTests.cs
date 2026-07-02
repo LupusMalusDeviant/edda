@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Edda.Security.Mcp;
@@ -99,4 +102,76 @@ public sealed class FileMcpTokenStoreTests
 
         created.Info.Tools.Should().Equal("a", "b");
     }
+
+    [Fact]
+    public async Task CreateAsync_NewToken_PersistsVersionedFileWithPerTokenSaltedHash()
+    {
+        var sut = CreateSut(out var storage);
+
+        var created = await sut.CreateAsync("t", ["a"], allowWrite: false);
+
+        using var doc = JsonDocument.Parse(storage[Path]);
+        doc.RootElement.GetProperty("Version").GetInt32().Should().Be(2, "the file carries a format version");
+
+        var entry = doc.RootElement.GetProperty("Tokens")[0];
+        entry.GetProperty("Salt").GetString().Should().NotBeNullOrEmpty("each token stores its own random salt");
+        entry.GetProperty("Hash").GetString().Should()
+            .NotBe(UnsaltedHash(created.Token), "the stored hash must be salted, not a plain SHA-256 of the token");
+
+        (await sut.ResolveAsync(created.Token)).Should().NotBeNull("a freshly created salted token round-trips");
+    }
+
+    [Fact]
+    public async Task ResolveAsync_LegacyUnsaltedEntry_StillResolves()
+    {
+        var sut = CreateSut(out var storage);
+        const string token = "mcp_legacytoken";
+        // Simulate a version-1 file: a bare array of entries hashed the old, unsalted way (no Salt, no Version).
+        storage[Path] =
+            $$"""
+            [
+              {
+                "Id": "leg1", "Label": "old", "Hash": "{{UnsaltedHash(token)}}",
+                "Tools": ["search_memory"], "AllowWrite": true, "CreatedAt": "2020-01-01T00:00:00+00:00"
+              }
+            ]
+            """;
+
+        var scopes = await sut.ResolveAsync(token);
+
+        scopes.Should().NotBeNull("pre-salt tokens must keep working (backward compatibility)");
+        scopes!.Id.Should().Be("leg1");
+        scopes.Tools.Should().Equal("search_memory");
+        scopes.AllowWrite.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Write_AfterLegacyLoad_MigratesFileToVersionedEnvelope()
+    {
+        var sut = CreateSut(out var storage);
+        const string legacyToken = "mcp_legacytoken";
+        storage[Path] =
+            $$"""
+            [
+              {
+                "Id": "leg1", "Label": "old", "Hash": "{{UnsaltedHash(legacyToken)}}",
+                "Tools": ["a"], "AllowWrite": false, "CreatedAt": "2020-01-01T00:00:00+00:00"
+              }
+            ]
+            """;
+
+        // Any write (here: adding a new token) rewrites the whole file in the current versioned format.
+        await sut.CreateAsync("new", ["b"], allowWrite: false);
+
+        using var doc = JsonDocument.Parse(storage[Path]);
+        doc.RootElement.ValueKind.Should().Be(JsonValueKind.Object, "the bare array is upgraded to an envelope");
+        doc.RootElement.GetProperty("Version").GetInt32().Should().Be(2);
+
+        // The legacy token still resolves after migration, and both entries survive.
+        (await sut.ResolveAsync(legacyToken)).Should().NotBeNull("the migrated legacy entry stays valid");
+        (await sut.ListAsync()).Should().HaveCount(2);
+    }
+
+    private static string UnsaltedHash(string token)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 }
