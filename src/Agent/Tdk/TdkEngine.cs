@@ -24,6 +24,7 @@ public sealed class TdkEngine : ITdkEngine
     private readonly ISandboxFactory _sandboxFactory;
     private readonly IRuleConfidenceStore _confidenceStore;
     private readonly IRuleFeedbackService? _feedbackService;
+    private readonly ITdkResultCache? _resultCache;
     private readonly ILogger<TdkEngine> _logger;
 
     /// <summary>
@@ -36,15 +37,21 @@ public sealed class TdkEngine : ITdkEngine
     /// Optional F32 feedback service. When provided, TDK outcomes are also forwarded
     /// for use in long-term confidence multiplier calculations.
     /// </param>
+    /// <param name="resultCache">
+    /// Optional F13 result cache. When provided, the outcome of an identical (rule × validator × block)
+    /// validation is reused instead of re-running the sandbox. Null disables caching.
+    /// </param>
     public TdkEngine(
         ISandboxFactory sandboxFactory,
         IRuleConfidenceStore confidenceStore,
         ILogger<TdkEngine> logger,
-        IRuleFeedbackService? feedbackService = null)
+        IRuleFeedbackService? feedbackService = null,
+        ITdkResultCache? resultCache = null)
     {
         _sandboxFactory  = sandboxFactory;
         _confidenceStore = confidenceStore;
         _feedbackService = feedbackService;
+        _resultCache     = resultCache;
         _logger          = logger;
     }
 
@@ -146,6 +153,20 @@ public sealed class TdkEngine : ITdkEngine
         List<TdkEngineError> engineErrors,
         CancellationToken ct)
     {
+        // F13: reuse a previously computed outcome for the identical (rule × validator × block) tuple and
+        // skip the sandbox entirely. The confidence store is intentionally NOT re-recorded on a hit: no
+        // validator ran, and re-recording identical outcomes in an agent re-validation loop would flood it.
+        var cacheKey = _resultCache is null
+            ? null
+            : TdkResultCacheKey.Compute(rule.Id, rule.ValidatorScript!, block.Language, block.Code);
+        if (cacheKey is not null && _resultCache!.Get(cacheKey) is { } cached)
+        {
+            _logger.LogDebug("TDK: cache hit for rule {RuleId} — reusing outcome, skipping sandbox", rule.Id);
+            if (!cached.Pass)
+                allViolations.AddRange(cached.Violations);
+            return;
+        }
+
         ISandbox? sandbox = null;
         try
         {
@@ -223,13 +244,16 @@ public sealed class TdkEngine : ITdkEngine
             // Only a validator that actually ran and produced a verdict records a pass/fail outcome.
             RecordTdkOutcome(rule.Id, passed: output.Pass, ct);
 
+            var violations = output.Violations
+                .Select(v => new TdkViolation(v.RuleId, v.Message, v.Severity, v.Line, v.Suggestion))
+                .ToList();
+
+            // F13: cache this real validator outcome so an identical re-validation reuses it. Engine errors
+            // above return early and are deliberately never cached — they are transient.
+            _resultCache?.Set(cacheKey!, new TdkCachedOutcome(output.Pass, violations));
+
             if (!output.Pass)
-            {
-                foreach (var v in output.Violations)
-                {
-                    allViolations.Add(new TdkViolation(v.RuleId, v.Message, v.Severity, v.Line, v.Suggestion));
-                }
-            }
+                allViolations.AddRange(violations);
         }
     }
 }

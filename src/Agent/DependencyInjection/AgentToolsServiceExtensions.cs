@@ -39,11 +39,16 @@ public static class AgentToolsServiceExtensions
         services.AddSingleton<IToolExecutor>(sp => sp.GetRequiredService<ToolRegistry>());
         services.AddSingleton<IToolRegistry>(sp => sp.GetRequiredService<ToolRegistry>());
 
+        // F13: a process-local cache so identical (rule × validator × block) re-validations reuse the
+        // outcome instead of re-running the sandbox — important for agent loops that iterate on the same code.
+        services.AddSingleton<ITdkResultCache, InMemoryTdkResultCache>();
+
         services.AddSingleton<ITdkEngine>(sp =>
             new TdkEngine(
                 sp.GetRequiredService<ISandboxFactory>(),
                 sp.GetRequiredService<IRuleConfidenceStore>(),
-                sp.GetRequiredService<ILogger<TdkEngine>>()));
+                sp.GetRequiredService<ILogger<TdkEngine>>(),
+                resultCache: sp.GetRequiredService<ITdkResultCache>()));
 
         return services;
     }

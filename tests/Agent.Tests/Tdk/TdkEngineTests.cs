@@ -333,6 +333,44 @@ public class TdkEngineTests
             "a rule targeting the block language runs its validator");
     }
 
+    [Fact]
+    public async Task TdkEngine_RepeatedIdenticalValidation_ReusesCachedOutcome()
+    {
+        // F13: validating the same (rule × validator × block) twice runs the sandbox only once; the second
+        // call reuses the cached outcome — the violation is still reported, but no second sandbox runs and
+        // no second confidence outcome is recorded.
+        var sandbox = SetupMockSandbox(
+            "{\"pass\":false,\"violations\":[{\"rule_id\":\"r1\",\"message\":\"nope\",\"severity\":\"error\"}]}",
+            exitCode: 0);
+        _sandboxFactory.Setup(f => f.CreateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sandbox.Object);
+
+        var engine = new TdkEngine(
+            _sandboxFactory.Object, _confidenceStore.Object,
+            NullLogger<TdkEngine>.Instance, resultCache: new InMemoryTdkResultCache());
+
+        var rules = new List<KnowledgeRule>
+        {
+            new()
+            {
+                Id = "r1", Type = "rule", Domain = "general", Priority = RulePriority.Medium,
+                Body = "Rule.", ValidatorScript = "validator.py"
+            }
+        };
+        const string response = "```python\nbad_code\n```";
+        var request = CreateDefaultRequest();
+
+        var first = await engine.ValidateAsync(response, rules, request);
+        var second = await engine.ValidateAsync(response, rules, request);
+
+        first.HasViolations.Should().BeTrue();
+        second.HasViolations.Should().BeTrue("the cached outcome still reports the violation");
+        _sandboxFactory.Verify(f => f.CreateAsync(It.IsAny<CancellationToken>()), Times.Once,
+            "the identical second validation must reuse the cache instead of re-running the sandbox");
+        _confidenceStore.Verify(s => s.RecordOutcome("r1", false), Times.Once,
+            "only the real validator run records a confidence outcome; a cache hit does not");
+    }
+
     private static Mock<ISandbox> SetupMockSandbox(
         string stdout, int exitCode, bool timedOut = false)
     {

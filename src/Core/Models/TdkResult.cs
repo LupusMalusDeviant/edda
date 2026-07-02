@@ -63,3 +63,15 @@ public sealed record TdkEngineError(
     int? ExitCode = null,
     string? Stderr = null,
     bool TimedOut = false);
+
+/// <summary>
+/// A cached validator outcome for one (rule × validator × code block) tuple: whether the block passed and,
+/// if not, the violations that were produced. Reused by the TDK engine to skip re-running the sandbox for an
+/// identical re-validation (issue F13). Only real validator runs are cached; engine/infrastructure errors
+/// are never cached because they are transient.
+/// </summary>
+/// <param name="Pass"><see langword="true"/> when the validator reported no violation for the block.</param>
+/// <param name="Violations">The violations produced (empty when <paramref name="Pass"/> is <see langword="true"/>).</param>
+public sealed record TdkCachedOutcome(
+    bool Pass,
+    IReadOnlyList<TdkViolation> Violations);
