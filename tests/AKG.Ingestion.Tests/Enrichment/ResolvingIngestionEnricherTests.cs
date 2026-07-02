@@ -38,7 +38,8 @@ public sealed class ResolvingIngestionEnricherTests
             .ReturnsAsync("""{ "summary": "s", "related": [] }""");
 
         var inner = new LlmIngestionEnricher(
-            chat.Object, new InputSanitizer(), new SecretRedactor(), NullLogger<LlmIngestionEnricher>.Instance);
+            chat.Object, new InputSanitizer(), new SecretRedactor(), TimeProvider.System,
+            NullLogger<LlmIngestionEnricher>.Instance);
         var sut = new ResolvingIngestionEnricher(settings.Object, configuration.Object, inner);
         return (sut, chat);
     }

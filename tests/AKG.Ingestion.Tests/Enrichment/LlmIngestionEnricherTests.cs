@@ -1,9 +1,11 @@
 using Edda.AKG.Ingestion.Enrichment;
 using Edda.AKG.Ingestion.Tests.TestUtilities;
+using Edda.Core.Exceptions;
 using Edda.Core.Models;
 using Edda.Security.OutputFilter;
 using Edda.Security.Sanitization;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Edda.AKG.Ingestion.Tests.Enrichment;
 
@@ -16,8 +18,21 @@ public sealed class LlmIngestionEnricherTests
         IReadOnlyList<IngestionLink>? links = null)
         => new() { Id = id, Title = "T", Body = body, SourceKind = "git", NativeLinks = links ?? [] };
 
-    private static LlmIngestionEnricher Enricher(FakeLlmChatClient chat)
-        => new(chat, new InputSanitizer(), new SecretRedactor(), NullLogger<LlmIngestionEnricher>.Instance);
+    private static LlmIngestionEnricher Enricher(FakeLlmChatClient chat, TimeProvider? time = null)
+        => new(chat, new InputSanitizer(), new SecretRedactor(), time ?? TimeProvider.System,
+            NullLogger<LlmIngestionEnricher>.Instance);
+
+    /// <summary>Drives a FakeTimeProvider so retry backoffs elapse without any real wall-clock wait.</summary>
+    private static async Task<IngestionItem> DriveAsync(Task<IngestionItem> task, FakeTimeProvider time)
+    {
+        for (var i = 0; i < 50 && !task.IsCompleted; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(30));
+            await Task.Yield();
+        }
+
+        return await task;
+    }
 
     [Fact]
     public async Task EnrichAsync_AddsRelatedLinksAndCondensesBody()
@@ -65,14 +80,73 @@ public sealed class LlmIngestionEnricherTests
     }
 
     [Fact]
-    public async Task EnrichAsync_UnparseableResponse_ReturnsItemUnchanged()
+    public async Task EnrichAsync_UnparseableResponse_AttemptsRepairThenReturnsItemUnchanged()
     {
         var item = Item();
+        var chat = new FakeLlmChatClient("not json at all");
 
-        var result = await Enricher(new FakeLlmChatClient("not json at all"))
-            .EnrichAsync(item, new HashSet<string> { "git:r:a" });
+        var result = await Enricher(chat).EnrichAsync(item, new HashSet<string> { "git:r:a" });
 
         result.Should().BeSameAs(item);
+        chat.CallCount.Should().Be(2, "one initial call plus one repair attempt, both unparseable");
+    }
+
+    [Fact]
+    public async Task EnrichAsync_InvalidJsonThenValidRepair_UsesRepairedResponse()
+    {
+        var chat = FakeLlmChatClient.Responses(
+            "sorry, here you go:",
+            """{ "summary": "repaired summary", "related": [] }""");
+
+        var result = await Enricher(chat).EnrichAsync(Item(body: "Original."), new HashSet<string> { "git:r:a" });
+
+        result.Body.Should().Be("repaired summary");
+        chat.CallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task EnrichAsync_TransientError_RetriesWithBackoffThenSucceeds()
+    {
+        var time = new FakeTimeProvider();
+        var chat = FakeLlmChatClient.ThrowsThenReturns(
+            [new ProviderRateLimitException("fake")],
+            then: """{ "summary": "recovered", "related": [] }""");
+
+        var result = await DriveAsync(
+            Enricher(chat, time).EnrichAsync(Item(body: "Original."), new HashSet<string> { "git:r:a" }), time);
+
+        result.Body.Should().Be("recovered");
+        chat.CallCount.Should().Be(2, "one rate-limited call plus one successful retry");
+    }
+
+    [Fact]
+    public async Task EnrichAsync_TransientRetriesExhausted_ReturnsItemUnchanged()
+    {
+        var time = new FakeTimeProvider();
+        var item = Item();
+        // Always 429: 1 initial + 2 retries = 3 attempts, then give up (best-effort, item unchanged).
+        var chat = FakeLlmChatClient.ThrowsThenReturns(
+            [new ProviderRateLimitException("fake"), new ProviderRateLimitException("fake"),
+             new ProviderRateLimitException("fake")],
+            then: """{ "summary": "unreached", "related": [] }""");
+
+        var result = await DriveAsync(
+            Enricher(chat, time).EnrichAsync(item, new HashSet<string> { "git:r:a" }), time);
+
+        result.Should().BeSameAs(item);
+        chat.CallCount.Should().Be(3, "1 initial + 2 retries before giving up");
+    }
+
+    [Fact]
+    public async Task EnrichAsync_NonTransientError_GivesUpImmediately()
+    {
+        var item = Item();
+        var chat = FakeLlmChatClient.Throwing(); // bare ProviderException, no status = non-transient
+
+        var result = await Enricher(chat).EnrichAsync(item, new HashSet<string> { "git:r:a" });
+
+        result.Should().BeSameAs(item);
+        chat.CallCount.Should().Be(1, "a non-transient error is not retried");
     }
 
     [Fact]
