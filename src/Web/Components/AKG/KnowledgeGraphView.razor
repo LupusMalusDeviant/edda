@@ -124,6 +124,10 @@
     public async Task<string[]> GetSelectedIdsAsync()
         => await JS.InvokeAsync<string[]>("cytoscapeInterop.getSelectedIds", ContainerId);
 
+    /// <summary>Centers the graph on a node and highlights it + its neighborhood (E1 search focus).</summary>
+    public async Task FocusNodeAsync(string id)
+        => await JS.InvokeVoidAsync("cytoscapeInterop.focusNode", ContainerId, id);
+
     /// <summary>
     /// DTO carrying all display-relevant rule data for the Wissensgraph visualization.
     /// </summary>
@@ -138,5 +142,6 @@
         IReadOnlyList<string>? ExceptionForIds,
         IReadOnlyList<string>? RequiresIds,
         IReadOnlyList<string>? SupersedesIds,
-        IReadOnlyList<string>? RelatedRuleIds);
+        IReadOnlyList<string>? RelatedRuleIds,
+        IReadOnlyList<string> Tags);
 }

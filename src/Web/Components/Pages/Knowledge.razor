@@ -98,6 +98,60 @@ else
         <div class="alert alert-info py-1 px-2 mb-2" style="font-size:.82rem;">@_seedMessage</div>
     }
 
+    @if (!_selectMode)
+    {
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <input class="form-control form-control-sm" style="max-width:280px;"
+                   placeholder="@Loc["knowledge.search.placeholder"]"
+                   @bind="_searchQuery" @bind:event="oninput" />
+            <select class="form-select form-select-sm" style="max-width:200px;" @bind="_domainFilter">
+                <option value="">@Loc["knowledge.search.domain"]: @Loc["knowledge.search.all"]</option>
+                @foreach (var d in _domains)
+                {
+                    <option value="@d">@d</option>
+                }
+            </select>
+            <select class="form-select form-select-sm" style="max-width:180px;" @bind="_typeFilter">
+                <option value="">@Loc["knowledge.search.type"]: @Loc["knowledge.search.all"]</option>
+                @foreach (var t in _types)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+            <select class="form-select form-select-sm" style="max-width:180px;" @bind="_tagFilter">
+                <option value="">@Loc["knowledge.search.tag"]: @Loc["knowledge.search.all"]</option>
+                @foreach (var t in _tags)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+        @if (SearchActive)
+        {
+            <div class="mb-2" style="max-height:180px;overflow-y:auto;border:1px solid #2a2a4e;border-radius:6px;">
+                <div class="px-2 py-1" style="font-size:.78rem;color:#94a3b8;">
+                    @string.Format(Loc["knowledge.search.results"], Results.Count)
+                </div>
+                @if (Results.Count == 0)
+                {
+                    <div class="px-2 py-1 text-muted" style="font-size:.82rem;">@Loc["knowledge.search.noresults"]</div>
+                }
+                else
+                {
+                    @foreach (var r in Results)
+                    {
+                        <button type="button" class="btn btn-sm btn-link text-start w-100 px-2 py-1"
+                                style="text-decoration:none;font-size:.85rem;"
+                                @onclick="() => FocusResultAsync(r)">
+                            <span>@r.Id</span>
+                            <span class="badge bg-secondary ms-1" style="font-size:.65rem;">@r.Domain</span>
+                        </button>
+                    }
+                }
+            </div>
+        }
+    }
+
     <div class="knowledge-layout">
         <div class="knowledge-graph-col">
             <KnowledgeGraphView @ref="_graphView" @key="@_graphKey" Rules="@_rules"
@@ -135,6 +189,29 @@ else
     private bool _seeding;
     private string? _seedMessage;
     private KnowledgeGraphView? _graphView;
+
+    // E1: search + filter over the loaded head nodes.
+    private string _searchQuery = string.Empty;
+    private string _domainFilter = string.Empty;
+    private string _typeFilter = string.Empty;
+    private string _tagFilter = string.Empty;
+    private IReadOnlyList<string> _domains = [];
+    private IReadOnlyList<string> _types = [];
+    private IReadOnlyList<string> _tags = [];
+
+    private bool SearchActive =>
+        !string.IsNullOrWhiteSpace(_searchQuery) || !string.IsNullOrWhiteSpace(_domainFilter)
+        || !string.IsNullOrWhiteSpace(_typeFilter) || !string.IsNullOrWhiteSpace(_tagFilter);
+
+    private IReadOnlyList<KnowledgeGraphView.KnowledgeRuleDto> Results =>
+        KnowledgeSearch.Filter(_rules, _searchQuery, _domainFilter, _typeFilter, _tagFilter);
+
+    private async Task FocusResultAsync(KnowledgeGraphView.KnowledgeRuleDto rule)
+    {
+        _selectedRule = rule;
+        if (_graphView is not null)
+            await _graphView.FocusNodeAsync(rule.Id);
+    }
 
     private int EmbeddingPercent => _stats is { EmbeddingRebuildTotal: > 0 }
         ? (int)(100.0 * _stats.EmbeddingRebuildDone / _stats.EmbeddingRebuildTotal)
@@ -201,13 +278,20 @@ else
                 r.RelatesTo?.ExceptionFor,
                 r.RelatesTo?.Requires,
                 r.RelatesTo?.Supersedes,
-                r.RelatesTo?.Related)).ToList();
+                r.RelatesTo?.Related,
+                r.Tags)).ToList();
 
             _rules = rules;
+            _domains = rules.Select(r => r.Domain).Where(d => !string.IsNullOrEmpty(d)).Distinct().OrderBy(d => d).ToList();
+            _types   = rules.Select(r => r.Type).Where(t => !string.IsNullOrEmpty(t)).Distinct().OrderBy(t => t).ToList();
+            _tags    = rules.SelectMany(r => r.Tags).Distinct().OrderBy(t => t).ToList();
         }
         catch
         {
             _rules = [];
+            _domains = [];
+            _types = [];
+            _tags = [];
         }
     }
 

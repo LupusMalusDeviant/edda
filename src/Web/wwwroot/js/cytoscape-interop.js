@@ -355,5 +355,20 @@ window.cytoscapeInterop = {
         var cy = this._instances[containerId];
         if (!cy) { return []; }
         return cy.nodes(':selected').map(function (n) { return n.id(); });
+    },
+
+    // Centers the graph on a node by id and highlights its neighborhood (E1 search-result focus).
+    // Uses the same dim/highlight visuals as a node tap; deliberately avoids ':selected' so it does not
+    // interfere with multi-select mode.
+    focusNode: function (containerId, id) {
+        var cy = this._instances[containerId];
+        if (!cy) { return; }
+        var node = cy.getElementById(id);
+        if (!node || node.empty()) { return; }
+        var hood = node.closedNeighborhood();
+        cy.elements().addClass('dimmed').removeClass('highlighted');
+        hood.removeClass('dimmed').addClass('highlighted');
+        hood.connectedEdges().removeClass('dimmed').addClass('highlighted');
+        cy.animate({ center: { eles: node }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 300 });
     }
 };
