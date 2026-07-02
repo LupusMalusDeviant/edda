@@ -13,6 +13,12 @@ internal sealed class RecallTool : IAgentTool
 {
     private const int MaxResults = 10;
 
+    /// <summary>
+    /// C3: relevance multiplier applied to a memory that a newer fact supersedes, demoting contradicted facts
+    /// below their up-to-date replacements without hiding them entirely.
+    /// </summary>
+    private const double SupersededPenalty = 0.1;
+
     private readonly IKnowledgeGraph _graph;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RecallTool> _logger;
@@ -66,6 +72,11 @@ internal sealed class RecallTool : IAgentTool
             if (owned.Count == 0)
                 return ToolResult.Ok(call.Id, Definition.Name, "No memories found.");
 
+            // C3: memories a newer fact supersedes (SUPERSEDES edge) are demoted in the ranking.
+            var supersededIds = owned
+                .SelectMany(m => m.RelatesTo?.Supersedes ?? [])
+                .ToHashSet(StringComparer.Ordinal);
+
             var terms = ExtractTerms(query);
             var now = _timeProvider.GetUtcNow();
             var ranked = owned
@@ -74,8 +85,9 @@ internal sealed class RecallTool : IAgentTool
                     Memory = m,
                     Recency = MemoryNodes.RecencyFactor(m.Created, now, MemoryNodes.DefaultDecayHalfLifeDays),
                     Keyword = RelevanceScore(m, terms),
+                    Penalty = supersededIds.Contains(m.Id) ? SupersededPenalty : 1.0,
                 })
-                .OrderByDescending(x => x.Keyword * x.Recency)
+                .OrderByDescending(x => x.Keyword * x.Recency * x.Penalty)
                 .ThenByDescending(x => x.Recency)
                 .Take(MaxResults)
                 .Select(x => $"- {x.Memory.Body}")

@@ -76,7 +76,12 @@ public static class AgentToolsServiceExtensions
 
         // Episodic memory (M3 / ADR-0011): per-fact SourceType=memory graph nodes. recall is read-only;
         // remember/forget are mutating (MCP default-deny via McpExposurePolicy.WriteToolNames).
-        services.AddSingleton<IAgentTool, RememberTool>();
+        // C3: remember detects superseded facts via token-Jaccard; threshold from MEMORY_SUPERSEDE_JACCARD.
+        services.AddSingleton<IAgentTool>(sp => new RememberTool(
+            sp.GetRequiredService<IKnowledgeGraph>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<RememberTool>>(),
+            jaccardThreshold: ParseSupersedeThreshold(sp.GetService<IConfiguration>())));
         services.AddSingleton<IAgentTool, RecallTool>();
         services.AddSingleton<IAgentTool, ForgetTool>();
         services.AddSingleton<IAgentTool, ConsolidateTool>();
@@ -122,6 +127,25 @@ public static class AgentToolsServiceExtensions
             System.Globalization.CultureInfo.InvariantCulture, out var hours) && hours > 0
             ? hours
             : 0;
+    }
+
+    /// <summary>
+    /// Reads <c>MEMORY_SUPERSEDE_JACCARD</c> from configuration (falling back to the environment) as an
+    /// invariant-culture token-Jaccard threshold for C3 contradiction detection. Returns the default
+    /// <c>0.6</c> when unset, negative, or unparseable; a value greater than <c>1.0</c> disables detection.
+    /// </summary>
+    /// <param name="configuration">The host configuration, if available.</param>
+    /// <returns>The supersede threshold; <c>0.6</c> by default.</returns>
+    private static double ParseSupersedeThreshold(IConfiguration? configuration)
+    {
+        const double DefaultThreshold = 0.6;
+        var raw = configuration?["MEMORY_SUPERSEDE_JACCARD"]
+                  ?? Environment.GetEnvironmentVariable("MEMORY_SUPERSEDE_JACCARD");
+        return double.TryParse(
+            raw, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold >= 0
+            ? threshold
+            : DefaultThreshold;
     }
 }
 

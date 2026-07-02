@@ -116,6 +116,39 @@ public class RecallToolTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_PrefersNewerOfTwoSimilarFacts_SupersededRanksLower()
+    {
+        _time.SetUtcNow(new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero));
+        var stale = MemoryOn("my favorite color is blue", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var current = MemoryOn("my favorite color is red", new DateTimeOffset(2026, 5, 30, 0, 0, 0, TimeSpan.Zero))
+            with { RelatesTo = new RuleRelations { Supersedes = [stale.Id] } };
+        SetupMemories(stale, current);
+
+        var result = await _sut.ExecuteAsync(Call("favorite color"), Ctx());
+
+        // The current fact supersedes the older one, which is demoted below its replacement.
+        result.Content!.IndexOf("red", StringComparison.Ordinal)
+            .Should().BeLessThan(result.Content!.IndexOf("blue", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DisjointMemoryNotSuperseded_KeepsFullWeight()
+    {
+        // All three match the query equally with equal recency; only the superseded 'dark' fact is
+        // penalised, so the un-superseded 'custom' fact must still outrank it.
+        var stale = Memory("the theme setting is dark");
+        var superseding = Memory("the theme setting is light")
+            with { RelatesTo = new RuleRelations { Supersedes = [stale.Id] } };
+        var disjoint = Memory("the theme setting is custom");
+        SetupMemories(stale, superseding, disjoint);
+
+        var result = await _sut.ExecuteAsync(Call("theme setting"), Ctx());
+
+        result.Content!.IndexOf("custom", StringComparison.Ordinal)
+            .Should().BeLessThan(result.Content!.IndexOf("is dark", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Definition_HasCorrectName()
     {
         _sut.Definition.Name.Should().Be("recall");

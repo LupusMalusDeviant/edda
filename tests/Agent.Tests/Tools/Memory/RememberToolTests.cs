@@ -18,6 +18,11 @@ public class RememberToolTests
         _time.SetUtcNow(new DateTimeOffset(2026, 3, 1, 9, 0, 0, TimeSpan.Zero));
         _graph.Setup(g => g.UpsertRuleAsync(It.IsAny<KnowledgeRule>(), It.IsAny<CancellationToken>()))
               .ReturnsAsync((KnowledgeRule r, CancellationToken _) => r);
+        // Default: no pre-existing memories, so C3 supersede detection finds nothing.
+        _graph.Setup(g => g.GetRulesAsync(
+                  It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
+                  It.IsAny<CancellationToken>()))
+              .ReturnsAsync((IReadOnlyList<KnowledgeRule>)[]);
         _sut = new RememberTool(_graph.Object, _time, NullLogger<RememberTool>.Instance);
     }
 
@@ -30,6 +35,24 @@ public class RememberToolTests
 
     private static ToolExecutionContext Ctx(string userId = "user-1") =>
         new() { ConversationId = "conv-1", UserId = userId };
+
+    private static KnowledgeRule ExistingMemory(string body, string owner = "user-1") =>
+        MemoryNodes.Create(owner, body, new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
+
+    private void SetupExisting(params KnowledgeRule[] rules) =>
+        _graph.Setup(g => g.GetRulesAsync(
+                  It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
+                  It.IsAny<CancellationToken>()))
+              .ReturnsAsync(rules);
+
+    private List<KnowledgeRule> CaptureUpserts()
+    {
+        var captured = new List<KnowledgeRule>();
+        _graph.Setup(g => g.UpsertRuleAsync(It.IsAny<KnowledgeRule>(), It.IsAny<CancellationToken>()))
+              .Callback<KnowledgeRule, CancellationToken>((r, _) => captured.Add(r))
+              .ReturnsAsync((KnowledgeRule r, CancellationToken _) => r);
+        return captured;
+    }
 
     [Fact]
     public async Task ExecuteAsync_UpsertsMemoryNode_ScopedToUser()
@@ -91,6 +114,68 @@ public class RememberToolTests
 
         result.Success.Should().BeFalse();
         result.Error.Should().Contain("graph down");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_HighOverlapWithExistingFact_SetsSupersedesEdge()
+    {
+        // {my,favorite,color,is,blue} vs {my,favorite,color,is,red}: 4/6 ≈ 0.667 > 0.6 threshold.
+        var existing = ExistingMemory("my favorite color is blue");
+        SetupExisting(existing);
+        var upserts = CaptureUpserts();
+
+        var result = await _sut.ExecuteAsync(Call("my favorite color is red"), Ctx());
+
+        result.Success.Should().BeTrue();
+        upserts.Should().ContainSingle();
+        upserts[0].RelatesTo!.Supersedes.Should().ContainSingle().Which.Should().Be(existing.Id);
+        result.Content.Should().Contain("Possibly supersedes");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DisjointFact_DoesNotSupersede()
+    {
+        SetupExisting(ExistingMemory("my favorite color is blue"));
+        var upserts = CaptureUpserts();
+
+        var result = await _sut.ExecuteAsync(Call("the deploy script lives under ops"), Ctx());
+
+        result.Success.Should().BeTrue();
+        upserts.Should().ContainSingle();
+        upserts[0].RelatesTo.Should().BeNull();
+        result.Content.Should().NotContain("supersedes");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SameContentAsExisting_DoesNotSupersedeItself()
+    {
+        // Remembering the identical fact again must not create a self-referential SUPERSEDES edge
+        // (the existing node shares the new fact's deterministic id and is excluded).
+        SetupExisting(ExistingMemory("my favorite color is blue"));
+        var upserts = CaptureUpserts();
+
+        var result = await _sut.ExecuteAsync(Call("my favorite color is blue"), Ctx());
+
+        result.Success.Should().BeTrue();
+        upserts.Should().ContainSingle();
+        upserts[0].RelatesTo.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SupersedeLookupThrows_StillRemembers()
+    {
+        // Best-effort: a failed lookup must never stop the fact being remembered, just without an edge.
+        _graph.Setup(g => g.GetRulesAsync(
+                  It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
+                  It.IsAny<CancellationToken>()))
+              .ThrowsAsync(new InvalidOperationException("graph read down"));
+        var upserts = CaptureUpserts();
+
+        var result = await _sut.ExecuteAsync(Call("my favorite color is red"), Ctx());
+
+        result.Success.Should().BeTrue();
+        upserts.Should().ContainSingle();
+        upserts[0].RelatesTo.Should().BeNull();
     }
 
     [Fact]
