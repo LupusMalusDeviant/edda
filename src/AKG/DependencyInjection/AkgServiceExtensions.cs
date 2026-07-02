@@ -158,7 +158,15 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<ILogger<Neo4jEmbeddingCache>>(),
             sp.GetRequiredService<IActivityTracker>(),
             int.TryParse(configuration?["EMBEDDING_REBUILD_PARALLELISM"], out var dop) && dop > 0 ? dop : 4,
-            sp.GetService<TimeProvider>() ?? TimeProvider.System));
+            sp.GetService<TimeProvider>() ?? TimeProvider.System,
+            // B2: fingerprint = active provider:model:dimension. Stored on chunks so a provider/model/dimension
+            // change re-embeds the affected chunks (and a dimension change recreates the vector index).
+            () =>
+            {
+                var embedding = sp.GetRequiredService<ISettingsService>().Current.Embedding;
+                var service = sp.GetRequiredService<IEmbeddingService>();
+                return $"{embedding.Provider ?? "null"}:{embedding.Model ?? "default"}:{service.Dimensions}";
+            }));
 
         // Head-vector store (ADR-0009) — per-repo centroids for hierarchical stage-1 pre-pruning.
         services.AddSingleton<IHeadVectorStore>(sp => new Neo4jHeadVectorStore(

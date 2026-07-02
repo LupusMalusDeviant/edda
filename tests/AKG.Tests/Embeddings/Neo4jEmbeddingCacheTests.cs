@@ -18,9 +18,10 @@ namespace Edda.AKG.Tests.Embeddings;
 public class Neo4jEmbeddingCacheTests
 {
     private static Neo4jEmbeddingCache Cache(
-        ICypherExecutor cypher, IEmbeddingService embeddings, TimeProvider? timeProvider = null)
+        ICypherExecutor cypher, IEmbeddingService embeddings, TimeProvider? timeProvider = null,
+        Func<string>? fingerprint = null)
         => new(cypher, embeddings, new AdaptiveDocumentChunker(), () => new ChunkingOptions(),
-            NullLogger<Neo4jEmbeddingCache>.Instance, timeProvider: timeProvider);
+            NullLogger<Neo4jEmbeddingCache>.Instance, timeProvider: timeProvider, embeddingFingerprint: fingerprint);
 
     /// <summary>
     /// Drives a rebuild that is awaiting <see cref="FakeTimeProvider"/>-backed retry delays to completion by
@@ -53,12 +54,13 @@ public class Neo4jEmbeddingCacheTests
 
         await sut.EnsureVectorIndexAsync(CancellationToken.None);
 
-        cypher.ExecutedWriteQueries.Should().ContainSingle();
-        var query = cypher.ExecutedWriteQueries[0];
-        query.Should().Contain("CREATE VECTOR INDEX chunk_embeddings");
+        var query = cypher.ExecutedWriteQueries.Should()
+            .ContainSingle(q => q.Contains("CREATE VECTOR INDEX chunk_embeddings")).Which;
         query.Should().Contain("RuleChunk");
         query.Should().Contain("768");
         query.Should().Contain("cosine");
+        // B2: the built dimension is recorded on a meta node so a later change is detectable.
+        cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("EddaEmbeddingMeta"));
     }
 
     [Fact]
@@ -220,6 +222,52 @@ public class Neo4jEmbeddingCacheTests
             Times.Once);
         sut.EmbeddedSoFar.Should().Be(0);
         cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("embedAttempts = coalesce"));
+    }
+
+    [Fact]
+    public async Task RebuildAsync_EmbeddingDimensionChanged_RecreatesIndexAndReembedsWithNewFingerprint()
+    {
+        var cypher = new FakeCypherExecutor();
+        // The rule-selection query returns one rule (fresh in build 1, stale-by-fingerprint in build 2 — the
+        // fake does not evaluate the CASE logic, so returning the rule simulates "needs (re)embedding").
+        cypher.AddQueryHandler(q => q.Contains("bodyHash IS NULL")
+            ? new IReadOnlyDictionary<string, object?>[]
+              { new Dictionary<string, object?> { ["id"] = "r1", ["body"] = "Alpha", ["chunkStyle"] = null } }
+            : cypher.DefaultResult);
+
+        // ── Build 1: provider A, dimension 4 ──
+        var emb4 = EmbeddingsWithDimensions(4);
+        emb4.Setup(e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<string> texts, CancellationToken _) =>
+                texts.Select(_ => new[] { 0.1f, 0.2f, 0.3f, 0.4f }).ToList());
+
+        await Cache(cypher, emb4.Object, fingerprint: () => "fake:A:4").RebuildAsync(CancellationToken.None);
+
+        cypher.ExecutedWriteQueries.Should().Contain(
+            q => q.Contains("CREATE VECTOR INDEX chunk_embeddings") && q.Contains("4"));
+        cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("embeddingFingerprint"));
+        cypher.ExecutedWriteQueries.Should().NotContain(q => q.Contains("DROP INDEX"),
+            because: "the first build has no prior dimension to differ from");
+
+        // ── Build 2: provider B, dimension 8 (the stored index dimension is 4) ──
+        cypher.ExecutedWriteQueries.Clear();
+        cypher.AddQueryHandler(q => q.Contains("EddaEmbeddingMeta")
+            ? new IReadOnlyDictionary<string, object?>[] { new Dictionary<string, object?> { ["dimensions"] = 4L } }
+            : cypher.DefaultResult);
+
+        var emb8 = EmbeddingsWithDimensions(8);
+        emb8.Setup(e => e.EmbedBatchAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<string> texts, CancellationToken _) =>
+                texts.Select(_ => new[] { 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f }).ToList());
+
+        await Cache(cypher, emb8.Object, fingerprint: () => "fake:B:8").RebuildAsync(CancellationToken.None);
+
+        cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("DROP INDEX chunk_embeddings"),
+            because: "a dimension change drops the stale-dimension index before recreating it");
+        cypher.ExecutedWriteQueries.Should().Contain(
+            q => q.Contains("CREATE VECTOR INDEX chunk_embeddings") && q.Contains("8"));
+        cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("embeddingFingerprint"),
+            because: "the stale chunk is re-embedded (and re-fingerprinted) under the new provider");
     }
 
     /// <summary>Builds a cypher executor whose "rules to embed" query returns a single healthy rule.</summary>

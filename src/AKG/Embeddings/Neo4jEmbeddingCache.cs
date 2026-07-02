@@ -29,6 +29,13 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
     private readonly TimeProvider _timeProvider;
 
     /// <summary>
+    /// Resolves the active embedding fingerprint (<c>provider:model:dimension</c>) at call time. Stored on
+    /// every chunk so a provider/model/dimension change is detected and the affected chunks are re-embedded
+    /// (issue B2). A dimension change additionally recreates the vector index.
+    /// </summary>
+    private readonly Func<string> _embeddingFingerprint;
+
+    /// <summary>
     /// Max embedding attempts per rule before the backfill treats it as failed and stops retrying it.
     /// A few permanently-failing rules can therefore never block the rest of the corpus from embedding.
     /// This is the coarse, cross-cycle cap (persisted as <c>embedAttempts</c>); it complements the fast
@@ -97,6 +104,11 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
     /// Clock abstraction used to delay between transient-failure retries. Defaults to
     /// <see cref="TimeProvider.System"/>; tests inject a fake to make the backoff deterministic.
     /// </param>
+    /// <param name="embeddingFingerprint">
+    /// Resolves the active embedding fingerprint (<c>provider:model:dimension</c>) at call time; stored on
+    /// each chunk so a provider/model/dimension change re-embeds it (B2). Defaults to a dimension-only
+    /// fingerprint; the DI registration supplies the full one from settings.
+    /// </param>
     public Neo4jEmbeddingCache(
         ICypherExecutor cypher,
         IEmbeddingService embeddings,
@@ -105,7 +117,8 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
         ILogger<Neo4jEmbeddingCache> logger,
         IActivityTracker? activity = null,
         int maxParallelism = 4,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<string>? embeddingFingerprint = null)
     {
         _cypher = cypher;
         _embeddings = embeddings;
@@ -115,6 +128,9 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
         _activity = activity;
         _maxParallelism = Math.Max(1, maxParallelism);
         _timeProvider = timeProvider ?? TimeProvider.System;
+        // Fallback fingerprint tracks only the dimension (still catches the dimension-mismatch case); the DI
+        // registration supplies the full provider:model:dimension fingerprint.
+        _embeddingFingerprint = embeddingFingerprint ?? (() => $"dim:{_embeddings.Dimensions}");
     }
 
     /// <summary>
@@ -151,17 +167,24 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
             // Ensure the native vector index exists (best-effort; no-op on providers without support).
             await EnsureVectorIndexAsync(token).ConfigureAwait(false);
 
-            // Find rules without current chunks (missing chunks or no body hash) that have not yet hit the
-            // retry cap — so a handful of permanently-failing rules can never block the rest of the backfill.
+            // Find rules that need (re)embedding and have not yet hit the retry cap — so a handful of
+            // permanently-failing rules can never block the rest of the backfill. A rule needs embedding when
+            // it has no current chunks / no body hash, OR (B2) any of its chunks carries a stale embedding
+            // fingerprint (a provider/model/dimension change, or a legacy chunk with no fingerprint = stale).
+            var fingerprint = _embeddingFingerprint();
             var rows = await _cypher.QueryAsync(
                 """
                 MATCH (r:Rule)
                 OPTIONAL MATCH (r)-[:HAS_CHUNK]->(c:RuleChunk)
-                WITH r, count(c) AS chunks
-                WHERE (r.bodyHash IS NULL OR chunks = 0) AND coalesce(r.embedAttempts, 0) < $maxAttempts
+                WITH r,
+                     count(c) AS chunks,
+                     count(CASE WHEN c IS NOT NULL AND coalesce(c.embeddingFingerprint, '') <> $fingerprint
+                                THEN 1 END) AS staleChunks
+                WHERE (r.bodyHash IS NULL OR chunks = 0 OR staleChunks > 0)
+                      AND coalesce(r.embedAttempts, 0) < $maxAttempts
                 RETURN r.id AS id, r.body AS body, r.chunkStyle AS chunkStyle
                 """,
-                new { maxAttempts = MaxEmbedAttempts },
+                new { maxAttempts = MaxEmbedAttempts, fingerprint },
                 token).ConfigureAwait(false);
 
             var toEmbed = rows
@@ -304,6 +327,19 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
 
         try
         {
+            // B2: a dimension change makes the existing index the wrong size, and CREATE ... IF NOT EXISTS
+            // would keep it. Drop it first so it is recreated at the new dimension (a same-dimension
+            // provider/model change re-embeds chunks but keeps the index). The last-built dimension is
+            // tracked on a small meta node so the change is detectable across restarts.
+            var storedDimensions = await ReadIndexDimensionAsync(ct).ConfigureAwait(false);
+            if (storedDimensions is int previous && previous != dimensions)
+            {
+                _logger.LogInformation(
+                    "Embedding dimension changed {Old}→{New}; recreating chunk vector index | {Component}",
+                    previous, dimensions, "AKG");
+                await _cypher.ExecuteAsync("DROP INDEX chunk_embeddings IF EXISTS", ct: ct).ConfigureAwait(false);
+            }
+
             // Index OPTIONS cannot be parameterized in Cypher; the dimension is an internal int.
             await _cypher.ExecuteAsync(
                 "CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS "
@@ -311,6 +347,8 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
                 + "OPTIONS {indexConfig: {`vector.dimensions`: " + dimensions
                 + ", `vector.similarity_function`: 'cosine'}}",
                 ct: ct).ConfigureAwait(false);
+
+            await WriteIndexDimensionAsync(dimensions, ct).ConfigureAwait(false);
 
             _logger.LogInformation(
                 "Vector index 'chunk_embeddings' ensured (dimensions={Dim}) | {Component}", dimensions, "AKG");
@@ -322,6 +360,25 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
                 + "semantic search will use app-side cosine | {Component}", "AKG");
         }
     }
+
+    /// <summary>Reads the embedding dimension the chunk vector index was last (re)built for, or null if unknown.</summary>
+    private async Task<int?> ReadIndexDimensionAsync(CancellationToken ct)
+    {
+        var rows = await _cypher.QueryAsync(
+            "MATCH (m:EddaEmbeddingMeta {id: 'chunk_index'}) RETURN m.dimensions AS dimensions",
+            ct: ct).ConfigureAwait(false);
+
+        if (rows.Count == 0)
+            return null;
+        return rows[0].TryGetValue("dimensions", out var v) && v is not null ? Convert.ToInt32(v) : null;
+    }
+
+    /// <summary>Records the embedding dimension the chunk vector index is now built for.</summary>
+    private async Task WriteIndexDimensionAsync(int dimensions, CancellationToken ct)
+        => await _cypher.ExecuteAsync(
+            "MERGE (m:EddaEmbeddingMeta {id: 'chunk_index'}) SET m.dimensions = $dimensions",
+            new { dimensions },
+            ct).ConfigureAwait(false);
 
     /// <summary>
     /// Generates and persists chunk embeddings for a single rule if its body changed.
@@ -451,10 +508,10 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
             UNWIND $chunks AS ch
             CREATE (r)-[:HAS_CHUNK]->(:RuleChunk {
                 parentId: $id, ord: ch.ord, text: ch.text, style: ch.style,
-                embedding: ch.emb, ownerId: r.ownerId
+                embedding: ch.emb, ownerId: r.ownerId, embeddingFingerprint: $fingerprint
             })
             """,
-            new { id = ruleId, hash, chunks = chunkMaps },
+            new { id = ruleId, hash, chunks = chunkMaps, fingerprint = _embeddingFingerprint() },
             ct).ConfigureAwait(false);
 
         // A file's chunks changed → its repository/upload head centroid is now stale (ADR-0009 stage 1).
