@@ -1,3 +1,4 @@
+using System.Globalization;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 
@@ -10,25 +11,44 @@ namespace Edda.Gateway.Api;
 internal static class AkgEndpointHandlers
 {
     /// <summary>
-    /// Returns all rules visible to the requesting user, with optional filters.
+    /// Returns rules visible to the requesting user, with optional filters and pagination.
     /// </summary>
     /// <param name="domain">Filter by domain. Null = all domains.</param>
     /// <param name="type">Filter by rule type. Null = all types.</param>
     /// <param name="tag">Filter by tag. Null = no tag filter.</param>
+    /// <param name="skip">Optional number of leading rules to skip (must be non-negative).</param>
+    /// <param name="take">
+    /// Optional page size (must be within <c>[1, <see cref="PageBounds.MaxTake"/>]</c>). Without any
+    /// pagination parameters the full set is returned, capped at <see cref="PageBounds.MaxTake"/>.
+    /// </param>
     /// <param name="identity">Authenticated caller identity.</param>
     /// <param name="graph">Knowledge graph service.</param>
+    /// <param name="response">HTTP response, used to emit the <c>X-Total-Count</c> header.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>200 OK with the matching rule list.</returns>
+    /// <returns>
+    /// 200 OK with the matching (paged) rule list and an <c>X-Total-Count</c> header giving the total
+    /// number of matches before paging; 400 if a pagination parameter is out of range.
+    /// </returns>
     internal static async Task<IResult> GetRulesAsync(
         string? domain,
         string? type,
         string? tag,
+        int? skip,
+        int? take,
         IIdentityContext identity,
         IKnowledgeGraph graph,
+        HttpResponse response,
         CancellationToken ct)
     {
+        var bounds = PageBounds.Resolve(skip, take, out var error);
+        if (bounds is null)
+            return Results.Problem(detail: error, statusCode: StatusCodes.Status400BadRequest);
+
         var rules = await graph.GetRulesAsync(domain, type, tag, identity.UserId, ct);
-        return Results.Ok(rules);
+        response.Headers["X-Total-Count"] = rules.Count.ToString(CultureInfo.InvariantCulture);
+
+        var page = rules.Skip(bounds.Skip).Take(bounds.Take).ToList();
+        return Results.Ok(page);
     }
 
     /// <summary>
