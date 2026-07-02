@@ -46,6 +46,11 @@ services:
       - MCP_EXPOSED_TOOLS=${MCP_EXPOSED_TOOLS:-search_memory,list_memory}
       # Schreib-Tools (manage_*) sind ueber MCP standardmaessig gesperrt (read-only); true = erlauben.
       - MCP_ALLOW_WRITE_TOOLS=${MCP_ALLOW_WRITE_TOOLS:-}
+      # Host-Bind sichtbar im Container: der Startup-Guard (A4) verweigert den Start bei
+      # Nicht-Loopback-Bind ohne EDDA_AUTH_TOKEN. 0.0.0.0 = alle Interfaces (remote erreichbar).
+      - EDDA_BIND=${EDDA_BIND:-127.0.0.1}
+      # Unsicheren Remote-Bind ohne Token bewusst erlauben (nur mit vorgelagertem Proxy/Firewall).
+      - EDDA_ALLOW_INSECURE_REMOTE=${EDDA_ALLOW_INSECURE_REMOTE:-}
       # Optional shared bearer token for /api/akg/* and /mcp (empty = loopback, no auth).
       - EDDA_AUTH_TOKEN=${EDDA_AUTH_TOKEN:-}
       # TDK sandbox: docker (needs the mounted socket) | wasm (local python) | null

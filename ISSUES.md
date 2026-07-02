@@ -530,3 +530,4 @@ Modell strikt nach Spec, dann Review-Session.
 Eine Zeile pro bearbeitetem Issue. Format: `- <ID> · <erledigt | blockiert | spec-erstellt | übersprungen> · <Datum> · <1 Satz Ergebnis/Grund>`
 
 - A1 · erledigt · 2026-07-02 · Timing-sicherer Token-Vergleich: neuer `ConstantTimeComparer` (SHA-256-Digest + `FixedTimeEquals`, keine Längen-Frührückkehr) in Edda.Security, im `LocalAuthenticationHandler` statt `string.Equals` genutzt; 10 Unit-Tests.
+- A4 · erledigt · 2026-07-02 · Startup-Guard gegen unauth. Remote-Bind: reine Funktion `RemoteBindGuard.IsInsecureRemoteBind` (Loopback-/Wildcard-Erkennung), Fail-Fast in `Program.cs`, Override `EDDA_ALLOW_INSECURE_REMOTE`; `EDDA_BIND` in Container-Env sichtbar gemacht; `.env.example` + `docs/betrieb.md` dokumentiert; 26 Unit-Tests.

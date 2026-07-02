@@ -38,10 +38,25 @@ Die App bindet lokal auf `http://127.0.0.1:8080` (UI, REST, MCP). Der Container 
 | `MCP_SERVER_ENABLED` | `true` | HTTP-MCP-Endpoint aktivieren |
 | `MCP_EXPOSED_TOOLS` | `search_memory,list_memory` | Allow-Liste (die 2 Lese-Tools) |
 | `EDDA_AUTH_TOKEN` | (leer) | optionaler Bearer-Token für `/api/akg/*` + `/mcp` |
+| `EDDA_BIND` | `127.0.0.1` | Host-Bind-Adresse (`0.0.0.0` = alle Interfaces, remote erreichbar) |
+| `EDDA_ALLOW_INSECURE_REMOTE` | (leer) | `true` hebt den Fail-Fast bei Remote-Bind ohne Token auf |
 | `TDK_SANDBOX_TYPE` | `docker` | docker/wasm/null |
 | `INGESTION_ENRICHER` | (leer) | `llm` aktiviert den opt-in LLM-Enricher (Verdichtung + Relationen) |
 | `INGESTION_ENTITY_EXTRACTION` | (leer) | `true` aktiviert die opt-in Entity-Extraktion beim Ingest |
 | `INGESTION_LLM_PROVIDER` | (leer → `openrouter`) | Provider bei Aktivierung; lokal empfohlen: `ollama` |
+
+## Sicherheit: Remote-Bind-Guard
+
+Standardmäßig bindet Edda nur auf Loopback (`127.0.0.1`) und ist damit ausschließlich lokal
+erreichbar. Wer den Dienst im Netz freigeben will (`EDDA_BIND=0.0.0.0`), **muss** einen
+Zugriffs-Token setzen (`EDDA_AUTH_TOKEN`). Andernfalls verweigert die App beim Start den Dienst
+(Fail-Fast) mit einer klaren Fehlermeldung, statt API und UI unauthentifiziert ins Netz zu stellen.
+
+Ist ein bewusst unauthentifizierter Remote-Betrieb gewünscht — etwa hinter einem Reverse-Proxy, der
+die Authentifizierung selbst übernimmt —, lässt sich der Guard mit `EDDA_ALLOW_INSECURE_REMOTE=true`
+deaktivieren. Der Guard wertet primär `EDDA_BIND` aus; beim direkten `dotnet run` ohne `EDDA_BIND`
+zieht er ersatzweise `ASPNETCORE_URLS` heran. Der interne All-Interfaces-Bind des Containers zählt
+nicht als Remote-Freigabe — dort entscheidet allein `EDDA_BIND` über die Host-seitige Erreichbarkeit.
 
 ## Volumes & Verzeichnisse
 

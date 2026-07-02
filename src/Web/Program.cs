@@ -5,11 +5,38 @@ using Edda.Web.Components;
 using Edda.Web.Services;
 using Edda.Hosting.Authentication;
 using Edda.Hosting.DependencyInjection;
+using Edda.Security.Networking;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Optional JSON config file (kept for parity; harmless if absent).
 builder.Configuration.AddJsonFile("data/agent-config.json", optional: true, reloadOnChange: false);
+
+// Fail fast when bound to a non-loopback interface without an auth token (issue A4): an
+// unauthenticated API+UI reachable off-host is almost always a misconfiguration. EDDA_BIND is the
+// documented host-bind knob (docker publish / install scripts); for a direct `dotnet run` the
+// process binds per ASPNETCORE_URLS, so fall back to that when EDDA_BIND is unset. Inside the
+// container EDDA_BIND is always provided (see docker-compose.yml), so the container's internal
+// all-interfaces Kestrel bind is never mistaken for remote exposure. Override deliberately with
+// EDDA_ALLOW_INSECURE_REMOTE=true (e.g. when a trusted reverse proxy handles authentication).
+var configuredBind = builder.Configuration["EDDA_BIND"];
+if (string.IsNullOrWhiteSpace(configuredBind))
+{
+    configuredBind = builder.Configuration["ASPNETCORE_URLS"];
+}
+
+var allowInsecureRemote = string.Equals(
+    builder.Configuration["EDDA_ALLOW_INSECURE_REMOTE"], "true", StringComparison.OrdinalIgnoreCase);
+
+if (RemoteBindGuard.IsInsecureRemoteBind(
+        configuredBind, builder.Configuration["EDDA_AUTH_TOKEN"], allowInsecureRemote))
+{
+    throw new InvalidOperationException(
+        $"Refusing to start: bound to a non-loopback address ('{configuredBind}') without " +
+        "EDDA_AUTH_TOKEN. This would expose the API and UI without authentication. Set " +
+        "EDDA_AUTH_TOKEN, bind to loopback (EDDA_BIND=127.0.0.1), or set " +
+        "EDDA_ALLOW_INSECURE_REMOTE=true to override deliberately.");
+}
 
 // Shared AKG + TDK + embeddings + tools + MCP service graph (also used by the stdio host).
 builder.Services.AddEddaCore(builder.Configuration);
