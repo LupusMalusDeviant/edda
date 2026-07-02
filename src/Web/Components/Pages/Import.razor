@@ -4,7 +4,7 @@
 @inject IKnowledgeImporter Importer
 @inject IActivityTracker Activity
 
-<PageTitle>Import</PageTitle>
+<PageTitle>Import/Export</PageTitle>
 
 <h3 class="mb-3">Wissen importieren</h3>
 
@@ -63,6 +63,22 @@
             Nach dem Import ggf. unter „Embeddings“ neu berechnen, damit die neuen Regeln semantisch
             durchsuchbar sind.
         </div>
+    </div>
+</div>
+
+<h3 class="mb-3">Wissen exportieren</h3>
+
+<div class="card mb-3" style="max-width:700px;">
+    <div class="card-body">
+        <p class="form-text mt-0">
+            Lädt die aktuellen Wissensregeln als portables <code>.json</code>-Bündel herunter — das
+            verlustfreie Austauschformat inkl. <code>SchemaVersion</code>, Gegenstück zum Import oben.
+            Ein Re-Import über die Import-Funktion ist verlustfrei; Embeddings berechnet Edda lokal neu.
+        </p>
+        <a class="btn btn-sm btn-outline-secondary" href="/api/knowledge/export"
+           download="edda-knowledge-bundle.json">
+            Exportieren (JSON-Bundle)
+        </a>
     </div>
 </div>
 
