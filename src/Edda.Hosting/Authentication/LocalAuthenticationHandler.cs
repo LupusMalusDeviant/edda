@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using Edda.Security.Comparison;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,7 +46,7 @@ public sealed class LocalAuthenticationHandler : AuthenticationHandler<Authentic
         if (!string.IsNullOrWhiteSpace(_token))
         {
             var provided = ExtractToken();
-            if (!string.Equals(provided, _token, StringComparison.Ordinal))
+            if (!ConstantTimeComparer.AreEqual(provided, _token))
                 return Task.FromResult(AuthenticateResult.Fail("Missing or invalid token."));
         }
 
