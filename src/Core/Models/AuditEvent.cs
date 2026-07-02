@@ -55,5 +55,8 @@ public enum AuditEvent
     PluginDeveloped,
 
     /// <summary>An authentication attempt (success or failure) via API key or other mechanism.</summary>
-    AuthenticationAttempt
+    AuthenticationAttempt,
+
+    /// <summary>Episodic memory was consolidated (duplicates removed, faded memories pruned).</summary>
+    MemoryConsolidated
 }

@@ -5,6 +5,7 @@ using Edda.Agent.Tdk;
 using Edda.Agent.Tools.Knowledge;
 using Edda.Agent.Tools.Memory;
 using Edda.Core.Abstractions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -80,6 +81,16 @@ public static class AgentToolsServiceExtensions
         services.AddSingleton<IAgentTool, ForgetTool>();
         services.AddSingleton<IAgentTool, ConsolidateTool>();
 
+        // C10: shared consolidation logic + opt-in periodic background maintenance. The hosted service runs
+        // the consolidator for every user every MEMORY_CONSOLIDATION_INTERVAL_HOURS hours (default 0 = off).
+        services.AddSingleton<IMemoryConsolidator, MemoryConsolidator>();
+        services.AddHostedService(sp => new MemoryConsolidationHostedService(
+            sp.GetRequiredService<IMemoryConsolidator>(),
+            sp.GetRequiredService<IAuditLog>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<MemoryConsolidationHostedService>>(),
+            intervalHours: ParseIntervalHours(sp.GetService<IConfiguration>())));
+
         // Knowledge / TDK tools.
         services.AddSingleton<IAgentTool, KnowledgeGetContextTool>();
         services.AddSingleton<IAgentTool, KnowledgeListRulesTool>();
@@ -93,6 +104,24 @@ public static class AgentToolsServiceExtensions
         services.AddHostedService<ToolRegistrationService>();
 
         return services;
+    }
+
+    /// <summary>
+    /// Reads <c>MEMORY_CONSOLIDATION_INTERVAL_HOURS</c> from configuration (falling back to the environment),
+    /// parsed as an invariant-culture number of hours. Returns <c>0</c> (disabled) when unset, non-positive,
+    /// or unparseable — preserving the default-off behaviour.
+    /// </summary>
+    /// <param name="configuration">The host configuration, if available.</param>
+    /// <returns>The consolidation interval in hours, or <c>0</c> to disable.</returns>
+    private static double ParseIntervalHours(IConfiguration? configuration)
+    {
+        var raw = configuration?["MEMORY_CONSOLIDATION_INTERVAL_HOURS"]
+                  ?? Environment.GetEnvironmentVariable("MEMORY_CONSOLIDATION_INTERVAL_HOURS");
+        return double.TryParse(
+            raw, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var hours) && hours > 0
+            ? hours
+            : 0;
     }
 }
 

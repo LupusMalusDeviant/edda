@@ -151,6 +151,23 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> ListOwnersAsync(
+        string type,
+        CancellationToken cancellationToken = default)
+    {
+        var rows = await _cypher.QueryAsync(
+            "MATCH (r:Rule) WHERE r.type = $type AND r.ownerId IS NOT NULL RETURN DISTINCT r.ownerId AS ownerId",
+            new { type },
+            cancellationToken).ConfigureAwait(false);
+
+        return rows
+            .Select(row => row.TryGetValue("ownerId", out var o) ? o?.ToString() : null)
+            .Where(o => !string.IsNullOrEmpty(o))
+            .Select(o => o!)
+            .ToList();
+    }
+
+    /// <inheritdoc/>
     public Task<ContextResult> CompileContextAsync(
         TaskContext taskContext,
         CancellationToken cancellationToken = default)

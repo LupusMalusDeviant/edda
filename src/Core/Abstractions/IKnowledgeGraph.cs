@@ -142,6 +142,18 @@ public interface IKnowledgeGraph
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns the distinct owner ids of all user-owned rules of the given <paramref name="type"/>
+    /// (e.g. every user who has episodic memories). Global/operator rules (no owner) are excluded.
+    /// Used by background maintenance that must run per user without a request-scoped identity.
+    /// </summary>
+    /// <param name="type">The rule type to enumerate owners for (e.g. <c>Memory</c>).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The distinct, non-null owner ids; empty when no owned rules of that type exist.</returns>
+    Task<IReadOnlyList<string>> ListOwnersAsync(
+        string type,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes all existing <c>:WorldKnowledge</c> nodes and reloads them from the
     /// <c>knowledge/world/</c> directory. Admin-only operation.
     /// </summary>
