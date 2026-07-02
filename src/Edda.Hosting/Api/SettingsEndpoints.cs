@@ -47,7 +47,9 @@ public static class SettingsEndpoints
                 {
                     if (string.IsNullOrWhiteSpace(body.Provider))
                     {
-                        return Results.BadRequest(new { error = "Provider is required." });
+                        return Results.Problem(
+                            detail: "Provider is required.",
+                            statusCode: StatusCodes.Status400BadRequest);
                     }
 
                     var userId = identity.UserId ?? "local";
@@ -106,12 +108,16 @@ public static class SettingsEndpoints
                 {
                     if (!CredentialKeyScheme.IsValidName(name))
                     {
-                        return Results.BadRequest(new { error = "Invalid credential name." });
+                        return Results.Problem(
+                            detail: "Invalid credential name.",
+                            statusCode: StatusCodes.Status400BadRequest);
                     }
 
                     if (string.IsNullOrEmpty(body.Value))
                     {
-                        return Results.BadRequest(new { error = "Value must not be empty." });
+                        return Results.Problem(
+                            detail: "Value must not be empty.",
+                            statusCode: StatusCodes.Status400BadRequest);
                     }
 
                     var userId = identity.UserId ?? "local";
@@ -130,7 +136,9 @@ public static class SettingsEndpoints
                 {
                     if (!CredentialKeyScheme.IsValidName(name))
                     {
-                        return Results.BadRequest(new { error = "Invalid credential name." });
+                        return Results.Problem(
+                            detail: "Invalid credential name.",
+                            statusCode: StatusCodes.Status400BadRequest);
                     }
 
                     var userId = identity.UserId ?? "local";

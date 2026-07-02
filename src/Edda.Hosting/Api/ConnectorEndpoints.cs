@@ -37,9 +37,13 @@ public static class ConnectorEndpoints
                        ICredentialStore store, IAuditLog audit, IIdentityContext identity, CancellationToken ct) =>
                 {
                     if (!IsKnownType(registry, body.TypeId))
-                        return Results.BadRequest(new { error = $"Unknown connector type '{body.TypeId}'." });
+                        return Results.Problem(
+                            detail: $"Unknown connector type '{body.TypeId}'.",
+                            statusCode: StatusCodes.Status400BadRequest);
                     if (string.IsNullOrWhiteSpace(body.Name))
-                        return Results.BadRequest(new { error = "Name must not be empty." });
+                        return Results.Problem(
+                            detail: "Name must not be empty.",
+                            statusCode: StatusCodes.Status400BadRequest);
 
                     var userId = identity.UserId ?? "local";
                     var id = Guid.NewGuid().ToString("N");
@@ -71,7 +75,9 @@ public static class ConnectorEndpoints
                     if (existing is null)
                         return Results.NotFound();
                     if (!IsKnownType(registry, body.TypeId))
-                        return Results.BadRequest(new { error = $"Unknown connector type '{body.TypeId}'." });
+                        return Results.Problem(
+                            detail: $"Unknown connector type '{body.TypeId}'.",
+                            statusCode: StatusCodes.Status400BadRequest);
 
                     var userId = identity.UserId ?? "local";
                     await StoreSecretsAsync(store, userId, id, body.Secrets, ct);
