@@ -27,4 +27,11 @@ public sealed record TdkResult
 /// <param name="RuleId">The AKG rule that was violated.</param>
 /// <param name="Message">Human-readable description of how the response violates the rule.</param>
 /// <param name="Severity">Severity level string (e.g. "critical", "high", "medium", "low").</param>
-public sealed record TdkViolation(string RuleId, string Message, string Severity);
+/// <param name="Line">Optional 1-based source line in the validated code where the violation was found.</param>
+/// <param name="Suggestion">Optional suggested fix for the violation.</param>
+public sealed record TdkViolation(
+    string RuleId,
+    string Message,
+    string Severity,
+    int? Line = null,
+    string? Suggestion = null);

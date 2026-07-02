@@ -186,7 +186,7 @@ public sealed class TdkEngine : ITdkEngine
             {
                 foreach (var v in output.Violations)
                 {
-                    allViolations.Add(new TdkViolation(v.RuleId, v.Message, v.Severity));
+                    allViolations.Add(new TdkViolation(v.RuleId, v.Message, v.Severity, v.Line, v.Suggestion));
                 }
             }
         }

@@ -47,7 +47,7 @@
     {
         <table class="table table-sm" style="max-width:900px;">
             <thead>
-                <tr><th>Regel</th><th>Schweregrad</th><th>Meldung</th></tr>
+                <tr><th>Regel</th><th>Schweregrad</th><th>Zeile</th><th>Meldung</th><th>Vorschlag</th></tr>
             </thead>
             <tbody>
                 @foreach (var v in _result.Violations)
@@ -55,7 +55,9 @@
                     <tr>
                         <td><code>@v.RuleId</code></td>
                         <td>@v.Severity</td>
+                        <td>@(v.Line?.ToString() ?? "—")</td>
                         <td>@v.Message</td>
+                        <td>@(string.IsNullOrWhiteSpace(v.Suggestion) ? "—" : v.Suggestion)</td>
                     </tr>
                 }
             </tbody>

@@ -62,4 +62,32 @@ public class TdkFeedbackFormatterTests
 
         result.Should().Contain("Code Review Required");
     }
+
+    [Fact]
+    public void Format_ViolationWithLineAndSuggestion_ShowsBoth()
+    {
+        var violations = new List<TdkViolation>
+        {
+            new("r1", "Blocking .Result on async call", "error", Line: 42, Suggestion: "await the call instead")
+        };
+
+        var result = TdkFeedbackFormatter.Format(violations);
+
+        result.Should().Contain("line 42");
+        result.Should().Contain("await the call instead");
+    }
+
+    [Fact]
+    public void Format_ViolationWithoutLineOrSuggestion_OmitsThem()
+    {
+        var violations = new List<TdkViolation>
+        {
+            new("r1", "message", "error")
+        };
+
+        var result = TdkFeedbackFormatter.Format(violations);
+
+        result.Should().NotContain("(line ");
+        result.Should().NotContain("Suggestion:");
+    }
 }

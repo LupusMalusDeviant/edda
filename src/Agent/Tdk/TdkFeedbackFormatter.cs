@@ -29,8 +29,13 @@ public static class TdkFeedbackFormatter
 
         foreach (var v in violations)
         {
-            sb.AppendLine($"**Rule: {v.RuleId}** [{v.Severity.ToUpperInvariant()}]");
+            var location = v.Line is int line ? $" (line {line})" : string.Empty;
+            sb.AppendLine($"**Rule: {v.RuleId}** [{v.Severity.ToUpperInvariant()}]{location}");
             sb.AppendLine($"- {v.Message}");
+            if (!string.IsNullOrWhiteSpace(v.Suggestion))
+            {
+                sb.AppendLine($"- 💡 Suggestion: {v.Suggestion}");
+            }
             sb.AppendLine();
         }
 
