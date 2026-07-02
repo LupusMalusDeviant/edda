@@ -1,0 +1,16 @@
+{
+  "name": "bundled-knowledge-baseline",
+  "cases": [
+    { "id": "async",   "query": "async await deadlock blocking Result Wait ConfigureAwait", "expectedRuleIds": ["coding-async-await-patterns", "coding-no-blocking-async"] },
+    { "id": "except",  "query": "exception handling except pass swallow error try catch", "expectedRuleIds": ["coding-no-bare-except"] },
+    { "id": "debug",   "query": "console log debugger leftover debug logging cleanup", "expectedRuleIds": ["coding-no-leftover-debug"] },
+    { "id": "eval",    "query": "eval exec arbitrary code injection dynamic code execution", "expectedRuleIds": ["security-no-eval-exec"] },
+    { "id": "secrets", "query": "password api key token plaintext secret credential hardcoded", "expectedRuleIds": ["security-no-plaintext-secrets"] },
+    { "id": "sqli",    "query": "sql injection query string concatenation parameterized database", "expectedRuleIds": ["security-no-sql-string-concat"] },
+    { "id": "api",     "query": "REST API design endpoints versioning pagination http", "expectedRuleIds": ["world-api-design"] },
+    { "id": "data",    "query": "database data access storage patterns repository persistence", "expectedRuleIds": ["world-data-patterns"] },
+    { "id": "oop",     "query": "object oriented programming inheritance polymorphism encapsulation", "expectedRuleIds": ["world-oop-principles"] },
+    { "id": "secprin", "query": "software security principles least privilege defense in depth", "expectedRuleIds": ["world-security-principles"] },
+    { "id": "arch",    "query": "software architecture patterns layers modularity coupling", "expectedRuleIds": ["world-software-architecture"] }
+  ]
+}
