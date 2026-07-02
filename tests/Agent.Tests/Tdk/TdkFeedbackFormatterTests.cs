@@ -92,6 +92,42 @@ public class TdkFeedbackFormatterTests
     }
 
     [Fact]
+    public void Format_SortsBySeverity_ErrorsBeforeWarningsBeforeInfo()
+    {
+        var violations = new List<TdkViolation>
+        {
+            new("info-rule", "an info", "info"),
+            new("warn-rule", "a warning", "warning"),
+            new("err-rule", "an error", "error"),
+        };
+
+        var result = TdkFeedbackFormatter.Format(violations);
+
+        result.IndexOf("err-rule", StringComparison.Ordinal)
+            .Should().BeLessThan(result.IndexOf("warn-rule", StringComparison.Ordinal));
+        result.IndexOf("warn-rule", StringComparison.Ordinal)
+            .Should().BeLessThan(result.IndexOf("info-rule", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Format_IncludesPerSeverityCountSummary()
+    {
+        var violations = new List<TdkViolation>
+        {
+            new("r1", "e1", "error"),
+            new("r2", "e2", "error"),
+            new("r3", "w1", "warning"),
+        };
+
+        var result = TdkFeedbackFormatter.Format(violations);
+
+        result.Should().Contain("3 violation(s)");
+        result.Should().Contain("2 error");
+        result.Should().Contain("1 warning");
+        result.Should().Contain("0 info");
+    }
+
+    [Fact]
     public void FormatEngineErrors_ListsFailedValidators()
     {
         var errors = new List<TdkEngineError>

@@ -31,3 +31,20 @@ lesbar an. Für reine Retrieval-Nutzung ohne Code-Validierung ist `null` ausreic
 Ein Validator liest `TdkValidatorInput` (Code, Sprache, RuleId, UserMessage) von stdin als JSON
 und schreibt `TdkValidatorOutput` (`pass`, `violations[]`) als JSON nach stdout. Siehe die
 Regeln unter `knowledge/` als Beispiele.
+
+## Schweregrade (`severity`)
+
+Jeder Verstoß trägt einen `severity`-Wert. Die drei Stufen haben eine feste Bedeutung:
+
+| Wert | Bedeutung | Erwartung an den Agenten |
+|------|-----------|--------------------------|
+| `error` | **blockierend** — die Antwort ist so nicht akzeptabel | muss behoben werden |
+| `warning` | sollte behoben werden, aber nicht blockierend | nach Möglichkeit beheben |
+| `info` | reiner Hinweis | zur Kenntnis nehmen |
+
+Der Feedback-Formatter (`TdkFeedbackFormatter`) sortiert die Verstöße **nach Schweregrad**
+(zuerst `error`, dann `warning`, dann `info`; unbekannte Stufen zuletzt) und stellt der Liste eine
+**Zählung pro Stufe** voran (z. B. „**3 violation(s)** — 2 error, 1 warning, 0 info."). Innerhalb
+einer Stufe bleibt die ursprüngliche Reihenfolge erhalten. So sieht der Agent (und die
+`tdk_validate`-Antwort) sofort, was zuerst zu fixen ist. Nicht erkannte `severity`-Werte werden als
+`other` gezählt und ans Ende sortiert.

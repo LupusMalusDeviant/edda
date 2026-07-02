@@ -21,13 +21,19 @@ public static class TdkFeedbackFormatter
     /// </returns>
     public static string Format(IReadOnlyList<TdkViolation> violations)
     {
+        // Most-severe first (error → warning → info → unknown); OrderBy is stable, so the original
+        // order is preserved within each severity level.
+        var ordered = violations.OrderBy(v => TdkSeverity.Rank(v.Severity)).ToList();
+
         var sb = new StringBuilder();
         sb.AppendLine("⚠️ **Code Review Required — Knowledge Base Violations**");
+        sb.AppendLine();
+        sb.AppendLine(BuildSummary(ordered));
         sb.AppendLine();
         sb.AppendLine("The following issues were detected in your last response:");
         sb.AppendLine();
 
-        foreach (var v in violations)
+        foreach (var v in ordered)
         {
             var location = v.Line is int line ? $" (line {line})" : string.Empty;
             sb.AppendLine($"**Rule: {v.RuleId}** [{v.Severity.ToUpperInvariant()}]{location}");
@@ -39,8 +45,26 @@ public static class TdkFeedbackFormatter
             sb.AppendLine();
         }
 
-        sb.AppendLine("Please revise your response to address these violations.");
+        sb.AppendLine("Please revise your response to address these violations — fix errors first.");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds a one-line summary naming the violation count per severity level (error/warning/info,
+    /// plus "other" when a validator emitted an unrecognised severity).
+    /// </summary>
+    private static string BuildSummary(IReadOnlyList<TdkViolation> violations)
+    {
+        var errors   = violations.Count(v => TdkSeverity.Rank(v.Severity) == 0);
+        var warnings = violations.Count(v => TdkSeverity.Rank(v.Severity) == 1);
+        var infos    = violations.Count(v => TdkSeverity.Rank(v.Severity) == 2);
+        var other    = violations.Count(v => TdkSeverity.Rank(v.Severity) == 3);
+
+        var parts = new List<string> { $"{errors} error", $"{warnings} warning", $"{infos} info" };
+        if (other > 0)
+            parts.Add($"{other} other");
+
+        return $"**{violations.Count} violation(s)** — {string.Join(", ", parts)}.";
     }
 
     /// <summary>
