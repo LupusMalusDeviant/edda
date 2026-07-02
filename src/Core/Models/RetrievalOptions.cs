@@ -23,6 +23,12 @@ public sealed record RetrievalOptions
     /// <summary>Default minimum head-centroid cosine similarity for a head to qualify in stage 1.</summary>
     public const double DefaultHeadSimilarityThreshold = 0.4;
 
+    /// <summary>
+    /// Default cap on the number of keyword-ranked candidate rules the app-side cosine fallback scores
+    /// (used only when the native vector index is unavailable, e.g. on Memgraph). Bounds the O(N) fallback.
+    /// </summary>
+    public const int DefaultFallbackMaxCandidates = 500;
+
     /// <summary>Minimum cosine similarity for a rule to be considered a semantic match.</summary>
     public double SimilarityThreshold { get; init; } = DefaultSimilarityThreshold;
 
@@ -37,4 +43,11 @@ public sealed record RetrievalOptions
 
     /// <summary>Minimum head-centroid cosine similarity for a head to qualify in stage-1 pre-pruning.</summary>
     public double HeadSimilarityThreshold { get; init; } = DefaultHeadSimilarityThreshold;
+
+    /// <summary>
+    /// Maximum number of keyword-ranked candidate rules the app-side cosine fallback scores when the
+    /// native vector index is unavailable. Above this the top-scoring candidates are kept and the rest
+    /// dropped, bounding the fallback's O(N) cost. Ignored on the fast vector-index path.
+    /// </summary>
+    public int FallbackMaxCandidates { get; init; } = DefaultFallbackMaxCandidates;
 }

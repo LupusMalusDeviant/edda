@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -96,7 +97,8 @@ internal sealed class SemanticBooster
         if (queryEmbedding.Length == 0)
             return scoredRules;
 
-        var candidateIds = scoredRules.Select(r => r.Rule.Id).ToHashSet(StringComparer.Ordinal);
+        // Ordered by descending keyword score (input contract) so the app-side fallback can keep the top candidates.
+        var candidateIds = scoredRules.Select(r => r.Rule.Id).ToList();
         var semanticScores = await ComputeSemanticScoresAsync(queryEmbedding, candidateIds, context.UserId, ct)
             .ConfigureAwait(false);
 
@@ -178,10 +180,11 @@ internal sealed class SemanticBooster
 
     private async Task<IReadOnlyDictionary<string, double>> ComputeSemanticScoresAsync(
         float[] queryEmbedding,
-        IReadOnlySet<string> candidateIds,
+        IReadOnlyList<string> candidateIds,
         string? userId,
         CancellationToken ct)
     {
+        var candidateSet = candidateIds.ToHashSet(StringComparer.Ordinal);
         try
         {
             var rows = await _cypher.QueryAsync(
@@ -207,7 +210,7 @@ internal sealed class SemanticBooster
             foreach (var row in rows)
             {
                 var id = row.TryGetValue("id", out var i) ? i?.ToString() : null;
-                if (id is null || !candidateIds.Contains(id)) continue;
+                if (id is null || !candidateSet.Contains(id)) continue;
                 if (row.TryGetValue("score", out var sc) && sc is not null)
                 {
                     var value = Convert.ToDouble(sc);
@@ -223,15 +226,35 @@ internal sealed class SemanticBooster
             _logger.LogDebug(ex,
                 "Vector index '{Index}' unavailable; using app-side cosine fallback | {Component}",
                 VectorIndexName, "AKG");
-            return await ComputeAppSideScoresAsync(queryEmbedding, candidateIds, ct).ConfigureAwait(false);
+            // Bound the O(N) fallback: score only the top keyword-ranked candidates.
+            var fallbackCandidates = SelectFallbackCandidates(candidateIds, _options.FallbackMaxCandidates);
+            return await ComputeAppSideScoresAsync(queryEmbedding, fallbackCandidates, candidateIds.Count, ct)
+                .ConfigureAwait(false);
         }
     }
 
+    /// <summary>
+    /// Selects the candidate rules the app-side cosine fallback will score: the top <paramref name="max"/>
+    /// of the keyword-ranked <paramref name="orderedCandidateIds"/> (already highest first), or all of them
+    /// when the list is within the cap. Bounds the fallback's O(N) cost on large graphs.
+    /// </summary>
+    /// <param name="orderedCandidateIds">Candidate rule ids ordered by descending keyword score.</param>
+    /// <param name="max">Maximum number of candidates to keep (must be positive).</param>
+    /// <returns>The retained candidate ids in their original order.</returns>
+    internal static IReadOnlyList<string> SelectFallbackCandidates(
+        IReadOnlyList<string> orderedCandidateIds, int max)
+        => orderedCandidateIds.Count <= max
+            ? orderedCandidateIds
+            : orderedCandidateIds.Take(max).ToList();
+
     private async Task<IReadOnlyDictionary<string, double>> ComputeAppSideScoresAsync(
         float[] queryEmbedding,
-        IReadOnlySet<string> candidateIds,
+        IReadOnlyList<string> candidateIds,
+        int totalCandidates,
         CancellationToken ct)
     {
+        var startTimestamp = Stopwatch.GetTimestamp();
+
         var byRule = await FetchChunkEmbeddingsAsync(candidateIds, ct).ConfigureAwait(false);
         var scores = new Dictionary<string, double>(StringComparer.Ordinal);
         foreach (var (id, chunkEmbeddings) in byRule)
@@ -242,6 +265,12 @@ internal sealed class SemanticBooster
             if (best > _options.SimilarityThreshold)
                 scores[id] = best;
         }
+
+        var elapsedMs = (long)Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+        _logger.LogWarning(
+            "App-side cosine fallback active (no vector index): scored {Scored} of {Total} candidate rules in {ElapsedMs}ms. " +
+            "This path is O(N) and does not scale — configure a Neo4j vector index for large graphs | {Component}",
+            candidateIds.Count, totalCandidates, elapsedMs, "AKG");
 
         return scores;
     }

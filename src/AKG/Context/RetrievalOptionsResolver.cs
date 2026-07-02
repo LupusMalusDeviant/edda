@@ -7,7 +7,8 @@ namespace Edda.AKG.Context;
 /// <summary>
 /// Resolves <see cref="RetrievalOptions"/> from the <c>RETRIEVAL_*</c> environment/configuration keys
 /// (<c>RETRIEVAL_SIMILARITY_THRESHOLD</c>, <c>RETRIEVAL_VECTOR_TOP_K</c>, <c>RETRIEVAL_MMR_LAMBDA</c>,
-/// <c>RETRIEVAL_MMR_TOP_N</c>, <c>RETRIEVAL_HEAD_THRESHOLD</c>), falling back to the built-in defaults —
+/// <c>RETRIEVAL_MMR_TOP_N</c>, <c>RETRIEVAL_HEAD_THRESHOLD</c>, <c>RETRIEVAL_FALLBACK_MAX_CANDIDATES</c>),
+/// falling back to the built-in defaults —
 /// the historical hard-coded values — for any key that is unset, non-numeric, or non-positive. Mirrors
 /// the resolving-facade pattern used for chunking (ADR-0004). Numbers are parsed with the invariant
 /// culture so a decimal point is accepted regardless of the host locale.
@@ -29,6 +30,8 @@ internal static class RetrievalOptionsResolver
             configuration?["RETRIEVAL_MMR_TOP_N"], RetrievalOptions.DefaultMmrTopN),
         HeadSimilarityThreshold = ParseDouble(
             configuration?["RETRIEVAL_HEAD_THRESHOLD"], RetrievalOptions.DefaultHeadSimilarityThreshold),
+        FallbackMaxCandidates = ParsePositiveInt(
+            configuration?["RETRIEVAL_FALLBACK_MAX_CANDIDATES"], RetrievalOptions.DefaultFallbackMaxCandidates),
     };
 
     private static double ParseDouble(string? raw, double fallback)

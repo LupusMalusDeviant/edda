@@ -2,6 +2,7 @@ using Edda.AKG.Context;
 using Edda.AKG.Tests.TestUtilities;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -122,5 +123,79 @@ public class SemanticBoosterTests
         result.Select(r => r.Rule.Id).Should().Equal("a", "b");
         result.Single(r => r.Rule.Id == "a").Score.Should().Be(10);
         result.Single(r => r.Rule.Id == "b").Score.Should().Be(5);
+    }
+
+    // ── B6: app-side fallback is capped to the top keyword-ranked candidates and warns on activation ──
+
+    [Fact]
+    public void SelectFallbackCandidates_OverCap_ReturnsTopCandidatesInOrder()
+    {
+        IReadOnlyList<string> ids = ["a", "b", "c", "d", "e"];
+
+        var result = SemanticBooster.SelectFallbackCandidates(ids, max: 3);
+
+        result.Should().Equal("a", "b", "c");
+    }
+
+    [Fact]
+    public void SelectFallbackCandidates_WithinCap_ReturnsAllUnchanged()
+    {
+        IReadOnlyList<string> ids = ["a", "b"];
+
+        var result = SemanticBooster.SelectFallbackCandidates(ids, max: 5);
+
+        result.Should().BeSameAs(ids);
+    }
+
+    [Fact]
+    public void SelectFallbackCandidates_ExactlyCap_ReturnsAll()
+    {
+        IReadOnlyList<string> ids = ["a", "b", "c"];
+
+        var result = SemanticBooster.SelectFallbackCandidates(ids, max: 3);
+
+        result.Should().Equal("a", "b", "c");
+    }
+
+    [Fact]
+    public async Task BoostAsync_IndexUnavailable_LogsFallbackWarning()
+    {
+        var cypher = new FakeCypherExecutor();
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> chunkRows =
+        [
+            new Dictionary<string, object?>
+            {
+                ["id"] = "rule-a", ["embs"] = new List<object> { new List<object> { 1f, 0f, 0f } },
+            },
+        ];
+        cypher.AddQueryHandler(q =>
+        {
+            if (q.Contains("queryNodes")) throw new InvalidOperationException("no vector index");
+            if (q.Contains("collect(c.embedding) AS embs")) return chunkRows;
+            return cypher.DefaultResult;
+        });
+
+        var logger = new CapturingLogger<SemanticBooster>();
+        var sut = new SemanticBooster(AvailableEmbeddings(1f, 0f, 0f).Object, cypher, logger);
+
+        await sut.BoostAsync([Scored("rule-a", 10)], Ctx(), CancellationToken.None);
+
+        logger.Entries.Should().Contain(e =>
+            e.Level == LogLevel.Warning && e.Message.Contains("App-side cosine fallback active"));
+    }
+
+    /// <summary>Minimal <see cref="ILogger{T}"/> that records emitted level + formatted message.</summary>
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        IDisposable? ILogger.BeginScope<TState>(TState state) => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
     }
 }
