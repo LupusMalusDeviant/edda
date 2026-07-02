@@ -8,33 +8,34 @@
 @inject IIdentityContext Identity
 @inject IAuditLog Audit
 @inject IProviderProbe Probe
+@inject ILocalizationService Loc
 @implements IDisposable
 
-<PageTitle>Embeddings</PageTitle>
+<PageTitle>@Loc["page.embeddings"]</PageTitle>
 
-<h3 class="mb-3">Embeddings</h3>
+<h3 class="mb-3">@Loc["emb.heading"]</h3>
 
 <div class="card mb-3" style="max-width:700px;">
     <div class="card-body">
-        <h6 class="card-title">Status</h6>
+        <h6 class="card-title">@Loc["emb.status"]</h6>
         <table class="table table-sm mb-0">
             <tbody>
                 <tr>
-                    <td style="width:40%;">Aktiver Provider</td>
+                    <td style="width:40%;">@Loc["emb.status.provider"]</td>
                     <td><code>@(_provider)</code></td>
                 </tr>
                 <tr>
-                    <td>Verfügbar</td>
-                    <td>@(EmbeddingService.IsAvailable ? "✓ ja" : "— nein (NullEmbeddingService)")</td>
+                    <td>@Loc["emb.status.available"]</td>
+                    <td>@(EmbeddingService.IsAvailable ? Loc["emb.status.yes"] : Loc["emb.status.no"])</td>
                 </tr>
                 <tr>
-                    <td>Dimensionen</td>
+                    <td>@Loc["emb.status.dimensions"]</td>
                     <td>@EmbeddingService.Dimensions</td>
                 </tr>
                 @if (_stats is not null)
                 {
                     <tr>
-                        <td>Eingebettete Regeln</td>
+                        <td>@Loc["emb.status.embedded"]</td>
                         <td>@_stats.RulesWithEmbeddings / @_stats.TotalRules</td>
                     </tr>
                 }
@@ -45,29 +46,27 @@
 
 <div class="card mb-3" style="max-width:700px;">
     <div class="card-body">
-        <h6 class="card-title">Konfiguration</h6>
+        <h6 class="card-title">@Loc["emb.config"]</h6>
         <p class="form-text mt-0">
-            Ein Embedding-Modell dient sowohl der DB-Indexierung als auch der Query-/Agent-Prompt-Einbettung
-            — beide müssen denselben Vektorraum teilen, daher ein gemeinsames Modell. Query-Einbettung greift
-            sofort; gespeicherte DB-Embeddings bleiben bis zur Neuberechnung.
+            @Loc["emb.config.desc"]
         </p>
 
         <div class="mb-2">
-            <label class="form-label" for="emb-provider">Provider</label>
+            <label class="form-label" for="emb-provider">@Loc["emb.provider.label"]</label>
             <select id="emb-provider" class="form-select form-select-sm" @bind="_cfgProvider" @bind:after="RefreshKeyStatusAsync">
-                <option value="null">— deaktiviert (null)</option>
+                <option value="null">@Loc["emb.provider.null"]</option>
                 <option value="openai">OpenAI</option>
                 <option value="google">Google</option>
                 <option value="voyage">Voyage</option>
                 <option value="ollama">Ollama</option>
-                <option value="custom">Custom (OpenAI-kompatibel)</option>
+                <option value="custom">@Loc["emb.provider.custom"]</option>
                 <option value="bedrock">AWS Bedrock</option>
             </select>
         </div>
         <div class="mb-2">
-            <label class="form-label" for="emb-model">Modell</label>
+            <label class="form-label" for="emb-model">@Loc["config.label.model"]</label>
             <input id="emb-model" class="form-control form-control-sm" @bind="_cfgModel" list="emb-models"
-                   placeholder="leer = Provider-Default" />
+                   placeholder="@Loc["emb.placeholder.default"]" />
             @if (_embModels.Count > 0)
             {
                 <datalist id="emb-models">
@@ -78,36 +77,34 @@
                 </datalist>
             }
             <div class="form-text">
-                Starke offene Modelle (lokal via Ollama/Custom): <code>bge-m3</code>, <code>nomic-embed-text</code>,
-                <code>mxbai-embed-large</code>, <code>e5-large-v2</code>. Details: <code>docs/chunking.md</code>.
+                @((MarkupString)Loc["emb.model.hint"])
             </div>
         </div>
         <div class="mb-2">
-            <label class="form-label" for="emb-baseurl">Base-URL</label>
-            <input id="emb-baseurl" class="form-control form-control-sm" @bind="_cfgBaseUrl" placeholder="leer = Provider-Default" />
+            <label class="form-label" for="emb-baseurl">@Loc["emb.baseurl"]</label>
+            <input id="emb-baseurl" class="form-control form-control-sm" @bind="_cfgBaseUrl" placeholder="@Loc["emb.placeholder.default"]" />
             @if (_cfgProvider == "ollama")
             {
                 <div class="form-text">
-                    Lokal: <code>http://ollama:11434</code> · Remote/Tailscale: <code>http://ollama-prod:11434</code>
-                    (http/https) · Cloud-API: Host + Token.
+                    @((MarkupString)Loc["emb.baseurl.ollamahint"])
                 </div>
             }
         </div>
         <div class="mb-2">
-            <label class="form-label" for="emb-dims">Dimensionen</label>
+            <label class="form-label" for="emb-dims">@Loc["emb.status.dimensions"]</label>
             <input id="emb-dims" type="number" class="form-control form-control-sm" @bind="_cfgDimensions"
-                   placeholder="leer = Provider-Default" />
+                   placeholder="@Loc["emb.placeholder.default"]" />
         </div>
         @if (_cfgProvider == "bedrock")
         {
             <div class="mb-2">
-                <label class="form-label" for="emb-region">AWS Region</label>
+                <label class="form-label" for="emb-region">@Loc["emb.aws.region"]</label>
                 <input id="emb-region" class="form-control form-control-sm" @bind="_cfgRegion" placeholder="us-east-1" />
             </div>
             <div class="mb-2">
-                <label class="form-label" for="emb-access">AWS Access Key ID</label>
+                <label class="form-label" for="emb-access">@Loc["emb.aws.accesskey"]</label>
                 <input id="emb-access" class="form-control form-control-sm" @bind="_cfgAccessKey"
-                       placeholder="@(_accessKeyStored ? "••• gespeichert — neuen Wert zum Ersetzen" : "leer = AWS-Default-Credential-Chain (Env/Profil/Instanz-Rolle)")" />
+                       placeholder="@(_accessKeyStored ? Loc["emb.secret.stored"] : Loc["emb.aws.accesskey.placeholder"])" />
             </div>
         }
         <div class="mb-2">
@@ -117,20 +114,18 @@
         </div>
 
         <div class="alert alert-warning py-2" style="font-size:0.85rem;">
-            ⚠️ Ändern von <strong>Provider</strong>, <strong>Modell</strong> oder <strong>Dimensionen</strong> macht die
-            gespeicherten DB-Embeddings veraltet — das Retrieval verschlechtert sich, bis du unten
-            <em>„Embeddings neu berechnen"</em> ausführst.
+            @((MarkupString)Loc["emb.warn.stale"])
         </div>
 
         <button class="btn btn-sm btn-primary" @onclick="SaveConfigAsync" disabled="@_savingConfig">
-            @(_savingConfig ? "Speichert…" : "Speichern")
+            @(_savingConfig ? Loc["emb.btn.saving"] : Loc["emb.btn.save"])
         </button>
         <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="TestEmbeddingAsync" disabled="@_testingEmb">
-            @(_testingEmb ? "Testet…" : "Verbindung testen")
+            @(_testingEmb ? Loc["emb.btn.testing"] : Loc["emb.btn.test"])
         </button>
         @if (_configSaved)
         {
-            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+            <span class="text-success ms-2" style="font-size:0.85rem;">@Loc["emb.saved"]</span>
         }
         @if (_embTestResult is not null)
         {
@@ -141,39 +136,36 @@
 
 <div class="card mb-3" style="max-width:700px;">
     <div class="card-body">
-        <h6 class="card-title">Chunking</h6>
+        <h6 class="card-title">@Loc["emb.chunking"]</h6>
         <p class="form-text mt-0">
-            Große Dokumente werden für die semantische Suche in mehrere Chunks zerlegt — adaptiv nach Stil
-            (Prosa, Markdown, Code, Tabellen). Chunks sind nur ein Retrieval-Artefakt: im Wissensgraphen
-            bleibt das Dokument ein einzelner Knoten.
+            @Loc["emb.chunking.desc"]
         </p>
 
         <div class="form-check mb-2">
             <input class="form-check-input" type="checkbox" id="chunk-enabled" @bind="_chunkEnabled" />
-            <label class="form-check-label" for="chunk-enabled">Chunking aktiv</label>
+            <label class="form-check-label" for="chunk-enabled">@Loc["emb.chunking.enabled"]</label>
         </div>
         <div class="mb-2">
-            <label class="form-label" for="chunk-max">Maximale Chunk-Größe (Zeichen)</label>
+            <label class="form-label" for="chunk-max">@Loc["emb.chunking.max"]</label>
             <input id="chunk-max" type="number" class="form-control form-control-sm" @bind="_chunkMaxChars"
-                   placeholder="@ChunkingOptions.DefaultMaxChars (Standard)" />
+                   placeholder="@string.Format(Loc["emb.chunking.default"], ChunkingOptions.DefaultMaxChars)" />
         </div>
         <div class="mb-2">
-            <label class="form-label" for="chunk-overlap">Überlappung (Zeichen)</label>
+            <label class="form-label" for="chunk-overlap">@Loc["emb.chunking.overlap"]</label>
             <input id="chunk-overlap" type="number" class="form-control form-control-sm" @bind="_chunkOverlap"
-                   placeholder="@ChunkingOptions.DefaultOverlapChars (Standard)" />
+                   placeholder="@string.Format(Loc["emb.chunking.default"], ChunkingOptions.DefaultOverlapChars)" />
         </div>
 
         <div class="alert alert-warning py-2" style="font-size:0.85rem;">
-            ⚠️ Änderungen wirken sich erst nach <em>„Embeddings neu berechnen"</em> auf bereits gespeicherte
-            Dokumente aus.
+            @((MarkupString)Loc["emb.chunking.warn"])
         </div>
 
         <button class="btn btn-sm btn-primary" @onclick="SaveChunkingAsync" disabled="@_savingChunking">
-            @(_savingChunking ? "Speichert…" : "Speichern")
+            @(_savingChunking ? Loc["emb.btn.saving"] : Loc["emb.btn.save"])
         </button>
         @if (_chunkingSaved)
         {
-            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+            <span class="text-success ms-2" style="font-size:0.85rem;">@Loc["emb.saved"]</span>
         }
     </div>
 </div>
@@ -182,7 +174,7 @@
 {
     <div class="mb-3" style="max-width:700px;">
         <div style="font-size:0.85rem;color:#fbbf24;" class="mb-1">
-            ⏳ Rebuild @_stats.EmbeddingRebuildDone / @_stats.EmbeddingRebuildTotal
+            @string.Format(Loc["emb.rebuild.progress"], _stats.EmbeddingRebuildDone, _stats.EmbeddingRebuildTotal)
             @if (_stats.EmbeddingRebuildCurrentRule is not null)
             {
                 <span style="opacity:0.6;"> — @_stats.EmbeddingRebuildCurrentRule</span>
@@ -191,38 +183,37 @@
         <div style="height:8px;background:#1e293b;border-radius:4px;overflow:hidden;">
             <div style="width:@(Percent)%;height:100%;background:#fbbf24;border-radius:4px;transition:width 0.5s;"></div>
         </div>
-        <button class="btn btn-sm btn-outline-danger mt-2" @onclick="CancelRebuild">Abbrechen</button>
+        <button class="btn btn-sm btn-outline-danger mt-2" @onclick="CancelRebuild">@Loc["sources.btn.cancel"]</button>
     </div>
 }
 
 @if (_stats is not null)
 {
     <div class="mb-3" style="font-size:0.85rem;color:#94a3b8;max-width:700px;">
-        Coverage: <strong style="color:#e2e8f0;">@_stats.RulesWithEmbeddings</strong> / @_stats.TotalRules Regeln embedded
+        @Loc["emb.coverage.label"] <strong style="color:#e2e8f0;">@_stats.RulesWithEmbeddings</strong> / @_stats.TotalRules @Loc["emb.coverage.rules"]
         @if (_stats.PendingEmbeddingCount > 0)
         {
-            <span> · @_stats.PendingEmbeddingCount ausstehend</span>
+            <span> · @_stats.PendingEmbeddingCount @Loc["emb.coverage.pending"]</span>
         }
         @if (_stats.FailedEmbeddingCount > 0)
         {
-            <span class="text-danger"> · @_stats.FailedEmbeddingCount fehlgeschlagen</span>
+            <span class="text-danger"> · @_stats.FailedEmbeddingCount @Loc["emb.coverage.failed"]</span>
         }
         @if (_stats.TotalHeads > 0)
         {
-            <div class="mt-1">Head-Vektoren: <strong style="color:#e2e8f0;">@_stats.HeadsWithVectors</strong> / @_stats.TotalHeads Repos</div>
+            <div class="mt-1">@Loc["emb.coverage.heads"] <strong style="color:#e2e8f0;">@_stats.HeadsWithVectors</strong> / @_stats.TotalHeads @Loc["emb.coverage.repos"]</div>
         }
     </div>
 }
 
 <button class="btn btn-sm btn-primary" @onclick="Rebuild"
         disabled="@(_stats is { EmbeddingRebuildRunning: true } || !EmbeddingService.IsAvailable)">
-    Embeddings neu berechnen
+    @Loc["emb.rebuild.btn"]
 </button>
 @if (!EmbeddingService.IsAvailable)
 {
     <div class="mt-2" style="font-size:0.8rem;color:#94a3b8;">
-        Kein Embedding-Provider aktiv. Wähle oben einen Provider (openai | google | voyage | ollama | custom | bedrock)
-        samt API-Key und speichere.
+        @Loc["emb.noprovider"]
     </div>
 }
 
@@ -257,18 +248,18 @@
 
     private string KeyLabel => _cfgProvider switch
     {
-        "bedrock" => "AWS Secret Access Key",
-        "ollama" => "Token (optional)",
-        _ => "API-Key",
+        "bedrock" => Loc["emb.key.aws"],
+        "ollama" => Loc["emb.key.ollama"],
+        _ => Loc["emb.key.default"],
     };
 
     private string KeyPlaceholder => _keyStored
-        ? "••• gespeichert — neuen Wert zum Ersetzen"
+        ? Loc["emb.secret.stored"]
         : _cfgProvider switch
         {
-            "bedrock" => "leer = AWS-Default-Credential-Chain",
-            "ollama" => "Token (optional — Cloud/abgesicherte Instanz)",
-            _ => "Key eingeben…",
+            "bedrock" => Loc["emb.keyph.aws"],
+            "ollama" => Loc["emb.keyph.ollama"],
+            _ => Loc["emb.keyph.default"],
         };
 
     private int Percent => _stats is { EmbeddingRebuildTotal: > 0 }
@@ -277,6 +268,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Loc.OnLanguageChanged += StateHasChanged;
+
         var embedding = (await SettingsService.ReloadAsync()).Embedding;
         _cfgProvider = string.IsNullOrWhiteSpace(embedding.Provider) ? "null" : embedding.Provider;
         _cfgModel = embedding.Model ?? "";
@@ -417,5 +410,9 @@
 
     private void CancelRebuild() => KnowledgeGraph.CancelEmbeddingRebuild();
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        Loc.OnLanguageChanged -= StateHasChanged;
+    }
 }

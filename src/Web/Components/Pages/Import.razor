@@ -3,55 +3,51 @@
 @using Microsoft.AspNetCore.Components.Forms
 @inject IKnowledgeImporter Importer
 @inject IActivityTracker Activity
+@inject ILocalizationService Loc
+@implements IDisposable
 
-<PageTitle>Import/Export</PageTitle>
+<PageTitle>@Loc["page.import"]</PageTitle>
 
-<h3 class="mb-3">Wissen importieren</h3>
+<h3 class="mb-3">@Loc["import.heading.import"]</h3>
 
 <div class="card mb-3" style="max-width:700px;">
     <div class="card-body">
         <p class="form-text mt-0">
-            Importiere Markdown (<code>.md</code> / <code>.zip</code>-Sammlung), <code>.pdf</code>,
-            <code>.html</code> (z. B. Confluence/Notion-Export), Datensätze (<code>.csv</code>,
-            <code>.jsonl</code>, JSON-Array — auch Vektor-DB-Dumps) oder ein <code>.json</code>-Wissensbündel
-            (verlustfrei, Gegenstück zu <code>GET /api/knowledge/export</code>). Die Inhalte werden wie eine
-            Git-Ingestion strukturiert abgebildet — eine Wurzel je Quelle, darunter verbundene Einträge mit
-            Pfad-Domänen und aufgelösten Querverweisen, keine flachen Einzelknoten. Fremd-Vektoren werden nie
-            übernommen; Embeddings berechnet Edda lokal neu.
+            @((MarkupString)Loc["import.desc.import"])
         </p>
 
         <div class="mb-2">
-            <label class="form-label" for="imp-domain">Bezeichnung der Quelle (optional)</label>
+            <label class="form-label" for="imp-domain">@Loc["import.source.label"]</label>
             <input id="imp-domain" class="form-control form-control-sm" @bind="_domain"
-                   placeholder="leer = Dateiname" />
+                   placeholder="@Loc["import.source.placeholder"]" />
         </div>
 
         <div class="mb-2">
-            <label class="form-label" for="imp-chunk">Chunking-Stil</label>
+            <label class="form-label" for="imp-chunk">@Loc["import.chunk.label"]</label>
             <select id="imp-chunk" class="form-select form-select-sm" @bind="_chunkStyle">
-                <option value="auto">Automatisch (nach Inhalt erkennen)</option>
-                <option value="prose">Prosa</option>
-                <option value="markdown">Markdown</option>
-                <option value="code">Code</option>
-                <option value="table">Tabelle</option>
+                <option value="auto">@Loc["import.chunk.auto"]</option>
+                <option value="prose">@Loc["import.chunk.prose"]</option>
+                <option value="markdown">@Loc["import.chunk.markdown"]</option>
+                <option value="code">@Loc["import.chunk.code"]</option>
+                <option value="table">@Loc["import.chunk.table"]</option>
             </select>
             <div class="form-text">
-                Erzwingt die Zerlegungsart beim Embedden; „Automatisch" erkennt sie je Dokument selbst.
+                @Loc["import.chunk.hint"]
             </div>
         </div>
 
         <div class="mb-2">
-            <label class="form-label" for="imp-file">Datei</label>
+            <label class="form-label" for="imp-file">@Loc["import.file.label"]</label>
             <InputFile id="imp-file" class="form-control form-control-sm" OnChange="OnFile"
                        accept=".md,.markdown,.zip,.pdf,.html,.htm,.json,.jsonl,.csv" />
             @if (_fileName is not null)
             {
-                <div class="form-text">Ausgewählt: <code>@_fileName</code> (@_fileSize Bytes)</div>
+                <div class="form-text">@Loc["import.file.selected"] <code>@_fileName</code> (@_fileSize @Loc["import.file.bytes"])</div>
             }
         </div>
 
         <button class="btn btn-sm btn-primary" @onclick="ImportAsync" disabled="@(_busy || _fileName is null)">
-            @(_busy ? "Importiert…" : "Importieren")
+            @(_busy ? Loc["import.btn.importing"] : Loc["import.btn.import"])
         </button>
 
         @if (_result is not null)
@@ -60,24 +56,21 @@
         }
 
         <div class="form-text mt-2">
-            Nach dem Import ggf. unter „Embeddings“ neu berechnen, damit die neuen Regeln semantisch
-            durchsuchbar sind.
+            @Loc["import.hint.reembed"]
         </div>
     </div>
 </div>
 
-<h3 class="mb-3">Wissen exportieren</h3>
+<h3 class="mb-3">@Loc["import.heading.export"]</h3>
 
 <div class="card mb-3" style="max-width:700px;">
     <div class="card-body">
         <p class="form-text mt-0">
-            Lädt die aktuellen Wissensregeln als portables <code>.json</code>-Bündel herunter — das
-            verlustfreie Austauschformat inkl. <code>SchemaVersion</code>, Gegenstück zum Import oben.
-            Ein Re-Import über die Import-Funktion ist verlustfrei; Embeddings berechnet Edda lokal neu.
+            @((MarkupString)Loc["import.desc.export"])
         </p>
         <a class="btn btn-sm btn-outline-secondary" href="/api/knowledge/export"
            download="edda-knowledge-bundle.json">
-            Exportieren (JSON-Bundle)
+            @Loc["import.btn.export"]
         </a>
     </div>
 </div>
@@ -93,6 +86,10 @@
     private bool _busy;
     private bool _ok;
     private string? _result;
+
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
 
     private void OnFile(InputFileChangeEventArgs e)
     {
@@ -129,21 +126,21 @@
 
             _ok = result.Failed == 0;
             _result = _ok
-                ? $"✓ {result.Imported} importiert, {result.Updated} aktualisiert, {result.Skipped} übersprungen."
-                : $"✗ {result.Imported} importiert, {result.Failed} Fehler — "
-                  + string.Join("; ", result.Errors.Select(x => x.Message));
+                ? string.Format(Loc["import.result.ok"], result.Imported, result.Updated, result.Skipped)
+                : string.Format(Loc["import.result.fail"], result.Imported, result.Failed,
+                    string.Join("; ", result.Errors.Select(x => x.Message)));
             Activity.Report(ActivityKind.Import, _ok ? ActivityState.Succeeded : ActivityState.Failed, _fileName);
         }
         catch (OperationCanceledException)
         {
             _ok = true;
-            _result = "⊘ Import abgebrochen.";
-            Activity.Report(ActivityKind.Import, ActivityState.Succeeded, "abgebrochen");
+            _result = Loc["import.result.cancelled"];
+            Activity.Report(ActivityKind.Import, ActivityState.Succeeded, Loc["import.activity.cancelled"]);
         }
         catch (Exception ex)
         {
             _ok = false;
-            _result = $"✗ Import fehlgeschlagen: {ex.Message}";
+            _result = string.Format(Loc["import.result.exception"], ex.Message);
             Activity.Report(ActivityKind.Import, ActivityState.Failed, _fileName);
         }
         finally

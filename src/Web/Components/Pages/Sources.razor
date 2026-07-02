@@ -7,22 +7,24 @@
 @inject IIdentityContext Identity
 @inject IAuditLog Audit
 @inject IActivityTracker Activity
+@inject ILocalizationService Loc
+@implements IDisposable
 
-<PageTitle>Wissensquellen</PageTitle>
+<PageTitle>@Loc["page.sources"]</PageTitle>
 
-<h3 class="mb-3">Wissensquellen</h3>
+<h3 class="mb-3">@Loc["sources.heading"]</h3>
 
 <div class="card mb-3" style="max-width:760px;">
     <div class="card-body">
-        <h6 class="card-title">Konfigurierte Quellen</h6>
+        <h6 class="card-title">@Loc["sources.configured"]</h6>
         @if (_sources.Count == 0)
         {
-            <p class="text-muted mb-0">Noch keine Quellen konfiguriert.</p>
+            <p class="text-muted mb-0">@Loc["sources.empty"]</p>
         }
         else
         {
             <table class="table table-sm align-middle mb-0">
-                <thead><tr><th>Name</th><th>Typ</th><th style="width:1%;"></th></tr></thead>
+                <thead><tr><th>@Loc["sources.col.name"]</th><th>@Loc["sources.col.type"]</th><th style="width:1%;"></th></tr></thead>
                 <tbody>
                     @foreach (var source in _sources)
                     {
@@ -31,11 +33,11 @@
                             <td><code>@source.TypeId</code></td>
                             <td style="white-space:nowrap;">
                                 <button class="btn btn-sm btn-outline-primary" @onclick="() => RunAsync(source)"
-                                        disabled="@_busy">Scrapen</button>
+                                        disabled="@_busy">@Loc["sources.btn.scrape"]</button>
                                 <button class="btn btn-sm btn-outline-secondary" @onclick="() => Edit(source)"
-                                        disabled="@_busy">Bearbeiten</button>
+                                        disabled="@_busy">@Loc["sources.btn.edit"]</button>
                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(source)"
-                                        disabled="@_busy">Löschen</button>
+                                        disabled="@_busy">@Loc["sources.btn.delete"]</button>
                             </td>
                         </tr>
                     }
@@ -51,10 +53,10 @@
 
 <div class="card mb-3" style="max-width:760px;">
     <div class="card-body">
-        <h6 class="card-title">@(_editingId is null ? "Quelle hinzufügen" : "Quelle bearbeiten")</h6>
+        <h6 class="card-title">@(_editingId is null ? Loc["sources.form.add"] : Loc["sources.form.edit"])</h6>
 
         <div class="mb-2">
-            <label class="form-label" for="src-type">Typ</label>
+            <label class="form-label" for="src-type">@Loc["sources.col.type"]</label>
             <select id="src-type" class="form-select form-select-sm" @bind="_selectedType" @bind:after="OnTypeChanged"
                     disabled="@(_editingId is not null)">
                 @foreach (var d in _descriptors)
@@ -69,8 +71,8 @@
         </div>
 
         <div class="mb-2">
-            <label class="form-label" for="src-name">Name</label>
-            <input id="src-name" class="form-control form-control-sm" @bind="_name" placeholder="z. B. Intern-Docs" />
+            <label class="form-label" for="src-name">@Loc["sources.col.name"]</label>
+            <input id="src-name" class="form-control form-control-sm" @bind="_name" placeholder="@Loc["sources.name.placeholder"]" />
         </div>
 
         @if (Descriptor is not null)
@@ -86,8 +88,8 @@
                         case ConnectorFieldType.Boolean:
                             <select id="@($"f-{field.Key}")" class="form-select form-select-sm"
                                     value="@FieldValue(field.Key)" @onchange="e => SetField(field.Key, e.Value?.ToString())">
-                                <option value="false">Nein</option>
-                                <option value="true">Ja</option>
+                                <option value="false">@Loc["sources.bool.no"]</option>
+                                <option value="true">@Loc["sources.bool.yes"]</option>
                             </select>
                             break;
                         case ConnectorFieldType.TextList:
@@ -99,7 +101,7 @@
                             <input id="@($"f-{field.Key}")" type="password" class="form-control form-control-sm"
                                    value="@FieldValue(field.Key)"
                                    @onchange="e => SetField(field.Key, e.Value?.ToString())"
-                                   placeholder="@(_secretStored.Contains(field.Key) ? "••• gespeichert — neuen Wert zum Ersetzen" : "")" />
+                                   placeholder="@(_secretStored.Contains(field.Key) ? Loc["sources.secret.stored"] : "")" />
                             break;
                         default:
                             <input id="@($"f-{field.Key}")"
@@ -117,11 +119,11 @@
         }
 
         <button class="btn btn-sm btn-primary" @onclick="SaveAsync" disabled="@_busy">
-            @(_editingId is null ? "Hinzufügen" : "Speichern")
+            @(_editingId is null ? Loc["sources.btn.add"] : Loc["sources.btn.save"])
         </button>
         @if (_editingId is not null)
         {
-            <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="ResetForm" disabled="@_busy">Abbrechen</button>
+            <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="ResetForm" disabled="@_busy">@Loc["sources.btn.cancel"]</button>
         }
         @if (_formError is not null)
         {
@@ -150,11 +152,14 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Loc.OnLanguageChanged += StateHasChanged;
         _descriptors = Connectors.Describe();
         _selectedType = _descriptors.Count > 0 ? _descriptors[0].TypeId : "";
         await ReloadSourcesAsync();
         OnTypeChanged();
     }
+
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
 
     private async Task ReloadSourcesAsync()
         => _sources = (await SettingsService.ReloadAsync()).Sources.ToList();
@@ -207,14 +212,14 @@
         _formError = null;
         if (string.IsNullOrWhiteSpace(_name))
         {
-            _formError = "Name darf nicht leer sein.";
+            _formError = Loc["sources.error.name"];
             return;
         }
 
         var descriptor = Descriptor;
         if (descriptor is null)
         {
-            _formError = "Unbekannter Quelltyp.";
+            _formError = Loc["sources.error.type"];
             return;
         }
 
@@ -222,7 +227,7 @@
         {
             if (field.Required && field.Type != ConnectorFieldType.Secret && string.IsNullOrWhiteSpace(FieldValue(field.Key)))
             {
-                _formError = $"Feld „{field.Label}“ ist erforderlich.";
+                _formError = string.Format(Loc["sources.error.required"], field.Label);
                 return;
             }
         }
@@ -308,15 +313,15 @@
             _runOk = result.Failed == 0 && result.Errors.Count == 0;
             if (_runOk)
             {
-                _runResult = $"✓ „{source.Name}“: {result.Imported} importiert, {result.Updated} aktualisiert, {result.Skipped} übersprungen.";
+                _runResult = string.Format(Loc["sources.run.ok"], source.Name, result.Imported, result.Updated, result.Skipped);
                 Activity.Report(ActivityKind.Import, ActivityState.Succeeded, source.Name);
             }
             else
             {
                 var reason = result.Errors.Count > 0
                     ? string.Join("; ", result.Errors.Select(e => e.Message))
-                    : $"{result.Failed} Fehler (kein Detail gemeldet)";
-                _runResult = $"✗ „{source.Name}“: {reason}";
+                    : string.Format(Loc["sources.run.nodetail"], result.Failed);
+                _runResult = string.Format(Loc["sources.run.fail"], source.Name, reason);
                 Activity.Report(ActivityKind.Import, ActivityState.Failed, Truncate(reason));
             }
             await Audit.LogAsync(AuditEvent.ConfigChanged, UserId, $"Knowledge source run via UI: {source.Name}");
@@ -324,13 +329,13 @@
         catch (OperationCanceledException)
         {
             _runOk = true;
-            _runResult = $"⊘ „{source.Name}“: abgebrochen.";
-            Activity.Report(ActivityKind.Import, ActivityState.Succeeded, "abgebrochen");
+            _runResult = string.Format(Loc["sources.run.cancelled"], source.Name);
+            Activity.Report(ActivityKind.Import, ActivityState.Succeeded, Loc["import.activity.cancelled"]);
         }
         catch (Exception ex)
         {
             _runOk = false;
-            _runResult = $"✗ „{source.Name}“: {ex.Message}";
+            _runResult = string.Format(Loc["sources.run.fail"], source.Name, ex.Message);
             Activity.Report(ActivityKind.Import, ActivityState.Failed, Truncate(ex.Message));
         }
         finally

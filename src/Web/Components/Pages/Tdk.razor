@@ -3,28 +3,27 @@
 @inject IKnowledgeGraph KnowledgeGraph
 @inject ITdkEngine TdkEngine
 @inject IIdentityContext Identity
+@inject ILocalizationService Loc
 @implements IDisposable
 
-<PageTitle>TDK</PageTitle>
+<PageTitle>@Loc["page.tdk"]</PageTitle>
 
-<h3 class="mb-2">TDK — Test-Driven Knowledge</h3>
+<h3 class="mb-2">@Loc["tdk.heading"]</h3>
 <p style="font-size:0.85rem;color:#94a3b8;">
-    Validiert Code (oder eine Antwort mit Code-Blöcken) gegen die aktiven Regeln, die ein
-    Validator-Skript tragen. Der Kontext bestimmt, welche Regeln greifen; die Validatoren laufen
-    isoliert in der Sandbox.
+    @Loc["tdk.desc"]
 </p>
 
 <div class="mb-3" style="max-width:900px;">
-    <label class="form-label" style="font-size:0.8rem;">Aufgabe / Thema (für die Regel-Auswahl)</label>
+    <label class="form-label" style="font-size:0.8rem;">@Loc["tdk.task.label"]</label>
     <input class="form-control form-control-sm mb-2" @bind="_task"
-           placeholder="z. B. 'C# async method returning a list'" />
+           placeholder="@Loc["tdk.task.placeholder"]" />
 
-    <label class="form-label" style="font-size:0.8rem;">Code / Antwort</label>
+    <label class="form-label" style="font-size:0.8rem;">@Loc["tdk.code.label"]</label>
     <textarea class="form-control form-control-sm" style="font-family:monospace;" rows="12"
-              @bind="_code" placeholder="Code hier einfügen…"></textarea>
+              @bind="_code" placeholder="@Loc["tdk.code.placeholder"]"></textarea>
 
     <button class="btn btn-sm btn-primary mt-2" @onclick="ValidateAsync" disabled="@_running">
-        @(_running ? "Validiere…" : "Validieren")
+        @(_running ? Loc["tdk.btn.validating"] : Loc["tdk.btn.validate"])
     </button>
 </div>
 
@@ -36,18 +35,24 @@
 @if (_result is not null)
 {
     <div style="font-size:0.82rem;color:#94a3b8;" class="mb-2">
-        @_activeRuleCount aktive Regel(n) im Kontext geprüft.
+        @string.Format(Loc["tdk.rulecount"], _activeRuleCount)
     </div>
 
     @if (!_result.HasViolations)
     {
-        <div class="alert alert-success" style="max-width:900px;">✓ Keine Verstöße erkannt.</div>
+        <div class="alert alert-success" style="max-width:900px;">@Loc["tdk.noviolations"]</div>
     }
     else
     {
         <table class="table table-sm" style="max-width:900px;">
             <thead>
-                <tr><th>Regel</th><th>Schweregrad</th><th>Zeile</th><th>Meldung</th><th>Vorschlag</th></tr>
+                <tr>
+                    <th>@Loc["tdk.col.rule"]</th>
+                    <th>@Loc["tdk.col.severity"]</th>
+                    <th>@Loc["tdk.col.line"]</th>
+                    <th>@Loc["tdk.col.message"]</th>
+                    <th>@Loc["tdk.col.suggestion"]</th>
+                </tr>
             </thead>
             <tbody>
                 @foreach (var v in _result.Violations)
@@ -67,14 +72,14 @@
     @if (_result.HasEngineErrors)
     {
         <div class="alert alert-warning" style="max-width:900px;">
-            <strong>⚠️ Einige Validatoren konnten nicht ausgeführt werden</strong> — diese Regeln wurden nicht geprüft:
+            <strong>@Loc["tdk.engine.heading"]</strong> — @Loc["tdk.engine.subtext"]
             <ul class="mb-0">
                 @foreach (var e in _result.EngineErrors)
                 {
                     <li>
                         <code>@e.RuleId</code>: @e.Reason
-                        @if (e.ExitCode is int ec) { <text> (Exit-Code @ec)</text> }
-                        @if (e.TimedOut) { <text> (Timeout)</text> }
+                        @if (e.ExitCode is int ec) { <text> (@Loc["tdk.engine.exitcode"] @ec)</text> }
+                        @if (e.TimedOut) { <text> (@Loc["tdk.engine.timeout"])</text> }
                     </li>
                 }
             </ul>
@@ -90,6 +95,10 @@
     private TdkResult? _result;
     private int _activeRuleCount;
 
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+
     private async Task ValidateAsync()
     {
         _running = true;
@@ -100,7 +109,7 @@
         {
             if (string.IsNullOrWhiteSpace(_code))
             {
-                _error = "Bitte Code eingeben.";
+                _error = Loc["tdk.error.nocode"];
                 return;
             }
 
@@ -127,7 +136,7 @@
         catch (Exception ex)
         {
             // Most likely a missing sandbox (no Docker / TDK_SANDBOX_TYPE) — surface it readably.
-            _error = $"Validierung fehlgeschlagen: {ex.Message}";
+            _error = string.Format(Loc["tdk.error.failed"], ex.Message);
         }
         finally
         {
@@ -143,6 +152,4 @@
                   .Distinct()
                   .Take(20)
                   .ToList();
-
-    public void Dispose() { }
 }

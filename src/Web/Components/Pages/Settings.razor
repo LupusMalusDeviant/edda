@@ -10,49 +10,49 @@
 @inject IToolRegistry ToolRegistry
 @inject IMcpTokenStore McpTokens
 @inject NavigationManager Nav
+@inject ILocalizationService Loc
+@implements IDisposable
 
-<PageTitle>Einstellungen</PageTitle>
+<PageTitle>@Loc["page.settings"]</PageTitle>
 
-<h3 class="mb-3">Einstellungen</h3>
+<h3 class="mb-3">@Loc["nav.settings"]</h3>
 
-<CollapsibleCard Title="Allgemein">
+<CollapsibleCard Title="@Loc["config.tab.general"]">
         <div class="mb-2">
-            <label class="form-label" for="enable-ingestion">Wissens-Ingestion</label>
+            <label class="form-label" for="enable-ingestion">@Loc["settings.ingestion.label"]</label>
             <select id="enable-ingestion" class="form-select form-select-sm" @bind="_enableIngestion">
-                <option value="">Standard (Umgebungsvariable)</option>
-                <option value="true">Aktiviert</option>
-                <option value="false">Deaktiviert</option>
+                <option value="">@Loc["settings.opt.envdefault"]</option>
+                <option value="true">@Loc["settings.opt.enabled"]</option>
+                <option value="false">@Loc["settings.opt.disabled"]</option>
             </select>
             <div class="form-text">
-                Steuert den <code>/api/akg/ingest</code>-Endpoint. „Standard“ nutzt die
-                <code>ENABLE_INGESTION</code>-Variable. Änderungen greifen sofort, ohne Neustart.
+                @((MarkupString)Loc["settings.ingestion.hint"])
             </div>
         </div>
         <button class="btn btn-sm btn-primary" @onclick="SaveGeneralAsync" disabled="@_savingGeneral">
-            @(_savingGeneral ? "Speichert…" : "Speichern")
+            @(_savingGeneral ? Loc["settings.btn.saving"] : Loc["settings.btn.save"])
         </button>
         @if (_generalSaved)
         {
-            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+            <span class="text-success ms-2" style="font-size:0.85rem;">@Loc["settings.saved"]</span>
         }
 </CollapsibleCard>
 
-<CollapsibleCard Title="LLM-Enrichment">
+<CollapsibleCard Title="@Loc["settings.llm.title"]">
         <p class="form-text mt-0">
-            Optionale LLM-Anreicherung beim Wissens-Import (Verdichtung + Relationsvorschläge).
-            Provider und Key greifen sofort, ohne Neustart.
+            @Loc["settings.llm.desc"]
         </p>
 
         <div class="mb-2">
-            <label class="form-label" for="llm-enabled">Anreicherung</label>
+            <label class="form-label" for="llm-enabled">@Loc["settings.llm.enabled"]</label>
             <select id="llm-enabled" class="form-select form-select-sm" @bind="_llmEnabled">
-                <option value="">Standard (Umgebungsvariable)</option>
-                <option value="true">Aktiviert</option>
-                <option value="false">Deaktiviert</option>
+                <option value="">@Loc["settings.opt.envdefault"]</option>
+                <option value="true">@Loc["settings.opt.enabled"]</option>
+                <option value="false">@Loc["settings.opt.disabled"]</option>
             </select>
         </div>
         <div class="mb-2">
-            <label class="form-label" for="llm-provider">Provider</label>
+            <label class="form-label" for="llm-provider">@Loc["emb.provider.label"]</label>
             <select id="llm-provider" class="form-select form-select-sm"
                     @bind="_llmProvider" @bind:after="RefreshLlmKeyStatusAsync">
                 <option value="anthropic">Anthropic</option>
@@ -61,13 +61,13 @@
                 <option value="bedrock">AWS Bedrock</option>
                 <option value="openrouter">OpenRouter</option>
                 <option value="gemini">Google Gemini</option>
-                <option value="custom">Custom (OpenAI-kompatibel)</option>
+                <option value="custom">@Loc["emb.provider.custom"]</option>
             </select>
         </div>
         <div class="mb-2">
-            <label class="form-label" for="llm-model">Modell</label>
+            <label class="form-label" for="llm-model">@Loc["config.label.model"]</label>
             <input id="llm-model" class="form-control form-control-sm" @bind="_llmModel" list="llm-models"
-                   placeholder="leer = Provider-Default" />
+                   placeholder="@Loc["emb.placeholder.default"]" />
             @if (_llmModels.Count > 0)
             {
                 <datalist id="llm-models">
@@ -76,50 +76,49 @@
                         <option value="@m" />
                     }
                 </datalist>
-                <div class="form-text">@_llmModels.Count Modell(e) von der Quelle — im Feld auswählbar.</div>
+                <div class="form-text">@string.Format(Loc["settings.llm.modelcount"], _llmModels.Count)</div>
             }
         </div>
         <div class="mb-2">
-            <label class="form-label" for="llm-baseurl">Base-URL</label>
+            <label class="form-label" for="llm-baseurl">@Loc["emb.baseurl"]</label>
             <input id="llm-baseurl" class="form-control form-control-sm" @bind="_llmBaseUrl"
-                   placeholder="leer = Provider-Default" />
+                   placeholder="@Loc["emb.placeholder.default"]" />
             @if (_llmProvider == "ollama")
             {
                 <div class="form-text">
-                    Lokal: <code>http://ollama:11434</code> · Remote/Tailscale: <code>http://ollama-prod:11434</code>
-                    (http/https) · Cloud-API: Host + Token.
+                    @((MarkupString)Loc["emb.baseurl.ollamahint"])
                 </div>
             }
         </div>
         <div class="mb-2">
             <label class="form-label" for="llm-key">
-                @(_llmProvider == "bedrock" ? "AWS Secret Access Key" : "API-Key")
+                @(_llmProvider == "bedrock" ? Loc["emb.key.aws"] : Loc["emb.key.default"])
             </label>
             <input id="llm-key" type="password" class="form-control form-control-sm" @bind="_llmKey"
-                   placeholder="@(_llmKeyStored ? "••• gespeichert — neuen Wert zum Ersetzen" : "Key eingeben…")" />
+                   placeholder="@(_llmKeyStored ? Loc["emb.secret.stored"] : Loc["emb.keyph.default"])" />
         </div>
         @if (_llmProvider == "bedrock")
         {
             <div class="mb-2">
-                <label class="form-label" for="llm-access">AWS Access Key ID</label>
+                <label class="form-label" for="llm-access">@Loc["emb.aws.accesskey"]</label>
                 <input id="llm-access" class="form-control form-control-sm" @bind="_llmAccessKey"
-                       placeholder="@(_llmAccessStored ? "••• gespeichert" : "Access Key ID…")" />
+                       placeholder="@(_llmAccessStored ? Loc["settings.stored.short"] : Loc["settings.llm.accessph"])" />
             </div>
             <div class="mb-2">
-                <label class="form-label" for="llm-region">AWS Region</label>
+                <label class="form-label" for="llm-region">@Loc["emb.aws.region"]</label>
                 <input id="llm-region" class="form-control form-control-sm" @bind="_llmRegion" placeholder="us-east-1" />
             </div>
         }
 
         <button class="btn btn-sm btn-primary" @onclick="SaveLlmAsync" disabled="@_savingLlm">
-            @(_savingLlm ? "Speichert…" : "Speichern")
+            @(_savingLlm ? Loc["settings.btn.saving"] : Loc["settings.btn.save"])
         </button>
         <button class="btn btn-sm btn-outline-secondary ms-1" @onclick="TestLlmAsync" disabled="@_testingLlm">
-            @(_testingLlm ? "Testet…" : "Testen")
+            @(_testingLlm ? Loc["settings.btn.testing"] : Loc["settings.btn.test"])
         </button>
         @if (_llmSaved)
         {
-            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+            <span class="text-success ms-2" style="font-size:0.85rem;">@Loc["settings.saved"]</span>
         }
         @if (_llmTestResult is not null)
         {
@@ -127,26 +126,25 @@
         }
 </CollapsibleCard>
 
-<CollapsibleCard Title="MCP-Server (Anbindung externer LLMs)">
+<CollapsibleCard Title="@Loc["settings.mcp.title"]">
         <p class="form-text mt-0">
-            Steuert, welche Tools externe LLMs über MCP nutzen dürfen. Standard: nur Lese-Tools (read-only).
-            Änderungen greifen sofort, ohne Neustart.
+            @Loc["settings.mcp.desc"]
         </p>
 
         <div class="mb-2">
-            <label class="form-label" for="mcp-enabled">Exposition</label>
+            <label class="form-label" for="mcp-enabled">@Loc["settings.mcp.exposition"]</label>
             <select id="mcp-enabled" class="form-select form-select-sm" @bind="_mcpEnabled">
-                <option value="">Standard (Tools exponieren)</option>
-                <option value="true">Aktiviert</option>
-                <option value="false">Deaktiviert (keine Tools)</option>
+                <option value="">@Loc["settings.mcp.opt.default"]</option>
+                <option value="true">@Loc["settings.opt.enabled"]</option>
+                <option value="false">@Loc["settings.mcp.opt.disabled"]</option>
             </select>
         </div>
 
         <div class="mb-2">
-            <label class="form-label">Exponierte Tools</label>
+            <label class="form-label">@Loc["settings.mcp.exposedtools"]</label>
             @if (_availableTools.Count == 0)
             {
-                <p class="text-muted mb-0" style="font-size:0.85rem;">Keine Tools registriert.</p>
+                <p class="text-muted mb-0" style="font-size:0.85rem;">@Loc["settings.mcp.notools"]</p>
             }
             @foreach (var tool in _availableTools)
             {
@@ -157,43 +155,41 @@
                         <code>@tool</code>
                         @if (McpWriteTools.Contains(tool))
                         {
-                            <span class="text-warning" style="font-size:0.78rem;"> (Schreibzugriff)</span>
+                            <span class="text-warning" style="font-size:0.78rem;">@Loc["settings.mcp.writeaccess"]</span>
                         }
                     </label>
                 </div>
             }
-            <div class="form-text">Lese-Tools sind sicher. Schreib-Tools wirken nur mit aktiviertem Schreibzugriff.</div>
+            <div class="form-text">@Loc["settings.mcp.toolhint"]</div>
         </div>
 
         <div class="mb-2">
-            <label class="form-label" for="mcp-write">Schreibzugriff über MCP</label>
+            <label class="form-label" for="mcp-write">@Loc["settings.mcp.writelabel"]</label>
             <select id="mcp-write" class="form-select form-select-sm" @bind="_mcpAllowWrite">
-                <option value="">Standard (blockiert / read-only)</option>
-                <option value="false">Blockiert (read-only)</option>
-                <option value="true">Erlauben (nur vertrauenswürdige Setups)</option>
+                <option value="">@Loc["settings.mcp.write.default"]</option>
+                <option value="false">@Loc["settings.mcp.write.blocked"]</option>
+                <option value="true">@Loc["settings.mcp.write.allow"]</option>
             </select>
         </div>
 
         <button class="btn btn-sm btn-primary" @onclick="SaveMcpAsync" disabled="@_savingMcp">
-            @(_savingMcp ? "Speichert…" : "Speichern")
+            @(_savingMcp ? Loc["settings.btn.saving"] : Loc["settings.btn.save"])
         </button>
         @if (_mcpSaved)
         {
-            <span class="text-success ms-2" style="font-size:0.85rem;">✓ Gespeichert</span>
+            <span class="text-success ms-2" style="font-size:0.85rem;">@Loc["settings.saved"]</span>
         }
 </CollapsibleCard>
 
-<CollapsibleCard Title="MCP-Zugriffstokens (HTTP)">
+<CollapsibleCard Title="@Loc["settings.tokens.title"]">
         <p class="form-text mt-0">
-            Über HTTP (<code>/mcp</code>) gilt: <strong>ohne gültiges Token kein Zugriff</strong>. Jedes Token trägt
-            seine Rechte — nur die hier angehakten Tools sind damit nutzbar. Tokens werden nur als Hash gespeichert
-            und genau einmal angezeigt.
+            @((MarkupString)Loc["settings.tokens.desc"])
         </p>
 
         @if (_createdToken is not null)
         {
             <div class="alert alert-success py-2">
-                <div class="mb-1"><strong>Neues Token — jetzt kopieren, danach nicht mehr abrufbar:</strong></div>
+                <div class="mb-1"><strong>@Loc["settings.tokens.new"]</strong></div>
                 <code style="word-break:break-all;">@_createdToken</code>
             </div>
         }
@@ -208,12 +204,12 @@
                             <td>
                                 <code>@t.Id</code> — @t.Label
                                 <div class="form-text">
-                                    @t.Tools.Count Tool(s)@(t.AllowWrite ? " · Schreibzugriff" : "")
+                                    @string.Format(Loc["settings.tokens.toolcount"], t.Tools.Count)@(t.AllowWrite ? Loc["settings.tokens.writesuffix"] : "")
                                 </div>
                             </td>
                             <td style="width:1%;white-space:nowrap;">
                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeTokenAsync(t.Id)">
-                                    Widerrufen
+                                    @Loc["settings.tokens.revoke"]
                                 </button>
                             </td>
                         </tr>
@@ -223,16 +219,16 @@
         }
         else
         {
-            <p class="text-muted mb-2" style="font-size:0.85rem;">Noch kein Token — ohne Token kein HTTP-MCP-Zugriff.</p>
+            <p class="text-muted mb-2" style="font-size:0.85rem;">@Loc["settings.tokens.empty"]</p>
         }
 
         <div class="mb-2">
-            <label class="form-label" for="tok-label">Neues Token — Bezeichnung</label>
+            <label class="form-label" for="tok-label">@Loc["settings.tokens.label"]</label>
             <input id="tok-label" class="form-control form-control-sm" @bind="_newTokenLabel"
-                   placeholder="z. B. Claude Desktop (read-only)" />
+                   placeholder="@Loc["settings.tokens.label.placeholder"]" />
         </div>
         <div class="mb-2">
-            <label class="form-label">Erlaubte Tools</label>
+            <label class="form-label">@Loc["settings.tokens.allowedtools"]</label>
             @foreach (var tool in _availableTools)
             {
                 <div class="form-check">
@@ -242,7 +238,7 @@
                         <code>@tool</code>
                         @if (McpWriteTools.Contains(tool))
                         {
-                            <span class="text-warning" style="font-size:0.78rem;"> (Schreibzugriff)</span>
+                            <span class="text-warning" style="font-size:0.78rem;">@Loc["settings.mcp.writeaccess"]</span>
                         }
                     </label>
                 </div>
@@ -250,31 +246,29 @@
         </div>
         <div class="form-check mb-2">
             <input class="form-check-input" type="checkbox" id="tok-write" @bind="_newTokenAllowWrite" />
-            <label class="form-check-label" for="tok-write">Schreib-Tools für dieses Token erlauben</label>
+            <label class="form-check-label" for="tok-write">@Loc["settings.tokens.allowwrite"]</label>
         </div>
         <button class="btn btn-sm btn-primary" @onclick="CreateTokenAsync"
                 disabled="@(_savingToken || _newTokenTools.Count == 0)">
-            @(_savingToken ? "Erstellt…" : "Token erstellen")
+            @(_savingToken ? Loc["settings.tokens.creating"] : Loc["settings.tokens.create"])
         </button>
 
         <hr class="my-3" />
-        <label class="form-label">Beispiel-Konfiguration (Claude Desktop / <code>mcp-remote</code>)</label>
+        <label class="form-label">@((MarkupString)Loc["settings.tokens.example"])</label>
         <pre style="background:rgba(0,0,0,0.28);padding:0.6rem 0.75rem;border-radius:6px;font-size:0.72rem;overflow-x:auto;margin-bottom:0.5rem;"><code>@McpConfigSnippet()</code></pre>
         <div class="form-text">
-            URL automatisch aus dieser Instanz (<code>@McpUrl</code>); Token nach dem Erstellen oben eingesetzt.
-            <code>cmd /c</code> ist Windows — unter macOS/Linux <code>"command": "npx"</code> ohne <code>/c</code>.
-            Claude Code: <code>claude mcp add --transport http edda @McpUrl --header "Authorization: Bearer TOKEN"</code>.
+            @((MarkupString)string.Format(Loc["settings.tokens.confighint"], McpUrl))
         </div>
 </CollapsibleCard>
 
-<CollapsibleCard Title="Zugangsdaten (verschlüsselt)">
+<CollapsibleCard Title="@Loc["settings.creds.title"]">
         <p class="form-text mt-0">
-            API-Keys und Tokens werden AES-verschlüsselt gespeichert und nie im Klartext angezeigt.
+            @Loc["settings.creds.desc"]
         </p>
 
         @if (_keys.Count == 0)
         {
-            <p class="text-muted mb-2">Noch keine Zugangsdaten hinterlegt.</p>
+            <p class="text-muted mb-2">@Loc["settings.creds.empty"]</p>
         }
         else
         {
@@ -286,7 +280,7 @@
                             <td><code>@key</code></td>
                             <td style="width:1%;white-space:nowrap;">
                                 <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(key)">
-                                    Löschen
+                                    @Loc["sources.btn.delete"]
                                 </button>
                             </td>
                         </tr>
@@ -297,18 +291,18 @@
 
         <div class="row g-2 align-items-end">
             <div class="col">
-                <label class="form-label" for="cred-name">Name</label>
+                <label class="form-label" for="cred-name">@Loc["sources.col.name"]</label>
                 <input id="cred-name" class="form-control form-control-sm" @bind="_newName"
-                       placeholder="z. B. llm:anthropic" />
+                       placeholder="@Loc["settings.creds.name.placeholder"]" />
             </div>
             <div class="col">
-                <label class="form-label" for="cred-value">Wert</label>
+                <label class="form-label" for="cred-value">@Loc["settings.creds.value"]</label>
                 <input id="cred-value" type="password" class="form-control form-control-sm" @bind="_newValue"
-                       placeholder="Secret eingeben…" />
+                       placeholder="@Loc["settings.creds.value.placeholder"]" />
             </div>
             <div class="col-auto">
                 <button class="btn btn-sm btn-primary" @onclick="AddAsync" disabled="@_savingCred">
-                    Hinzufügen
+                    @Loc["sources.btn.add"]
                 </button>
             </div>
         </div>
@@ -373,7 +367,7 @@
     /// </summary>
     private string McpConfigSnippet()
     {
-        var token = string.IsNullOrEmpty(_createdToken) ? "DEIN_TOKEN" : _createdToken;
+        var token = string.IsNullOrEmpty(_createdToken) ? Loc["settings.tokens.placeholdertoken"] : _createdToken;
         return $$"""
         {
           "mcpServers": {
@@ -388,6 +382,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Loc.OnLanguageChanged += StateHasChanged;
+
         _baseUri = Nav.BaseUri;
         var settings = await SettingsService.ReloadAsync();
         _enableIngestion = settings.General.EnableIngestion switch
@@ -419,6 +415,8 @@
         await LoadKeysAsync();
         await RefreshLlmKeyStatusAsync();
     }
+
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
 
     private async Task LoadKeysAsync()
     {
@@ -613,13 +611,13 @@
         _credError = null;
         if (!CredentialKeyScheme.IsValidName(_newName))
         {
-            _credError = "Ungültiger Name. Erlaubt: a–z, 0–9, '-', '_', '.', ':'.";
+            _credError = Loc["settings.creds.error.name"];
             return;
         }
 
         if (string.IsNullOrEmpty(_newValue))
         {
-            _credError = "Wert darf nicht leer sein.";
+            _credError = Loc["settings.creds.error.value"];
             return;
         }
 
