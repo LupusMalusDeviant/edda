@@ -50,6 +50,26 @@ public class EmbeddingBackfillHostedServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_CacheEmbedsNothing_SkipsHeadVectorRebuild()
+    {
+        // B9: an idle cycle that (re)embeds no rules leaves every head clean, so the head-vector store
+        // must not be touched — otherwise k-means re-clusters unchanged repositories on every backfill tick.
+        var cache = new FakeEmbeddingCache { EmbeddedPerCycle = 0 };
+        var heads = HeadVectors();
+
+        var sut = Service(cache, Embeddings(available: true).Object, heads.Object);
+        await sut.StartAsync(CancellationToken.None);
+
+        // Wait until at least one full backfill cycle has actually run (the cache's RebuildAsync fired).
+        await Task.WhenAny(cache.Rebuilt, Task.Delay(TimeSpan.FromSeconds(2)));
+        await sut.StopAsync(CancellationToken.None);
+
+        cache.RebuildCalls.Should().BeGreaterOrEqualTo(1);
+        heads.Verify(h => h.RebuildAsync(It.IsAny<CancellationToken>()), Times.Never,
+            "no chunks were written this cycle, so head centroids need no recomputation");
+    }
+
+    [Fact]
     public async Task StartAsync_EmbeddingsUnavailable_DoesNotRebuild()
     {
         var cache = new FakeEmbeddingCache();
@@ -91,16 +111,19 @@ public class EmbeddingBackfillHostedServiceTests
         public int RebuildCalls => Volatile.Read(ref _rebuildCalls);
         public int CancelCalls => Volatile.Read(ref _cancelCalls);
 
+        /// <summary>Rules each RebuildAsync cycle reports as (re)embedded. A value &gt;0 simulates written chunks.</summary>
+        public int EmbeddedPerCycle { get; init; } = 1;
+
         public int TotalToEmbed => 0;
         public int EmbeddedSoFar => 0;
         public bool IsRebuilding => false;
         public string? CurrentRuleId => null;
 
-        public Task RebuildAsync(CancellationToken ct)
+        public Task<int> RebuildAsync(CancellationToken ct)
         {
             Interlocked.Increment(ref _rebuildCalls);
             _rebuilt.TrySetResult();
-            return Task.CompletedTask;
+            return Task.FromResult(EmbeddedPerCycle);
         }
 
         public void CancelRebuild() => Interlocked.Increment(ref _cancelCalls);

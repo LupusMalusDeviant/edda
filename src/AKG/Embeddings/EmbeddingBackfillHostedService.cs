@@ -99,9 +99,13 @@ internal sealed class EmbeddingBackfillHostedService : IHostedService
                 {
                     if (_embeddings.IsAvailable)
                     {
-                        // First fill chunk embeddings, then recompute the (changed) head centroids from them.
-                        await _cache.RebuildAsync(ct).ConfigureAwait(false);
-                        await _headVectors.RebuildAsync(ct).ConfigureAwait(false);
+                        // First fill chunk embeddings. Head centroids only need recomputing when this cycle
+                        // actually wrote chunks (re-embedding flags the affected heads dirty); an idle cycle
+                        // that embedded nothing leaves every head clean, so skip the head-vector pass and
+                        // avoid re-querying/re-clustering unchanged repositories on every backfill tick.
+                        var embedded = await _cache.RebuildAsync(ct).ConfigureAwait(false);
+                        if (embedded > 0)
+                            await _headVectors.RebuildAsync(ct).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException)

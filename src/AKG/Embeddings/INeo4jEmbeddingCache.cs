@@ -20,8 +20,12 @@ internal interface INeo4jEmbeddingCache
 
     /// <summary>Rebuilds embeddings for all rules whose body text changed since the last build.</summary>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>A task that completes when the rebuild finishes.</returns>
-    Task RebuildAsync(CancellationToken ct);
+    /// <returns>
+    /// The number of rules (re)embedded in this cycle. <c>0</c> means nothing changed (or the service was
+    /// unavailable / a rebuild was already running), so no chunks were written and dependent artifacts
+    /// (e.g. head-vector centroids) need not be recomputed.
+    /// </returns>
+    Task<int> RebuildAsync(CancellationToken ct);
 
     /// <summary>Requests cancellation of an in-progress rebuild. No-op if none is running.</summary>
     void CancelRebuild();

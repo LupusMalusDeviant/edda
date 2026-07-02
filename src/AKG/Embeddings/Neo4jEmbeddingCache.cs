@@ -122,19 +122,23 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
     /// No-op if <see cref="IEmbeddingService.IsAvailable"/> is <see langword="false"/>.
     /// </summary>
     /// <param name="ct">Cancellation token.</param>
-    public async Task RebuildAsync(CancellationToken ct)
+    /// <returns>
+    /// The number of rules (re)embedded in this cycle; <c>0</c> when nothing changed or the rebuild was
+    /// skipped (service unavailable, or another rebuild already running).
+    /// </returns>
+    public async Task<int> RebuildAsync(CancellationToken ct)
     {
         if (!_embeddings.IsAvailable)
         {
             _logger.LogInformation("Embedding service unavailable; skipping cache rebuild | {Component}", "AKG");
-            return;
+            return 0;
         }
 
         // Only one rebuild at a time: the background backfill and a manual/post-import rebuild must not overlap.
         if (!await _rebuildGate.WaitAsync(0, ct).ConfigureAwait(false))
         {
             _logger.LogDebug("Embedding rebuild already in progress; skipping concurrent run | {Component}", "AKG");
-            return;
+            return 0;
         }
 
         // A dedicated, cancellable token source so the UI can abort a long rebuild (links to the caller's ct).
@@ -172,7 +176,7 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
             if (toEmbed.Count == 0)
             {
                 _logger.LogDebug("All embeddings up to date | {Component}", "AKG");
-                return;
+                return 0;
             }
 
             _totalToEmbed = toEmbed.Count;
@@ -247,6 +251,10 @@ internal sealed class Neo4jEmbeddingCache : INeo4jEmbeddingCache
                 _activity?.Report(ActivityKind.Embedding, ActivityState.Succeeded, detail);
                 _activity?.Report(ActivityKind.Chunking, ActivityState.Succeeded, cancelled ? "abgebrochen" : null);
             }
+
+            // Read the cycle's embed count while still holding the gate, so a rebuild starting right after
+            // the gate is released cannot reset the counter before we return it.
+            return Volatile.Read(ref _embeddedSoFar);
         }
         finally
         {
