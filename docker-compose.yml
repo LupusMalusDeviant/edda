@@ -12,7 +12,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./knowledge:/app/knowledge
-      - /var/run/docker.sock:/var/run/docker.sock   # TDK-Sandbox (Docker)
+      # A8: KEIN docker.sock-Mount im Standard — der Container läuft non-root. Die TDK-Docker-
+      # Sandbox ist ein Opt-in über das Override docker-compose.tdk.yml (siehe docs/betrieb.md).
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - ASPNETCORE_HTTP_PORTS=8080
@@ -63,8 +64,9 @@ services:
       # Vertrauenswuerdige Reverse-Proxy-IPs (A5): X-Forwarded-For/-Proto nur von diesen Proxys auswerten.
       # Leer = Forwarded-Header ignoriert (sicherer Default). Bei lokalem Proxy z. B. 127.0.0.1,::1.
       - EDDA_TRUSTED_PROXIES=${EDDA_TRUSTED_PROXIES:-}
-      # TDK sandbox: docker (needs the mounted socket) | wasm (local python) | null
-      - TDK_SANDBOX_TYPE=${TDK_SANDBOX_TYPE:-docker}
+      # TDK sandbox: wasm (Default — python3 im Image, A7-Prozess-Limits) | docker (nur mit
+      # docker-compose.tdk.yml, mountet den docker.sock) | null (TDK aus)
+      - TDK_SANDBOX_TYPE=${TDK_SANDBOX_TYPE:-wasm}
     depends_on:
       neo4j:
         condition: service_healthy

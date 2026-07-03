@@ -27,20 +27,30 @@ RUN dotnet publish "src/Web/Web.csproj" \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# Docker CLI so the TDK sandbox can talk to the mounted /var/run/docker.sock.
+# Docker CLI for the opt-in TDK docker sandbox (docker-compose.tdk.yml), python3 for the
+# default wasm sandbox, curl for the container healthcheck.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     docker.io \
+    python3 \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Run as root so the mounted Docker socket is accessible (local single-user deployment).
-USER root
+# A8: run as a non-root user. UID/GID default to 1000 so host bind mounts (./data, ./knowledge)
+# owned by the typical first user work out of the box; override via build args when they differ.
+# The opt-in TDK docker mode grants socket access via group_add in docker-compose.tdk.yml.
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN groupadd --gid "${APP_GID}" edda \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home edda
 
-COPY --from=build /app/publish .
+COPY --from=build --chown=edda:edda /app/publish .
 # Bundled knowledge is staged as knowledge.seed; an empty mounted knowledge/ volume
 # self-seeds from it at first start (idempotent for bare-metal bind mounts).
-COPY --from=build /src/knowledge ./knowledge.seed
+COPY --from=build --chown=edda:edda /src/knowledge ./knowledge.seed
+RUN mkdir -p /app/data /app/knowledge && chown -R edda:edda /app
+
+USER edda
 
 EXPOSE 8080
 

@@ -1,0 +1,18 @@
+# A8: Opt-in-Override für die TDK-Docker-Sandbox (harte Isolation je Validator).
+#
+# Start:   docker compose -f docker-compose.yml -f docker-compose.tdk.yml up -d
+#
+# Mountet den Docker-Socket in den (weiterhin non-root laufenden) edda-Container und erlaubt
+# den Zugriff über die Host-Docker-Gruppe (DOCKER_GID aus .env; install.sh ermittelt sie unter
+# Linux via `stat -c %g /var/run/docker.sock`; unter Docker Desktop genügt der Default 0).
+#
+# ACHTUNG: Zugriff auf den docker.sock ist faktisch Root-Zugriff auf den Host — dieses Override
+# nur bewusst und lokal einsetzen (Trade-offs: docs/betrieb.md).
+services:
+  edda:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-0}"
+    environment:
+      - TDK_SANDBOX_TYPE=${TDK_SANDBOX_TYPE:-docker}

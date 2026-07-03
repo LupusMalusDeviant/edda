@@ -41,10 +41,36 @@ Die App bindet lokal auf `http://127.0.0.1:8080` (UI, REST, MCP). Der Container 
 | `EDDA_BIND` | `127.0.0.1` | Host-Bind-Adresse (`0.0.0.0` = alle Interfaces, remote erreichbar) |
 | `EDDA_ALLOW_INSECURE_REMOTE` | (leer) | `true` hebt den Fail-Fast bei Remote-Bind ohne Token auf |
 | `EDDA_TRUSTED_PROXIES` | (leer) | kommagetrennte Proxy-IPs, deren `X-Forwarded-*` vertraut wird (leer = Header ignoriert) |
-| `TDK_SANDBOX_TYPE` | `docker` | docker/wasm/null |
+| `TDK_SANDBOX_TYPE` | `docker` (App) / `wasm` (Compose-Standard) | docker/wasm/null — der Container-Default ist seit A8 `wasm` |
+| `DOCKER_GID` | `0` | Host-GID der Docker-Gruppe fürs TDK-Override (Linux: von `install.sh` ermittelt) |
 | `INGESTION_ENRICHER` | (leer) | `llm` aktiviert den opt-in LLM-Enricher (Verdichtung + Relationen) |
 | `INGESTION_ENTITY_EXTRACTION` | (leer) | `true` aktiviert die opt-in Entity-Extraktion beim Ingest |
 | `INGESTION_LLM_PROVIDER` | (leer → `openrouter`) | Provider bei Aktivierung; lokal empfohlen: `ollama` |
+
+## Non-root & TDK-Docker-Sandbox (A8)
+
+Der Edda-Container läuft als **Non-root-User** (`edda`, UID/GID 1000 — anpassbar über die
+Build-Args `APP_UID`/`APP_GID`, z. B. `docker compose build --build-arg APP_UID=$(id -u)`).
+Das Standard-Compose mountet **keinen** Docker-Socket mehr; die TDK-Sandbox läuft dort als
+`wasm` (Python-Subprozess im Container, mit den A7-Prozess-Limits — durch die
+Container-Isolation und den Non-root-User zusätzlich eingehegt).
+
+**TDK-Docker-Modus (harte Isolation je Validator)** ist ein bewusstes Opt-in über ein
+Compose-Override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tdk.yml up -d
+```
+
+Das Override mountet `/var/run/docker.sock` und gewährt den Zugriff über die Host-Docker-Gruppe
+(`group_add: ${DOCKER_GID}`; unter Linux ermittelt `install.sh` die GID automatisch, unter
+Docker Desktop genügt der Default `0`). **Trade-off:** Zugriff auf den `docker.sock` ist
+faktisch Root-Zugriff auf den Host — der Container bleibt zwar non-root, kann über den Socket
+aber privilegierte Container starten. Dieses Override daher nur lokal und bewusst einsetzen.
+
+**Bind-Mount-Ownership:** `./data` und `./knowledge` müssen für UID/GID 1000 beschreibbar sein
+(bei den meisten Single-User-Linux-Hosts ist das der Fall). Bei abweichender Host-UID entweder
+mit den Build-Args neu bauen oder `chown -R 1000:1000 data knowledge` ausführen.
 
 ## Sicherheit: Remote-Bind-Guard
 

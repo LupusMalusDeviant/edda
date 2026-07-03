@@ -114,6 +114,9 @@ $lines = @(
 )
 # Ollama-Profil aktivieren, damit jeder docker-compose-Aufruf den Embedding-Server mitstartet.
 if ($useOllama) { $lines += "COMPOSE_PROFILES=local-embeddings" }
+# A8: Docker-GID fuer das TDK-Override (docker-compose.tdk.yml). Unter Docker Desktop
+# (Windows/macOS) ist der Socket in der VM offen - der Default 0 genuegt hier.
+$lines += "DOCKER_GID=0"
 # UTF-8 OHNE BOM schreiben - ein BOM wuerde die erste .env-Variable fuer docker compose unbrauchbar machen.
 $envPath = Join-Path $PSScriptRoot ".env"
 [System.IO.File]::WriteAllText($envPath, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding $false))

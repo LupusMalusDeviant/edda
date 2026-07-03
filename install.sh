@@ -114,6 +114,16 @@ NEO4J_PASSWORD=$NEO4J_PW
 EOF
 # Ollama-Profil aktivieren, damit jeder `docker compose`-Aufruf den Embedding-Server mitstartet.
 [ "$USE_OLLAMA" = "1" ] && echo "COMPOSE_PROFILES=local-embeddings" >> .env
+
+# A8: Docker-GID fuer das TDK-Override ermitteln (docker-compose.tdk.yml, group_add) — nur
+# relevant, wenn die TDK-Docker-Sandbox per Override aktiviert wird; Default 0 schadet nicht.
+if [ -S /var/run/docker.sock ]; then
+    DOCKER_GID=$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 0)
+else
+    DOCKER_GID=0
+fi
+echo "DOCKER_GID=$DOCKER_GID" >> .env
+
 ok ".env geschrieben (Bind ${BIND}:${PORT})."
 ok "Neo4j-Zufallspasswort erzeugt und in .env hinterlegt (keine offene DB)."
 
