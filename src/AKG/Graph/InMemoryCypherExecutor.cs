@@ -1,4 +1,5 @@
 using System.Collections;
+using Edda.Core.Models;
 
 namespace Edda.AKG.Graph;
 
@@ -122,7 +123,8 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     {
         var id = AsString(p, "ruleId");
         var userId = AsString(p, "userId");
-        return id is not null && _rules.TryGetValue(id, out var rule) && InScope(rule, userId)
+        return id is not null && _rules.TryGetValue(id, out var rule)
+            && InScope(rule, userId, AsString(p, "tenantId"))
             && IsNotDeleted(rule)
             ? [RuleRow("r", rule)]
             : [];
@@ -132,24 +134,28 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     private static bool IsNotDeleted(Dictionary<string, object?> rule)
         => rule.GetValueOrDefault("deletedAt") is null;
 
-    /// <summary>E10 recycle bin: soft-deleted rules visible to the user.</summary>
+    /// <summary>E10 recycle bin: soft-deleted rules visible to the user (C1: own tenant only).</summary>
     private List<IReadOnlyDictionary<string, object?>> ListDeleted(IReadOnlyDictionary<string, object?> p)
     {
         var userId = AsString(p, "userId");
         var isAdmin = p.GetValueOrDefault("isAdmin") is true;
+        var tenantId = AsString(p, "tenantId");
         return _rules.Values
             .Where(r => r.GetValueOrDefault("deletedAt") is not null)
             .Where(r => isAdmin || AsString(r, "ownerId") == userId)
+            .Where(r => tenantId is null || (AsString(r, "tenantId") ?? Tenants.DefaultTenantId) == tenantId)
             .Select(r => RuleRow("r", r))
             .ToList();
     }
 
-    /// <summary>E10 recycle bin: single soft-deleted rule lookup (ownership check).</summary>
+    /// <summary>E10 recycle bin: single soft-deleted rule lookup (ownership check; C1: own tenant only).</summary>
     private List<IReadOnlyDictionary<string, object?>> FindDeletedRule(IReadOnlyDictionary<string, object?> p)
     {
         var id = AsString(p, "ruleId");
+        var tenantId = AsString(p, "tenantId");
         return id is not null && _rules.TryGetValue(id, out var rule)
             && rule.GetValueOrDefault("deletedAt") is not null
+            && (tenantId is null || (AsString(rule, "tenantId") ?? Tenants.DefaultTenantId) == tenantId)
             ? [RuleRow("r", rule)]
             : [];
     }
@@ -162,7 +168,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         var filterTag    = q.Contains("$tag IN r.tags") ? AsString(p, "tag") : null;
 
         return _rules.Values
-            .Where(r => InScope(r, userId) && IsNotDeleted(r))
+            .Where(r => InScope(r, userId, AsString(p, "tenantId")) && IsNotDeleted(r))
             .Where(r => filterDomain is null || AsString(r, "domain") == filterDomain)
             .Where(r => filterType is null || AsString(r, "type") == filterType)
             .Where(r => filterTag is null || AsStrings(r.GetValueOrDefault("tags")).Contains(filterTag))
@@ -174,7 +180,8 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     {
         var userId = AsString(p, "userId");
         return _rules.Values
-            .Where(r => InScope(r, userId) && IsNotDeleted(r) && !IsNestedLeaf(AsString(r, "id")))
+            .Where(r => InScope(r, userId, AsString(p, "tenantId")) && IsNotDeleted(r)
+                        && !IsNestedLeaf(AsString(r, "id")))
             .Select(r => RuleRow("r", r))
             .ToList();
     }
@@ -193,7 +200,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         }
 
         return neighborIds
-            .Where(nid => _rules.TryGetValue(nid, out var r) && InScope(r, userId))
+            .Where(nid => _rules.TryGetValue(nid, out var r) && InScope(r, userId, AsString(p, "tenantId")))
             .Select(nid => RuleRow("n", _rules[nid]))
             .ToList();
     }
@@ -283,7 +290,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
 
         foreach (var key in new[]
                  {
-                     "id", "type", "domain", "priority", "body", "tags", "ownerId",
+                     "id", "type", "domain", "priority", "body", "tags", "ownerId", "tenantId",
                      "implies", "conflictsWith", "exceptionFor", "requires", "supersedes", "related", "concepts",
                      "chunkStyle", "validatorScript", "validatorEnabled", "validatorHash",
                      "validatorType", "validatorPrompt",
@@ -458,7 +465,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         }
 
         return neighborIds
-            .Where(id => _rules.TryGetValue(id, out var r) && InScope(r, userId))
+            .Where(id => _rules.TryGetValue(id, out var r) && InScope(r, userId, AsString(p, "tenantId")))
             .Select(id => RuleRow("n", _rules[id]))
             .ToList();
     }
@@ -472,7 +479,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         var prefixes = AsStrings(p.GetValueOrDefault("prefixes"));
 
         return _rules.Values
-            .Where(r => InScope(r, userId))
+            .Where(r => InScope(r, userId, AsString(p, "tenantId")))
             .Where(r => MatchesToolboxScope(AsString(r, "domain"), toolboxes))
             .Where(r => IsTemporallyValid(AsString(r, "validUntil"), now))
             .Where(r => MatchesPrefixScope(AsString(r, "id"), prefixes))
@@ -845,10 +852,18 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
            && (id.StartsWith("git:", StringComparison.Ordinal) || id.StartsWith("upload:", StringComparison.Ordinal))
            && id.Split(':').Length >= 3;
 
-    private static bool InScope(IReadOnlyDictionary<string, object?> rule, string? userId)
+    private static bool InScope(
+        IReadOnlyDictionary<string, object?> rule, string? userId, string? tenantId = null)
     {
         var owner = AsString(rule, "ownerId");
-        return owner is null || owner == userId;
+        if (owner is not null && owner != userId)
+            return false;
+
+        // C1: tenant isolation — a missing tenantId property counts as the default tenant. Legacy
+        // shapes without a $tenantId parameter skip the check (defensive compatibility).
+        if (tenantId is null)
+            return true;
+        return (AsString(rule, "tenantId") ?? Tenants.DefaultTenantId) == tenantId;
     }
 
     private static IReadOnlyDictionary<string, object?> RuleRow(string column, Dictionary<string, object?> rule)

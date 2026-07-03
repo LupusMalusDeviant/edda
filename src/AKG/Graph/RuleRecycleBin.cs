@@ -16,17 +16,25 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     private readonly ICypherExecutor _cypher;
     private readonly IAuditLog _auditLog;
     private readonly ILogger<RuleRecycleBin> _logger;
+    private readonly IIdentityContext? _identity;
 
     /// <summary>Initializes a new <see cref="RuleRecycleBin"/>.</summary>
     /// <param name="cypher">Cypher executor for graph access.</param>
     /// <param name="auditLog">Audit log for restore/purge events.</param>
     /// <param name="logger">Structured logger.</param>
-    public RuleRecycleBin(ICypherExecutor cypher, IAuditLog auditLog, ILogger<RuleRecycleBin> logger)
+    /// <param name="identity">C1: ambient tenant source; null = default tenant.</param>
+    public RuleRecycleBin(
+        ICypherExecutor cypher, IAuditLog auditLog, ILogger<RuleRecycleBin> logger,
+        IIdentityContext? identity = null)
     {
         _cypher = cypher;
         _auditLog = auditLog;
         _logger = logger;
+        _identity = identity;
     }
+
+    /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
+    private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<DeletedRuleInfo>> ListAsync(
@@ -36,9 +44,10 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
             """
             MATCH (r:Rule)
             WHERE r.deletedAt IS NOT NULL AND ($isAdmin OR r.ownerId = $userId)
+              AND coalesce(r.tenantId, 'default') = $tenantId
             RETURN r
             """,
-            new { userId, isAdmin },
+            new { userId, isAdmin, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
         return rows
@@ -107,8 +116,9 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
         string ruleId, CancellationToken ct)
     {
         var rows = await _cypher.QueryAsync(
-            "MATCH (r:Rule {id: $ruleId}) WHERE r.deletedAt IS NOT NULL RETURN r",
-            new { ruleId },
+            "MATCH (r:Rule {id: $ruleId}) WHERE r.deletedAt IS NOT NULL " +
+            "AND coalesce(r.tenantId, 'default') = $tenantId RETURN r",
+            new { ruleId, tenantId = Tenant },
             ct).ConfigureAwait(false);
         return rows.Count == 0
             ? null

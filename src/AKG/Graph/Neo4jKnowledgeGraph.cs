@@ -44,6 +44,11 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <param name="timeProvider">Time provider for temporal-validity timestamps.</param>
     /// <param name="backgroundWorkQueue">Queue for supervised post-import embedding rebuilds.</param>
     /// <param name="logger">Logger for diagnostics.</param>
+    /// <param name="identity">
+    /// C1: ambient identity providing the tenant of the current context (user decision: ambient via
+    /// <see cref="IIdentityContext"/>, no per-method tenant parameters). Null falls back to the
+    /// default tenant — the single-tenant standalone behavior.
+    /// </param>
     internal Neo4jKnowledgeGraph(
         ICypherExecutor cypher,
         IContextCompiler contextCompiler,
@@ -54,7 +59,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         IFileSystem fileSystem,
         TimeProvider timeProvider,
         IBackgroundWorkQueue backgroundWorkQueue,
-        ILogger<Neo4jKnowledgeGraph> logger)
+        ILogger<Neo4jKnowledgeGraph> logger,
+        IIdentityContext? identity = null)
     {
         _cypher = cypher;
         _contextCompiler = contextCompiler;
@@ -66,7 +72,13 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         _timeProvider = timeProvider;
         _backgroundWorkQueue = backgroundWorkQueue;
         _logger = logger;
+        _identity = identity;
     }
+
+    private readonly IIdentityContext? _identity;
+
+    /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
+    private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
 
     /// <inheritdoc/>
     public async Task ReloadAsync(CancellationToken cancellationToken = default)
@@ -83,9 +95,11 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         CancellationToken cancellationToken = default)
     {
         // E10: soft-deleted rules are invisible to the regular API (recycle bin only).
+        // C1: tenant isolation — a missing tenantId property counts as the default tenant.
         var rows = await _cypher.QueryAsync(
-            "MATCH (r:Rule {id: $ruleId}) WHERE (r.ownerId IS NULL OR r.ownerId = $userId) AND r.deletedAt IS NULL RETURN r",
-            new { ruleId, userId },
+            "MATCH (r:Rule {id: $ruleId}) WHERE (r.ownerId IS NULL OR r.ownerId = $userId) " +
+            "AND r.deletedAt IS NULL AND coalesce(r.tenantId, 'default') = $tenantId RETURN r",
+            new { ruleId, userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
         if (rows.Count == 0) return null;
@@ -105,7 +119,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         var query = BuildGetRulesQuery(domain, type, tag);
         var rows = await _cypher.QueryAsync(
             query,
-            new { domain, type, tag, userId },
+            new { domain, type, tag, userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
         return rows
@@ -127,10 +141,11 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
             MATCH (r:Rule)
             WHERE (r.ownerId IS NULL OR r.ownerId = $userId)
               AND r.deletedAt IS NULL
+              AND coalesce(r.tenantId, 'default') = $tenantId
               AND NOT ((r.id STARTS WITH 'git:' OR r.id STARTS WITH 'upload:') AND size(split(r.id, ':')) >= 3)
             RETURN r
             """,
-            new { userId },
+            new { userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
         return rows
@@ -146,8 +161,9 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         CancellationToken cancellationToken = default)
     {
         var rows = await _cypher.QueryAsync(
-            "MATCH (r:Rule {id: $ruleId})-[]-(n:Rule) WHERE n.ownerId IS NULL OR n.ownerId = $userId RETURN n",
-            new { ruleId, userId },
+            "MATCH (r:Rule {id: $ruleId})-[]-(n:Rule) WHERE (n.ownerId IS NULL OR n.ownerId = $userId) " +
+            "AND coalesce(n.tenantId, 'default') = $tenantId RETURN n",
+            new { ruleId, userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
         return rows
@@ -225,7 +241,9 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
                 body = rule.Body,
                 tags = rule.Tags.ToArray(),
                 ownerId = rule.OwnerId,
-                tenantId = rule.TenantId,
+                // C1: the ambient context stamps the tenant — never the model field (anti-spoofing,
+                // the rule-6 analogy: scoping comes from the context, not from arguments).
+                tenantId = Tenant,
                 implies,
                 conflictsWith,
                 exceptionFor,
@@ -583,6 +601,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
             "(r.ownerId IS NULL OR r.ownerId = $userId)",
             // E10: active listings never show soft-deleted rules.
             "r.deletedAt IS NULL",
+            // C1: tenant isolation (missing property = default tenant).
+            "coalesce(r.tenantId, 'default') = $tenantId",
         };
 
         if (domain != null) conditions.Add("r.domain = $domain");

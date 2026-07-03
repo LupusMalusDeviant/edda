@@ -121,7 +121,9 @@ public static class AkgServiceExtensions
             sp.GetService<IRuleFeedbackService>(),
             sp.GetService<IEntityStore>(),
             sp.GetRequiredService<IHeadVectorStore>(),
-            RetrievalOptionsResolver.Resolve(configuration)));
+            RetrievalOptionsResolver.Resolve(configuration),
+            // C1: ambient tenant source (user decision) — null falls back to the default tenant.
+            sp.GetService<IIdentityContext>()));
 
         // Knowledge graph (main public API)
         services.AddSingleton<IKnowledgeGraph>(sp => new Neo4jKnowledgeGraph(
@@ -134,7 +136,9 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<IFileSystem>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IBackgroundWorkQueue>(),
-            sp.GetRequiredService<ILogger<Neo4jKnowledgeGraph>>()));
+            sp.GetRequiredService<ILogger<Neo4jKnowledgeGraph>>(),
+            // C1: ambient tenant source (user decision) — null falls back to the default tenant.
+            sp.GetService<IIdentityContext>()));
 
         // F48 — retrieval benchmark runner (measures CompileContextAsync quality)
         services.AddSingleton<IBenchmarkRunner>(sp => new AkgBenchmarkRunner(
@@ -263,7 +267,8 @@ public static class AkgServiceExtensions
         services.AddSingleton<IRuleRecycleBin>(sp => new RuleRecycleBin(
             sp.GetRequiredService<ICypherExecutor>(),
             sp.GetRequiredService<IAuditLog>(),
-            sp.GetRequiredService<ILogger<RuleRecycleBin>>()));
+            sp.GetRequiredService<ILogger<RuleRecycleBin>>(),
+            sp.GetService<IIdentityContext>()));
 
         return services;
     }

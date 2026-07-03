@@ -309,6 +309,29 @@ public class Neo4jKnowledgeGraphTests
     }
 
     [Fact]
+    public async Task GetRuleAsync_Query_FiltersTenant()
+    {
+        // C1: every rule read is tenant-scoped; a missing property counts as the default tenant.
+        var graph = CreateGraph();
+
+        await graph.GetRuleAsync("any-rule", "u1");
+
+        _cypher.ExecutedQueries.Should().Contain(q =>
+            q.Contains("{id: $ruleId}") && q.Contains("coalesce(r.tenantId, 'default') = $tenantId"));
+    }
+
+    [Fact]
+    public async Task GetRulesAsync_Query_FiltersTenant()
+    {
+        var graph = CreateGraph();
+
+        await graph.GetRulesAsync(userId: "u1");
+
+        _cypher.ExecutedQueries.Should().Contain(q =>
+            q.StartsWith("MATCH (r:Rule) WHERE") && q.Contains("coalesce(r.tenantId, 'default') = $tenantId"));
+    }
+
+    [Fact]
     public async Task UpsertRuleAsync_EmbeddingAvailable_EmbedsSingleRule()
     {
         var embeddingService = new Mock<IEmbeddingService>();

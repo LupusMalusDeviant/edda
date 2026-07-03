@@ -19,16 +19,19 @@ internal sealed class GraphExpander
 
     private readonly ICypherExecutor _cypher;
     private readonly TimeProvider _timeProvider;
+    private readonly IIdentityContext? _identity;
 
     /// <summary>
     /// Initializes a new instance of <see cref="GraphExpander"/>.
     /// </summary>
     /// <param name="cypher">Cypher executor for graph traversal queries.</param>
     /// <param name="timeProvider">Time source for filtering temporally closed edges (C9).</param>
-    internal GraphExpander(ICypherExecutor cypher, TimeProvider timeProvider)
+    /// <param name="identity">C1: ambient tenant source; null = default tenant.</param>
+    internal GraphExpander(ICypherExecutor cypher, TimeProvider timeProvider, IIdentityContext? identity = null)
     {
         _cypher = cypher;
         _timeProvider = timeProvider;
+        _identity = identity;
     }
 
     /// <summary>
@@ -60,10 +63,11 @@ internal sealed class GraphExpander
                 """
                 MATCH (r:Rule)-[e]-(n:Rule)
                 WHERE r.id IN $frontier AND (n.ownerId IS NULL OR n.ownerId = $userId)
+                  AND coalesce(n.tenantId, 'default') = $tenantId
                   AND (e.validUntil IS NULL OR e.validUntil > $now)
                 RETURN DISTINCT n
                 """,
-                new { frontier, userId, now },
+                new { frontier, userId, now, tenantId = _identity?.TenantId ?? Tenants.DefaultTenantId },
                 ct).ConfigureAwait(false);
 
             var nextFrontier = new List<string>();

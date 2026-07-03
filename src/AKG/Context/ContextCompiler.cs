@@ -71,6 +71,10 @@ internal sealed class ContextCompiler : IContextCompiler
     /// Optional retrieval thresholds/limits bound from <c>RETRIEVAL_*</c> configuration. Null uses the
     /// defaults (the historical hard-coded values), so behaviour is unchanged unless overridden.
     /// </param>
+    /// <param name="identity">
+    /// C1: ambient tenant source (user decision: ambient via <see cref="IIdentityContext"/>). Null
+    /// falls back to the default tenant — the single-tenant standalone behavior.
+    /// </param>
     public ContextCompiler(
         ICypherExecutor cypher,
         IEmbeddingService embeddingService,
@@ -80,7 +84,8 @@ internal sealed class ContextCompiler : IContextCompiler
         IRuleFeedbackService? feedbackService = null,
         IEntityStore? entityStore = null,
         IHeadVectorStore? headVectorStore = null,
-        RetrievalOptions? options = null)
+        RetrievalOptions? options = null,
+        IIdentityContext? identity = null)
     {
         _cypher = cypher;
         _embeddings = embeddingService;
@@ -94,13 +99,19 @@ internal sealed class ContextCompiler : IContextCompiler
             cypher,
             loggerFactory.CreateLogger<SemanticBooster>(),
             _retrievalOptions);
-        _graphExpander = new GraphExpander(cypher, timeProvider);
+        _graphExpander = new GraphExpander(cypher, timeProvider, identity);
         _worldFetcher = new WorldKnowledgeFetcher(cypher);
         _toolboxResolver = new ToolboxResolver();
         _domainResolver = new DomainActivationResolver(cypher, timeProvider);
         _feedbackService = feedbackService;
+        _identity = identity;
         _logger = logger;
     }
+
+    private readonly IIdentityContext? _identity;
+
+    /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
+    private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
 
     /// <summary>
     /// Compiles a full context result for the given task context.
@@ -391,6 +402,7 @@ internal sealed class ContextCompiler : IContextCompiler
             """
             MATCH (r:Rule)
             WHERE (r.ownerId IS NULL OR r.ownerId = $userId)
+              AND coalesce(r.tenantId, 'default') = $tenantId
               AND (NOT r.domain STARTS WITH 'tools.' OR r.domain IN $toolboxes)
               AND (r.validUntil IS NULL OR r.validUntil > $now)
               AND (size($prefixes) = 0
@@ -401,6 +413,7 @@ internal sealed class ContextCompiler : IContextCompiler
             new
             {
                 userId = context.UserId,
+                tenantId = Tenant,
                 toolboxes = relevantToolboxes.ToList(),
                 now = _timeProvider.GetUtcNow().ToString("O"),
                 prefixes = headPrefixes.ToList(),
