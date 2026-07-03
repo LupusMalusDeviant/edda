@@ -33,10 +33,17 @@ public interface ISandbox : IAsyncDisposable
     /// </summary>
     /// <param name="scriptContent">Python source code of the validator.</param>
     /// <param name="jsonInput">JSON-encoded input passed to the validator.</param>
+    /// <param name="additionalFiles">
+    /// Optional files (file name → content) written next to the script before execution, e.g. a
+    /// helper module the script imports. File names must be simple names without path separators;
+    /// they are placed in the same working directory as the script. Null or empty preserves the
+    /// original single-script behavior.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The captured output, exit code, and timeout status.</returns>
     Task<SandboxResult> ExecuteAsync(
         string scriptContent,
         string jsonInput,
+        IReadOnlyDictionary<string, string>? additionalFiles = null,
         CancellationToken cancellationToken = default);
 }

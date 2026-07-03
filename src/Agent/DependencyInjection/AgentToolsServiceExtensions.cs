@@ -44,11 +44,15 @@ public static class AgentToolsServiceExtensions
         // outcome instead of re-running the sandbox — important for agent loops that iterate on the same code.
         services.AddSingleton<ITdkResultCache, InMemoryTdkResultCache>();
 
+        // F4: the bundled tdk.py helper module, delivered next to every validator script in the sandbox.
+        services.AddSingleton<ITdkHelperModule, TdkHelperModule>();
+
         services.AddSingleton<ITdkEngine>(sp =>
             new TdkEngine(
                 sp.GetRequiredService<ISandboxFactory>(),
                 sp.GetRequiredService<IRuleConfidenceStore>(),
                 sp.GetRequiredService<ILogger<TdkEngine>>(),
+                sp.GetRequiredService<ITdkHelperModule>(),
                 resultCache: sp.GetRequiredService<ITdkResultCache>()));
 
         return services;

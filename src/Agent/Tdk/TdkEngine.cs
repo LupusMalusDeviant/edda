@@ -27,12 +27,20 @@ public sealed class TdkEngine : ITdkEngine
     private readonly ITdkResultCache? _resultCache;
     private readonly ILogger<TdkEngine> _logger;
 
+    /// <summary>F4: the bundled tdk.py helper, delivered next to every validator script so scripts
+    /// may import it. Harmless for raw stdin/stdout validators that never import it.</summary>
+    private readonly IReadOnlyDictionary<string, string> _helperFiles;
+
     /// <summary>
     /// Initializes a new <see cref="TdkEngine"/>.
     /// </summary>
     /// <param name="sandboxFactory">Creates isolated sandboxes for executing validator scripts.</param>
     /// <param name="confidenceStore">Records pass/fail outcomes to adjust rule weights over time.</param>
     /// <param name="logger">Structured logger.</param>
+    /// <param name="helper">
+    /// F4 helper module (<c>tdk.py</c>) delivered next to every validator script so validators can
+    /// import shared JSON-I/O and helpers. Raw stdin/stdout validators are unaffected.
+    /// </param>
     /// <param name="feedbackService">
     /// Optional F32 feedback service. When provided, TDK outcomes are also forwarded
     /// for use in long-term confidence multiplier calculations.
@@ -45,6 +53,7 @@ public sealed class TdkEngine : ITdkEngine
         ISandboxFactory sandboxFactory,
         IRuleConfidenceStore confidenceStore,
         ILogger<TdkEngine> logger,
+        ITdkHelperModule helper,
         IRuleFeedbackService? feedbackService = null,
         ITdkResultCache? resultCache = null)
     {
@@ -53,6 +62,7 @@ public sealed class TdkEngine : ITdkEngine
         _feedbackService = feedbackService;
         _resultCache     = resultCache;
         _logger          = logger;
+        _helperFiles     = new Dictionary<string, string>(1) { [helper.FileName] = helper.Source };
     }
 
     /// <inheritdoc />
@@ -197,6 +207,7 @@ public sealed class TdkEngine : ITdkEngine
                 result = await sandbox.ExecuteAsync(
                     rule.ValidatorScript!,
                     JsonSerializer.Serialize(input),
+                    _helperFiles,
                     ct).ConfigureAwait(false);
             }
             catch (Exception ex)

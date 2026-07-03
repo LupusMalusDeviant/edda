@@ -22,7 +22,7 @@ public class DockerSandboxTests
 
         var sandbox = new DockerSandbox(_ops.Object, ContainerId, NullLogger<DockerSandbox>.Instance);
 
-        var result = await sandbox.ExecuteAsync(Script, Input, CancellationToken.None);
+        var result = await sandbox.ExecuteAsync(Script, Input, cancellationToken: CancellationToken.None);
 
         result.ExitCode.Should().Be(0);
         result.TimedOut.Should().BeFalse();
@@ -40,7 +40,7 @@ public class DockerSandboxTests
 
         var sandbox = new DockerSandbox(_ops.Object, ContainerId, NullLogger<DockerSandbox>.Instance);
 
-        var result = await sandbox.ExecuteAsync(Script, Input, CancellationToken.None);
+        var result = await sandbox.ExecuteAsync(Script, Input, cancellationToken: CancellationToken.None);
 
         result.TimedOut.Should().BeTrue();
         result.Success.Should().BeFalse();
@@ -56,7 +56,7 @@ public class DockerSandboxTests
 
         var sandbox = new DockerSandbox(_ops.Object, ContainerId, NullLogger<DockerSandbox>.Instance);
 
-        await sandbox.ExecuteAsync(Script, Input, CancellationToken.None);
+        await sandbox.ExecuteAsync(Script, Input, cancellationToken: CancellationToken.None);
 
         _ops.Verify(o => o.CopyFileAsync(ContainerId, "/workspace/script.py", Script, It.IsAny<CancellationToken>()), Times.Once);
         _ops.Verify(o => o.CopyFileAsync(ContainerId, "/workspace/input.json", Input, It.IsAny<CancellationToken>()), Times.Once);

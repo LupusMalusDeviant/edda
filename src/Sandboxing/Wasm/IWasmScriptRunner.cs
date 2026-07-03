@@ -12,6 +12,10 @@ public interface IWasmScriptRunner
     /// <param name="scriptContent">UTF-8 Python source code to execute.</param>
     /// <param name="jsonInput">JSON string passed to the script via stdin.</param>
     /// <param name="timeoutSeconds">Maximum execution time in seconds.</param>
+    /// <param name="additionalFiles">
+    /// Optional files (file name → content) written next to the script before execution, e.g. a
+    /// helper module the script imports. Null or empty preserves the original single-script behavior.
+    /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>
     /// A tuple of (Stdout, Stderr, ExitCode, TimedOut).
@@ -21,5 +25,6 @@ public interface IWasmScriptRunner
         string scriptContent,
         string jsonInput,
         int timeoutSeconds,
-        CancellationToken ct);
+        IReadOnlyDictionary<string, string>? additionalFiles = null,
+        CancellationToken ct = default);
 }

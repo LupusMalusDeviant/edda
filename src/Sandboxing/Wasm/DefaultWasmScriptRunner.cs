@@ -27,12 +27,40 @@ public sealed class DefaultWasmScriptRunner : IWasmScriptRunner
         string scriptContent,
         string jsonInput,
         int timeoutSeconds,
-        CancellationToken ct)
+        IReadOnlyDictionary<string, string>? additionalFiles = null,
+        CancellationToken ct = default)
     {
-        var scriptPath = System.IO.Path.GetTempFileName() + ".py";
+        // With companion files (e.g. the tdk.py helper) run from a dedicated temp directory so the
+        // script can import them: python3 places the script's own directory on sys.path. Without
+        // companion files, keep the original single-temp-file behavior exactly.
+        string scriptPath;
+        string? workDir = null;
+        if (additionalFiles is { Count: > 0 })
+        {
+            workDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "edda-tdk-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(workDir);
+            scriptPath = System.IO.Path.Combine(workDir, "script.py");
+        }
+        else
+        {
+            scriptPath = System.IO.Path.GetTempFileName() + ".py";
+        }
+
         try
         {
             await System.IO.File.WriteAllTextAsync(scriptPath, scriptContent, Encoding.UTF8, ct);
+
+            if (workDir is not null)
+            {
+                foreach (var (name, content) in additionalFiles!)
+                {
+                    var safeName = System.IO.Path.GetFileName(name);
+                    if (string.IsNullOrEmpty(safeName))
+                        continue;
+                    await System.IO.File.WriteAllTextAsync(
+                        System.IO.Path.Combine(workDir, safeName), content, Encoding.UTF8, ct);
+                }
+            }
 
             using var process = new Process();
             process.StartInfo = WasmProcessLimits.BuildStartInfo(scriptPath, timeoutSeconds, OperatingSystem.IsLinux());
@@ -86,7 +114,14 @@ public sealed class DefaultWasmScriptRunner : IWasmScriptRunner
         }
         finally
         {
-            try { System.IO.File.Delete(scriptPath); } catch { /* best effort cleanup */ }
+            try
+            {
+                if (workDir is not null)
+                    System.IO.Directory.Delete(workDir, recursive: true);
+                else
+                    System.IO.File.Delete(scriptPath);
+            }
+            catch { /* best effort cleanup */ }
         }
     }
 

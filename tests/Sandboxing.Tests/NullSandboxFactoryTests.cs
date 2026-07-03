@@ -28,13 +28,27 @@ public class NullSandboxFactoryTests
     {
         await using var sandbox = await _sut.CreateAsync();
 
-        var result = await sandbox.ExecuteAsync("print('hello')", "{}", CancellationToken.None);
+        var result = await sandbox.ExecuteAsync("print('hello')", "{}", cancellationToken: CancellationToken.None);
 
         result.ExitCode.Should().Be(1);
         result.Stdout.Should().BeEmpty();
         result.Stderr.Should().Contain("not configured");
         result.TimedOut.Should().BeFalse();
         result.Success.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task NullSandbox_ExecuteAsync_WithAdditionalFiles_IgnoresThemAndReturnsError()
+    {
+        await using var sandbox = await _sut.CreateAsync();
+
+        var result = await sandbox.ExecuteAsync(
+            "print('hello')", "{}",
+            new Dictionary<string, string> { ["tdk.py"] = "# helper" },
+            CancellationToken.None);
+
+        result.ExitCode.Should().Be(1);
+        result.Stderr.Should().Contain("not configured");
     }
 
     [Fact]

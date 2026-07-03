@@ -27,6 +27,7 @@ public sealed class NullSandbox : ISandbox
     public Task<SandboxResult> ExecuteAsync(
         string scriptContent,
         string jsonInput,
+        IReadOnlyDictionary<string, string>? additionalFiles = null,
         CancellationToken cancellationToken = default)
         => Task.FromResult(new SandboxResult
         {

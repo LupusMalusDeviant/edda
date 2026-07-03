@@ -30,6 +30,7 @@ public sealed class WasmSandbox : ISandbox
     public async Task<SandboxResult> ExecuteAsync(
         string scriptContent,
         string jsonInput,
+        IReadOnlyDictionary<string, string>? additionalFiles = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("WasmSandbox executing script (length={Length} chars)", scriptContent.Length);
@@ -38,6 +39,7 @@ public sealed class WasmSandbox : ISandbox
             scriptContent,
             jsonInput,
             DefaultTimeoutSeconds,
+            additionalFiles,
             cancellationToken);
 
         if (timedOut)

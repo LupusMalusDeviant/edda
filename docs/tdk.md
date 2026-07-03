@@ -50,6 +50,40 @@ Ein Validator liest `TdkValidatorInput` (Code, Sprache, RuleId, UserMessage) von
 und schreibt `TdkValidatorOutput` (`pass`, `violations[]`) als JSON nach stdout. Siehe die
 Regeln unter `knowledge/` als Beispiele.
 
+## Helper-Modul `tdk` (optional)
+
+Damit Validatoren nicht jedes Mal JSON-I/O und das Violation-Format neu bauen, legt die Sandbox
+zur Laufzeit ein mitgeliefertes Python-Modul **`tdk.py` neben das Skript** (Docker:
+`/workspace/tdk.py`; `wasm`: im selben Temp-Verzeichnis). Ein Validator kann es importieren:
+
+```python
+from tdk import validator, violation
+
+@validator(languages=["python"])
+def check(code, ctx):
+    for m in ctx.finditer(r"except:\s*pass"):
+        yield violation("Bare except: pass swallows errors",
+                        line=ctx.line_of(m), severity="warning",
+                        suggestion="Catch a specific exception and handle it.")
+```
+
+Das Modul übernimmt Einlesen von stdin, Aufruf der registrierten Validatoren und das Schreiben von
+`{pass, violations}` nach stdout. API-Überblick:
+
+| Baustein | Zweck |
+|----------|-------|
+| `@validator(languages=None)` | Registriert eine Prüffunktion `f(code, ctx)`; `languages` begrenzt sie optional auf Block-Sprachen. |
+| `violation(message, *, line=None, severity="error", suggestion=None)` | Baut ein Violation-Dict; die `rule_id` ergänzt der Runner aus der Eingabe. |
+| `ctx.code` / `ctx.language` / `ctx.rule_id` / `ctx.user_message` | Die Eingabefelder. |
+| `ctx.finditer(pattern, flags=0)` | `re.finditer` über den Code-Block. |
+| `ctx.line_of(match_or_pos)` | 1-basierte Zeilennummer eines Treffers/Offsets. |
+| `ctx.python_ast()` | Parst den Block mit dem `ast`-Modul (nur Python-Blöcke). |
+
+**Roh-stdin/stdout bleibt gültig:** Ein Skript, das `tdk` nie importiert, verhält sich exakt wie
+zuvor. Wirft ein Validator eine Ausnahme, schreibt das Modul den Traceback nach stderr und beendet
+sich mit ExitCode 1 — die Engine behandelt das als Validator-/Engine-Fehler und bucht **keine**
+Konfidenz (analog zu Timeout/Crash), verfälscht die Regel-Konfidenz also nicht.
+
 ## Schweregrade (`severity`)
 
 Jeder Verstoß trägt einen `severity`-Wert. Die drei Stufen haben eine feste Bedeutung:

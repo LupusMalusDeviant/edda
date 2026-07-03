@@ -35,6 +35,7 @@ public sealed class DockerSandbox : ISandbox
     public async Task<SandboxResult> ExecuteAsync(
         string scriptContent,
         string jsonInput,
+        IReadOnlyDictionary<string, string>? additionalFiles = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("DockerSandbox executing script in container {ContainerId}", _containerId[..12]);
@@ -42,6 +43,19 @@ public sealed class DockerSandbox : ISandbox
         // Copy script and input into the container workspace
         await _ops.CopyFileAsync(_containerId, ScriptPath, scriptContent, cancellationToken);
         await _ops.CopyFileAsync(_containerId, InputJsonPath, jsonInput, cancellationToken);
+
+        // Place any companion files (e.g. the tdk.py helper) next to the script in /workspace, so
+        // the validator can import them. The run's working directory is /workspace, so imports resolve.
+        if (additionalFiles is not null)
+        {
+            foreach (var (name, content) in additionalFiles)
+            {
+                var safeName = System.IO.Path.GetFileName(name);
+                if (string.IsNullOrEmpty(safeName))
+                    continue;
+                await _ops.CopyFileAsync(_containerId, $"/workspace/{safeName}", content, cancellationToken);
+            }
+        }
 
         // Execute: cd /workspace && python3 script.py < input.json
         var (stdout, stderr, exitCode, timedOut) = await _ops.ExecAsync(

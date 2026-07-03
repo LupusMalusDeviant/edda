@@ -10,6 +10,7 @@ public class TdkEngineTests
 {
     private readonly Mock<ISandboxFactory> _sandboxFactory = new();
     private readonly Mock<IRuleConfidenceStore> _confidenceStore = new();
+    private readonly TdkHelperModule _helper = new();
     private readonly TdkEngine _sut;
 
     public TdkEngineTests()
@@ -17,7 +18,8 @@ public class TdkEngineTests
         _sut = new TdkEngine(
             _sandboxFactory.Object,
             _confidenceStore.Object,
-            NullLogger<TdkEngine>.Instance);
+            NullLogger<TdkEngine>.Instance,
+            _helper);
     }
 
     private static AgentRequest CreateDefaultRequest()
@@ -368,7 +370,7 @@ public class TdkEngineTests
 
         var engine = new TdkEngine(
             _sandboxFactory.Object, _confidenceStore.Object,
-            NullLogger<TdkEngine>.Instance, resultCache: new InMemoryTdkResultCache());
+            NullLogger<TdkEngine>.Instance, _helper, resultCache: new InMemoryTdkResultCache());
 
         var rules = new List<KnowledgeRule>
         {
@@ -392,12 +394,52 @@ public class TdkEngineTests
             "only the real validator run records a confidence outcome; a cache hit does not");
     }
 
+    [Fact]
+    public async Task TdkEngine_ValidatorRule_DeliversHelperModuleToSandbox()
+    {
+        // F4: every validator run gets the tdk.py helper delivered next to the script so validators
+        // can import it. Raw stdin/stdout validators simply ignore it.
+        IReadOnlyDictionary<string, string>? captured = null;
+        var sandbox = new Mock<ISandbox>();
+        sandbox.Setup(s => s.ExecuteAsync(
+                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, IReadOnlyDictionary<string, string>?, CancellationToken>(
+                (_, _, files, _) => captured = files)
+            .ReturnsAsync(new SandboxResult
+            {
+                ExitCode = 0,
+                Stdout = "{\"pass\":true,\"violations\":[]}",
+                Stderr = string.Empty,
+                TimedOut = false
+            });
+        sandbox.Setup(s => s.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        _sandboxFactory.Setup(f => f.CreateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sandbox.Object);
+
+        var rules = new List<KnowledgeRule>
+        {
+            new()
+            {
+                Id = "r1", Type = "rule", Domain = "general", Priority = RulePriority.Medium,
+                Body = "Some rule.", ValidatorScript = "validator.py"
+            }
+        };
+
+        await _sut.ValidateAsync("```python\nprint('hi')\n```", rules, CreateDefaultRequest());
+
+        captured.Should().NotBeNull();
+        captured!.Should().ContainKey("tdk.py");
+        captured!["tdk.py"].Should().Be(_helper.Source);
+    }
+
     private static Mock<ISandbox> SetupMockSandbox(
         string stdout, int exitCode, bool timedOut = false)
     {
         var sandbox = new Mock<ISandbox>();
         sandbox.Setup(s => s.ExecuteAsync(
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SandboxResult
             {
                 ExitCode = exitCode,

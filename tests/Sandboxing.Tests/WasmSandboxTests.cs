@@ -13,12 +13,12 @@ public class WasmSandboxTests
     [Fact]
     public async Task ExecuteAsync_ScriptSucceeds_ReturnsCorrectResult()
     {
-        _runner.Setup(r => r.RunAsync(Script, Input, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _runner.Setup(r => r.RunAsync(Script, Input, It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(("{\"pass\":true,\"violations\":[]}", string.Empty, 0, false));
 
         var sandbox = new WasmSandbox(_runner.Object, NullLogger<WasmSandbox>.Instance);
 
-        var result = await sandbox.ExecuteAsync(Script, Input, CancellationToken.None);
+        var result = await sandbox.ExecuteAsync(Script, Input, cancellationToken: CancellationToken.None);
 
         result.ExitCode.Should().Be(0);
         result.TimedOut.Should().BeFalse();
@@ -29,12 +29,12 @@ public class WasmSandboxTests
     [Fact]
     public async Task ExecuteAsync_ScriptTimesOut_ReturnsTimedOutResult()
     {
-        _runner.Setup(r => r.RunAsync(Script, Input, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _runner.Setup(r => r.RunAsync(Script, Input, It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string.Empty, "timeout", 1, true));
 
         var sandbox = new WasmSandbox(_runner.Object, NullLogger<WasmSandbox>.Instance);
 
-        var result = await sandbox.ExecuteAsync(Script, Input, CancellationToken.None);
+        var result = await sandbox.ExecuteAsync(Script, Input, cancellationToken: CancellationToken.None);
 
         result.TimedOut.Should().BeTrue();
         result.Success.Should().BeFalse();
@@ -72,13 +72,13 @@ public class WasmSandboxTests
     public async Task WasmSandboxFactory_ExecuteValidator_ReturnsOutput()
     {
         const string expectedOutput = "{\"pass\":true,\"violations\":[]}";
-        _runner.Setup(r => r.RunAsync(Script, Input, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+        _runner.Setup(r => r.RunAsync(Script, Input, It.IsAny<int>(), It.IsAny<IReadOnlyDictionary<string, string>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((expectedOutput, string.Empty, 0, false));
 
         var factory = new WasmSandboxFactory(_runner.Object, NullLogger<WasmSandbox>.Instance);
         await using var sandbox = await factory.CreateAsync(CancellationToken.None);
 
-        var result = await sandbox.ExecuteAsync(Script, Input, CancellationToken.None);
+        var result = await sandbox.ExecuteAsync(Script, Input, cancellationToken: CancellationToken.None);
 
         result.Stdout.Should().Be(expectedOutput);
         result.Success.Should().BeTrue();

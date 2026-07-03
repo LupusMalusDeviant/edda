@@ -8,6 +8,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- F4: bundled Python helper module placed next to a validator script in the sandbox. -->
+    <EmbeddedResource Include="Tdk\tdk.py">
+      <LogicalName>Edda.Agent.Tdk.tdk.py</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Edda.Agent.Tests</_Parameter1>
     </AssemblyAttribute>
