@@ -4,6 +4,7 @@
 @inject ILocalizationService Loc
 @inject IKnowledgeGraph KnowledgeGraph
 @inject IIdentityContext Identity
+@inject IRuleBatchService RuleBatch
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -17,11 +18,23 @@
             @if (_selectMode)
             {
                 <span class="text-muted" style="font-size:.85rem;">@_selectedCount markiert</span>
+                <button class="btn btn-sm btn-outline-info" @onclick="AddTagBatchAsync"
+                        disabled="@(_selectedCount == 0 || _batchBusy || _deleting)">
+                    @Loc["knowledge.batch.addtag"]
+                </button>
+                <button class="btn btn-sm btn-outline-info" @onclick="RemoveTagBatchAsync"
+                        disabled="@(_selectedCount == 0 || _batchBusy || _deleting)">
+                    @Loc["knowledge.batch.removetag"]
+                </button>
+                <button class="btn btn-sm btn-outline-info" @onclick="SetPriorityBatchAsync"
+                        disabled="@(_selectedCount == 0 || _batchBusy || _deleting)">
+                    @Loc["knowledge.batch.setpriority"]
+                </button>
                 <button class="btn btn-sm btn-danger" @onclick="DeleteSelectedAsync"
-                        disabled="@(_selectedCount == 0 || _deleting)">
+                        disabled="@(_selectedCount == 0 || _deleting || _batchBusy)">
                     @(_deleting ? "Lösche…" : "Auswahl löschen")
                 </button>
-                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleSelectModeAsync" disabled="@_deleting">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleSelectModeAsync" disabled="@(_deleting || _batchBusy)">
                     Fertig
                 </button>
             }
@@ -185,6 +198,7 @@ else
     private bool _selectMode;
     private int _selectedCount;
     private bool _deleting;
+    private bool _batchBusy;
     private string? _deleteError;
     private bool _seeding;
     private string? _seedMessage;
@@ -350,6 +364,63 @@ else
             _graphKey++;
             await LoadRulesAsync();
             await LoadStatsAsync();
+        }
+    }
+
+    // E8: batch tag/priority operations over the current multi-selection.
+    private Task AddTagBatchAsync() => BatchTagAsync(BatchRuleOperationType.AddTag);
+
+    private Task RemoveTagBatchAsync() => BatchTagAsync(BatchRuleOperationType.RemoveTag);
+
+    private async Task BatchTagAsync(BatchRuleOperationType type)
+    {
+        var tag = await JS.InvokeAsync<string?>("prompt", Loc["knowledge.batch.tagprompt"]);
+        if (string.IsNullOrWhiteSpace(tag))
+            return;
+        await ApplyBatchAsync(new BatchRuleOperation { Type = type, Tag = tag.Trim() });
+    }
+
+    private async Task SetPriorityBatchAsync()
+    {
+        var value = await JS.InvokeAsync<string?>("prompt", Loc["knowledge.batch.priorityprompt"]);
+        if (string.IsNullOrWhiteSpace(value))
+            return;
+        if (!Enum.TryParse<RulePriority>(value.Trim(), ignoreCase: true, out var priority))
+        {
+            _deleteError = "Priorität muss Low, Medium oder High sein.";
+            return;
+        }
+        await ApplyBatchAsync(new BatchRuleOperation { Type = BatchRuleOperationType.SetPriority, Priority = priority });
+    }
+
+    private async Task ApplyBatchAsync(BatchRuleOperation op)
+    {
+        if (_graphView is null)
+            return;
+
+        var ids = await _graphView.GetSelectedIdsAsync();
+        if (ids.Length == 0)
+            return;
+
+        _batchBusy = true;
+        _deleteError = null;
+        _seedMessage = null;
+        try
+        {
+            var result = await RuleBatch.ApplyAsync(op, ids, Identity.UserId!, Identity.IsAdmin);
+            _seedMessage = string.Format(Loc["knowledge.batch.done"], result.Updated, result.Skipped);
+        }
+        catch (Exception ex)
+        {
+            _deleteError = ex.Message;
+        }
+        finally
+        {
+            _batchBusy = false;
+            _selectMode = false;
+            _selectedCount = 0;
+            _graphKey++;
+            await LoadRulesAsync();
         }
     }
 

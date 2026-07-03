@@ -58,5 +58,8 @@ public enum AuditEvent
     AuthenticationAttempt,
 
     /// <summary>Episodic memory was consolidated (duplicates removed, faded memories pruned).</summary>
-    MemoryConsolidated
+    MemoryConsolidated,
+
+    /// <summary>A batch tag/priority operation was applied to multiple AKG rules (E8).</summary>
+    RuleBatchUpdated
 }

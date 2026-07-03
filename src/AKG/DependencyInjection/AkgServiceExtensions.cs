@@ -202,6 +202,9 @@ public static class AkgServiceExtensions
         // IRuleConfidenceStore: sliding-window implementation for TDK engine
         services.AddSingleton<IRuleConfidenceStore, SlidingWindowRuleConfidenceStore>();
 
+        // E8 — batch tag/priority operations over a set of rules (used by the UI + POST /api/akg/rules/batch).
+        services.AddSingleton<IRuleBatchService, Rules.RuleBatchService>();
+
         // F32 — Rule Feedback Loop (SQLite-backed, optional — disabled if path not set)
         var feedbackDbPath = configuration?["Feedback:DbPath"]
             ?? Environment.GetEnvironmentVariable("FEEDBACK_DB_PATH")

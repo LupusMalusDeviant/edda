@@ -200,4 +200,80 @@ internal static class AkgEndpointHandlers
         var result = await graph.CompileContextAsync(taskContext, ct);
         return Results.Ok(result);
     }
+
+    /// <summary>
+    /// Applies a batch tag/priority operation to multiple rules (E8). Non-admins only affect their own rules.
+    /// </summary>
+    /// <param name="request">The batch request (rule ids, operation, tag/priority).</param>
+    /// <param name="identity">Authenticated caller identity.</param>
+    /// <param name="batch">Batch service that performs the operation and audits it.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>200 OK with the outcome counts; 400 ProblemDetails on an invalid request; 401 without a user.</returns>
+    internal static async Task<IResult> BatchUpdateAsync(
+        BatchRuleOperationRequest request,
+        IIdentityContext identity,
+        IRuleBatchService batch,
+        CancellationToken ct)
+    {
+        if (identity.UserId is null)
+            return Results.Unauthorized();
+        if (request.RuleIds is null || request.RuleIds.Count == 0)
+            return Results.Problem(detail: "ruleIds must not be empty.", statusCode: StatusCodes.Status400BadRequest);
+
+        var op = ParseBatchOperation(request, out var error);
+        if (op is null)
+            return Results.Problem(detail: error, statusCode: StatusCodes.Status400BadRequest);
+
+        var result = await batch.ApplyAsync(op, request.RuleIds, identity.UserId, identity.IsAdmin, ct);
+        return Results.Ok(result);
+    }
+
+    /// <summary>Parses a batch request into a <see cref="BatchRuleOperation"/>, or null with an error message.</summary>
+    /// <param name="request">The request to parse.</param>
+    /// <param name="error">The validation error, or null on success.</param>
+    /// <returns>The parsed operation, or null when the request is invalid.</returns>
+    private static BatchRuleOperation? ParseBatchOperation(BatchRuleOperationRequest request, out string? error)
+    {
+        error = null;
+        switch (request.Operation?.Trim().ToLowerInvariant())
+        {
+            case "addtag":
+            case "removetag":
+                if (string.IsNullOrWhiteSpace(request.Tag))
+                {
+                    error = "tag is required for addTag/removeTag.";
+                    return null;
+                }
+                return new BatchRuleOperation
+                {
+                    Type = string.Equals(request.Operation.Trim(), "addTag", StringComparison.OrdinalIgnoreCase)
+                        ? BatchRuleOperationType.AddTag
+                        : BatchRuleOperationType.RemoveTag,
+                    Tag = request.Tag.Trim(),
+                };
+
+            case "setpriority":
+                if (!Enum.TryParse<RulePriority>(request.Priority, ignoreCase: true, out var priority))
+                {
+                    error = "priority must be Low, Medium or High for setPriority.";
+                    return null;
+                }
+                return new BatchRuleOperation { Type = BatchRuleOperationType.SetPriority, Priority = priority };
+
+            default:
+                error = "operation must be one of: addTag, removeTag, setPriority.";
+                return null;
+        }
+    }
 }
+
+/// <summary>Batch-operation request body for <c>POST /api/akg/rules/batch</c> (E8).</summary>
+/// <param name="RuleIds">The target rule ids.</param>
+/// <param name="Operation">One of <c>addTag</c>, <c>removeTag</c>, <c>setPriority</c>.</param>
+/// <param name="Tag">The tag for addTag/removeTag.</param>
+/// <param name="Priority">The priority (Low/Medium/High) for setPriority.</param>
+internal sealed record BatchRuleOperationRequest(
+    IReadOnlyList<string> RuleIds,
+    string Operation,
+    string? Tag,
+    string? Priority);

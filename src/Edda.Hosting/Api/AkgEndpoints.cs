@@ -53,6 +53,11 @@ public static class AkgEndpoints
            .WithName("AkgDeleteRule")
            .RequireAuthorization();
 
+        // E8: batch tag/priority operation over a set of rules. Non-admins only affect their own rules.
+        app.MapPost("/api/akg/rules/batch", AkgEndpointHandlers.BatchUpdateAsync)
+           .WithName("AkgBatchUpdate")
+           .RequireAuthorization();
+
         app.MapGet("/api/akg/context", AkgEndpointHandlers.GetContextAsync)
            .WithName("AkgGetContext")
            .RequireAuthorization();
