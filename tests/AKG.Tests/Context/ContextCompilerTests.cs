@@ -23,12 +23,13 @@ public class ContextCompilerTests
             .Returns(Mock.Of<Microsoft.Extensions.Logging.ILogger>());
     }
 
-    private ContextCompiler CreateCompiler() => new(
+    private ContextCompiler CreateCompiler(RetrievalOptions? options = null) => new(
         _cypher,
         _embeddings.Object,
         _logger.Object,
         _loggerFactory.Object,
-        TimeProvider.System);
+        TimeProvider.System,
+        options: options);
 
     private static IReadOnlyList<IReadOnlyDictionary<string, object?>> EmptyRows()
         => Array.Empty<IReadOnlyDictionary<string, object?>>();
@@ -72,6 +73,75 @@ public class ContextCompilerTests
         result.ActiveRules.Should().BeEmpty();
         result.Conflicts.Should().BeEmpty();
         result.Exceptions.Should().BeEmpty();
+    }
+
+    // ── B5: co-occurrence query expansion ────────────────────────────────────────
+
+    private static INode RuleNodeWithTerms(string id, List<object> tags, List<object> concepts)
+    {
+        var node = new Mock<INode>();
+        node.SetupGet(n => n.Properties).Returns(new Dictionary<string, object?>
+        {
+            ["id"] = id,
+            ["body"] = "rule body",
+            ["priority"] = "Medium",
+            ["domain"] = "general",
+            ["type"] = "Rule",
+            ["tags"] = tags,
+            ["concepts"] = concepts,
+        });
+        return node.Object;
+    }
+
+    private void ArrangeExpansionRules()
+    {
+        // seed matches the query "kafka" directly and contributes "broker" as a co-occurrence term.
+        // related is reachable only via that expanded term (score ≈ 2·ln(1+1.5) with weight 0.5).
+        // competitor matches the weak task token "setup" directly (score = 2·ln(1+1)) — so the
+        // ranking of related vs. competitor flips depending on whether expansion is active.
+        var seed = RuleNodeWithTerms("seed", tags: ["kafka"], concepts: ["broker"]);
+        var related = RuleNodeWithTerms("related", tags: [], concepts: ["broker"]);
+        var competitor = RuleNodeWithTerms("competitor", tags: ["setup"], concepts: []);
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> rows =
+        [
+            new Dictionary<string, object?> { ["r"] = seed },
+            new Dictionary<string, object?> { ["r"] = related },
+            new Dictionary<string, object?> { ["r"] = competitor },
+        ];
+        _cypher.AddQueryHandler(q => q.Contains("NOT r.domain STARTS WITH") ? rows : _cypher.DefaultResult);
+    }
+
+    private static int RankOf(ContextResult result, string id)
+        => result.ActiveRules.Select(r => r.Id).ToList().IndexOf(id);
+
+    [Fact]
+    public async Task CompileAsync_ExpansionEnabled_RanksCoOccurrenceRuleAboveWeakDirectMatch()
+    {
+        _cypher.DefaultResult = EmptyRows();
+        ArrangeExpansionRules();
+        var compiler = CreateCompiler(new RetrievalOptions { QueryExpansionTerms = 3 });
+        var context = new TaskContext { Task = "kafka setup", UserId = "user-1" };
+
+        var result = await compiler.CompileAsync(context, CancellationToken.None);
+
+        RankOf(result, "related").Should().BeGreaterThanOrEqualTo(0);
+        RankOf(result, "related").Should().BeLessThan(RankOf(result, "competitor"),
+            because: "the expanded concept match (+3·0.5) outweighs the single weak task-token match");
+    }
+
+    [Fact]
+    public async Task CompileAsync_ExpansionDisabled_RanksCoOccurrenceRuleBelowDirectMatch()
+    {
+        _cypher.DefaultResult = EmptyRows();
+        ArrangeExpansionRules();
+        var compiler = CreateCompiler(); // defaults: QueryExpansionTerms = 0
+        var context = new TaskContext { Task = "kafka setup", UserId = "user-1" };
+
+        var result = await compiler.CompileAsync(context, CancellationToken.None);
+
+        RankOf(result, "competitor").Should().BeGreaterThanOrEqualTo(0);
+        RankOf(result, "competitor").Should().BeLessThan(RankOf(result, "related"),
+            because: "without expansion the related rule has no keyword overlap at all");
     }
 
     // ── F49: entity-layer fusion ────────────────────────────────────────────

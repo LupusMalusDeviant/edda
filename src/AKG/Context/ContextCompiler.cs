@@ -136,7 +136,24 @@ internal sealed class ContextCompiler : IContextCompiler
             _logger.LogDebug(
                 "Active domains for task: {Domains} | {Component}",
                 string.Join(", ", activeDomains), "AKG");
-        var scored = _keywordScorer.Score(allRules, context, activeDomains);
+
+        // B5 (opt-in): expand the query with co-occurring tags/concepts from the curated knowledge —
+        // deterministic, keyword path only; the embedding path keeps embedding the raw query.
+        IReadOnlySet<string>? expandedTerms = null;
+        if (_retrievalOptions.QueryExpansionTerms > 0)
+        {
+            var queryTerms = KeywordScorer.Tokenize(context.Task.ToLowerInvariant());
+            foreach (var concept in context.Concepts)
+                queryTerms.Add(concept.ToLowerInvariant());
+            expandedTerms = QueryExpander.Expand(queryTerms, allRules, _retrievalOptions.QueryExpansionTerms);
+            if (expandedTerms.Count > 0)
+                _logger.LogDebug(
+                    "Query expanded with {Count} co-occurrence term(s) | {Component}",
+                    expandedTerms.Count, "AKG");
+        }
+
+        var scored = _keywordScorer.Score(
+            allRules, context, activeDomains, expandedTerms, _retrievalOptions.QueryExpansionWeight);
 
         // Phase 1b: Apply feedback confidence multipliers (F32)
         scored = await ApplyFeedbackMultipliersAsync(scored, context.UserId, ct).ConfigureAwait(false);

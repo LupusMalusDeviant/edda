@@ -32,6 +32,11 @@ internal static class RetrievalOptionsResolver
             configuration?["RETRIEVAL_HEAD_THRESHOLD"], RetrievalOptions.DefaultHeadSimilarityThreshold),
         FallbackMaxCandidates = ParsePositiveInt(
             configuration?["RETRIEVAL_FALLBACK_MAX_CANDIDATES"], RetrievalOptions.DefaultFallbackMaxCandidates),
+        // B5: query expansion is opt-in — 0 terms (the default) keeps the keyword path unchanged.
+        QueryExpansionTerms = ParseNonNegativeInt(
+            configuration?["RETRIEVAL_QUERY_EXPANSION_TERMS"], RetrievalOptions.DefaultQueryExpansionTerms),
+        QueryExpansionWeight = ParseDouble(
+            configuration?["RETRIEVAL_QUERY_EXPANSION_WEIGHT"], RetrievalOptions.DefaultQueryExpansionWeight),
     };
 
     private static double ParseDouble(string? raw, double fallback)
@@ -41,6 +46,11 @@ internal static class RetrievalOptionsResolver
 
     private static int ParsePositiveInt(string? raw, int fallback)
         => int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value > 0
+            ? value
+            : fallback;
+
+    private static int ParseNonNegativeInt(string? raw, int fallback)
+        => int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value >= 0
             ? value
             : fallback;
 }

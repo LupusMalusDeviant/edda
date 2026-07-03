@@ -88,6 +88,9 @@ internal sealed class RuleLoader : IRuleLoader
         var requires = rule.RelatesTo?.Requires.ToArray() ?? [];
         var supersedes = rule.RelatesTo?.Supersedes.ToArray() ?? [];
         var related = rule.RelatesTo?.Related.ToArray() ?? [];
+        // B5: persist the rule's trigger concepts (frontmatter `concepts:`) so the keyword scorer's
+        // concept branch and the co-occurrence query expansion see them on graph-loaded rules.
+        var concepts = rule.WhenRelevant?.DetectedConcepts.ToArray() ?? [];
 
         await _cypher.ExecuteAsync(
             """
@@ -104,6 +107,7 @@ internal sealed class RuleLoader : IRuleLoader
                 r.requires = $requires,
                 r.supersedes = $supersedes,
                 r.related = $related,
+                r.concepts = $concepts,
                 r.validatorScript = $validatorScript,
                 r.validatorEnabled = $validatorEnabled,
                 r.validatorHash = $validatorHash
@@ -123,6 +127,7 @@ internal sealed class RuleLoader : IRuleLoader
                 requires,
                 supersedes,
                 related,
+                concepts,
                 validatorScript = rule.ValidatorScript,
                 validatorEnabled = rule.ValidatorEnabled,
                 // F7: persist the script hash for confidence-history traceability (recomputed on each load).

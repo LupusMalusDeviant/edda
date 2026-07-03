@@ -45,6 +45,13 @@ LLM-basierte Wissens-Extraktion.
 (`SemanticBooster`, Vektorindex mit App-seitigem Cosine-Fallback) → (3) MMR-Reranking →
 (4) Konflikt-/Ausnahme-Auflösung. Soul-Regeln werden immer eingespeist, unabhängig vom Scoring.
 
+Optional erweitert eine **Query-Expansion** (`RETRIEVAL_QUERY_EXPANSION_TERMS`, Default 0 = aus)
+den Keyword-Pfad: Regeln, deren Tags/Konzepte die Query treffen, steuern ihre übrigen
+Tags/Konzepte als verwandte Terme bei (Ko-Okkurrenz über das kuratierte Wissen — deterministisch,
+LLM-frei). Expandierte Treffer zählen mit reduziertem Gewicht
+(`RETRIEVAL_QUERY_EXPANSION_WEIGHT`, Default 0.5); der Embedding-Pfad embeddet die Query
+unverändert 1:1. Benchmark-Vergleich: `docs/benchmarks.md`, Abschnitt B5.
+
 ## Graph-Datenbank
 
 `GRAPH_PROVIDER` wählt `Neo4jGraphDatabaseProvider` (Default) oder `MemgraphGraphDatabaseProvider`.

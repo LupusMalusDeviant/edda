@@ -197,4 +197,49 @@ public class KeywordScorerTests
         many.Should().BeGreaterThan(single, because: "more matches still score higher");
         many.Should().BeLessThan(5 * single, because: "log saturation makes the growth sub-linear");
     }
+
+    // ── B5: co-occurrence query expansion ────────────────────────────────────────
+
+    [Fact]
+    public void Score_WithoutExpansion_BehaviorUnchanged()
+    {
+        var rule = MakeRule("r", tags: ["async"], detectedConcepts: ["deadlock"]);
+        var context = MakeContext("Use async await", concepts: ["deadlock"]);
+
+        var withoutParams = _scorer.Score([rule], context)[0].Score;
+        var withNullExpansion = _scorer.Score([rule], context, null, null, 0.5)[0].Score;
+
+        withNullExpansion.Should().Be(withoutParams, because: "null expansion must be bit-identical to pre-B5 scoring");
+    }
+
+    [Fact]
+    public void Score_ExpandedTermMatch_ScoresWithReducedWeight()
+    {
+        // The rule matches the query only via the expanded term "broker".
+        var rule = MakeRule("r", detectedConcepts: ["broker"]);
+        var context = MakeContext("something unrelated");
+        var expanded = new HashSet<string>(StringComparer.Ordinal) { "broker" };
+
+        var direct = _scorer.Score([rule], MakeContext("x", concepts: ["broker"]))[0].Score;
+        var viaExpansion = _scorer.Score([rule], context, null, expanded, 0.5)[0].Score;
+        var withoutExpansion = _scorer.Score([rule], context)[0].Score;
+
+        withoutExpansion.Should().Be(0);
+        viaExpansion.Should().BeGreaterThan(0, because: "the expanded term surfaces the rule");
+        viaExpansion.Should().BeLessThan(direct, because: "an expanded match is weighted below a direct match");
+    }
+
+    [Fact]
+    public void Score_DirectMatch_NotDoubleCountedByExpansion()
+    {
+        // "async" matches directly (task + concepts); listing it as an expanded term must not add more.
+        var rule = MakeRule("r", tags: ["async"]);
+        var context = MakeContext("Use async await", concepts: ["async"]);
+        var expanded = new HashSet<string>(StringComparer.Ordinal) { "async" };
+
+        var withExpansion = _scorer.Score([rule], context, null, expanded, 0.5)[0].Score;
+        var withoutExpansion = _scorer.Score([rule], context)[0].Score;
+
+        withExpansion.Should().Be(withoutExpansion);
+    }
 }

@@ -42,6 +42,30 @@ public class RuleLoaderTests
     }
 
     [Fact]
+    public async Task LoadFromDirectoryAsync_RuleWithConcepts_PersistsThem()
+    {
+        // B5 load-path test (F1 pattern): frontmatter concepts must reach the upsert query.
+        _fs.AddFile(
+            "knowledge/secrets.md",
+            """
+            ---
+            id: secrets-rule
+            title: Secrets
+            domain: security
+            concepts: [password, secret]
+            ---
+            Body.
+            """);
+        var loader = CreateLoader();
+
+        var loaded = await loader.LoadFromDirectoryAsync("knowledge", CancellationToken.None);
+
+        loaded.Should().Be(1);
+        _cypher.ExecutedWriteQueries.Should().Contain(q =>
+            q.Contains("MERGE (r:Rule {id: $id})") && q.Contains("r.concepts = $concepts"));
+    }
+
+    [Fact]
     public async Task LoadFromDirectoryAsync_MissingDirectory_ReturnsZero()
     {
         var loader = CreateLoader();

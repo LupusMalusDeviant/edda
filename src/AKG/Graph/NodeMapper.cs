@@ -47,6 +47,7 @@ internal static class NodeMapper
             OwnerId = node.Properties.TryGetValue("ownerId", out var o) ? o?.ToString() : null,
             TenantId = node.Properties.TryGetValue("tenantId", out var tn) ? tn?.ToString() ?? Tenants.DefaultTenantId : Tenants.DefaultTenantId,
             RelatesTo = MapRelationsFromNode(node),
+            WhenRelevant = MapWhenRelevant(node.Properties.TryGetValue("concepts", out var wc) ? wc : null),
             ValidFrom = ParseTimestamp(node.Properties.TryGetValue("validFrom", out var vf) ? vf : null),
             ValidUntil = ParseTimestamp(node.Properties.TryGetValue("validUntil", out var vu) ? vu : null),
             InvalidatedBy = node.Properties.TryGetValue("invalidatedBy", out var ib) ? ib?.ToString() : null,
@@ -110,6 +111,7 @@ internal static class NodeMapper
             OwnerId = props.TryGetValue("ownerId", out var o) ? o?.ToString() : null,
             TenantId = props.TryGetValue("tenantId", out var tn) ? tn?.ToString() ?? Tenants.DefaultTenantId : Tenants.DefaultTenantId,
             RelatesTo = MapRelationsFromDictionary(props),
+            WhenRelevant = MapWhenRelevant(props.TryGetValue("concepts", out var wc) ? wc : null),
             ValidFrom = ParseTimestamp(props.TryGetValue("validFrom", out var vf) ? vf : null),
             ValidUntil = ParseTimestamp(props.TryGetValue("validUntil", out var vu) ? vu : null),
             InvalidatedBy = props.TryGetValue("invalidatedBy", out var ib) ? ib?.ToString() : null,
@@ -132,6 +134,7 @@ internal static class NodeMapper
             OwnerId = dict.TryGetValue("ownerId", out var o) ? o?.ToString() : null,
             TenantId = dict.TryGetValue("tenantId", out var tn) ? tn?.ToString() ?? Tenants.DefaultTenantId : Tenants.DefaultTenantId,
             RelatesTo = MapRelationsFromDictionary(dict),
+            WhenRelevant = MapWhenRelevant(dict.TryGetValue("concepts", out var wc) ? wc : null),
             ValidFrom = ParseTimestamp(dict.TryGetValue("validFrom", out var vf) ? vf : null),
             ValidUntil = ParseTimestamp(dict.TryGetValue("validUntil", out var vu) ? vu : null),
             InvalidatedBy = dict.TryGetValue("invalidatedBy", out var ib) ? ib?.ToString() : null,
@@ -185,6 +188,18 @@ internal static class NodeMapper
             Supersedes = supersedes ?? [],
             Related = related ?? [],
         };
+    }
+
+    /// <summary>
+    /// Maps the persisted <c>concepts</c> property to a <see cref="WhenRelevant"/> instance (B5).
+    /// Returns <see langword="null"/> when the rule declares no concepts, matching the parser.
+    /// </summary>
+    /// <param name="conceptsValue">The raw <c>concepts</c> property value.</param>
+    /// <returns>The mapped <see cref="WhenRelevant"/>, or <see langword="null"/>.</returns>
+    private static WhenRelevant? MapWhenRelevant(object? conceptsValue)
+    {
+        var concepts = MapStringList(conceptsValue);
+        return concepts.Count > 0 ? new WhenRelevant { DetectedConcepts = concepts } : null;
     }
 
     internal static IReadOnlyList<string> MapStringList(object? value)

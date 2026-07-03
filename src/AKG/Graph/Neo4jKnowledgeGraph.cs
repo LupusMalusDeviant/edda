@@ -190,6 +190,9 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         var requires = rule.RelatesTo?.Requires.ToArray() ?? [];
         var supersedes = rule.RelatesTo?.Supersedes.ToArray() ?? [];
         var related = rule.RelatesTo?.Related.ToArray() ?? [];
+        // B5: persist the rule's trigger concepts so the keyword scorer's concept branch (and the
+        // co-occurrence query expansion) work on graph-loaded rules — previously this was lost here.
+        var concepts = rule.WhenRelevant?.DetectedConcepts.ToArray() ?? [];
 
         await _cypher.ExecuteAsync(
             """
@@ -207,6 +210,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
                 r.requires = $requires,
                 r.supersedes = $supersedes,
                 r.related = $related,
+                r.concepts = $concepts,
                 r.chunkStyle = $chunkStyle,
                 r.validFrom = coalesce(r.validFrom, $now)
             """,
@@ -226,6 +230,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
                 requires,
                 supersedes,
                 related,
+                concepts,
                 chunkStyle = rule.ChunkStyle,
                 now = _timeProvider.GetUtcNow().ToString("O"),
             },

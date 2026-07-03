@@ -284,8 +284,8 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         foreach (var key in new[]
                  {
                      "id", "type", "domain", "priority", "body", "tags", "ownerId",
-                     "implies", "conflictsWith", "exceptionFor", "requires", "supersedes", "related", "chunkStyle",
-                     "validatorScript", "validatorEnabled", "validatorHash",
+                     "implies", "conflictsWith", "exceptionFor", "requires", "supersedes", "related", "concepts",
+                     "chunkStyle", "validatorScript", "validatorEnabled", "validatorHash",
                  })
         {
             rule[key] = p.GetValueOrDefault(key);

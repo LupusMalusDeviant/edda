@@ -28,11 +28,20 @@ internal sealed class KeywordScorer
     /// <see cref="DomainActivationResolver"/>). Rules whose <see cref="KnowledgeRule.Domain"/> is in this
     /// set receive an additive relevance bonus. When null or empty, scoring is purely keyword-based.
     /// </param>
+    /// <param name="expandedTerms">
+    /// Optional co-occurrence expansion terms (B5, see <see cref="QueryExpander"/>). A tag/concept that
+    /// matches an expanded term scores like a direct concept match, scaled by
+    /// <paramref name="expansionWeight"/>. Null or empty disables expansion — scoring is then
+    /// bit-identical to the pre-B5 behavior.
+    /// </param>
+    /// <param name="expansionWeight">Score weight of an expanded-term match relative to a direct match.</param>
     /// <returns>Scored rules in descending order by score.</returns>
     internal IReadOnlyList<ScoredRule> Score(
         IReadOnlyList<KnowledgeRule> rules,
         TaskContext context,
-        IReadOnlySet<string>? activeDomains = null)
+        IReadOnlySet<string>? activeDomains = null,
+        IReadOnlySet<string>? expandedTerms = null,
+        double expansionWeight = 0.5)
     {
         // B1: match tags/concepts against whole task tokens (not substrings), so "test" no longer
         // matches "latest". Tokenisation is word-boundary based and lowercase.
@@ -44,7 +53,7 @@ internal sealed class KeywordScorer
         var result = new List<ScoredRule>(rules.Count);
         foreach (var rule in rules)
         {
-            var score = CalculateScore(rule, taskTokens, conceptSet, activeDomains);
+            var score = CalculateScore(rule, taskTokens, conceptSet, activeDomains, expandedTerms, expansionWeight);
             result.Add(new ScoredRule { Rule = rule, Score = score });
         }
 
@@ -56,7 +65,9 @@ internal sealed class KeywordScorer
         KnowledgeRule rule,
         IReadOnlySet<string> taskTokens,
         HashSet<string> conceptSet,
-        IReadOnlySet<string>? activeDomains)
+        IReadOnlySet<string>? activeDomains,
+        IReadOnlySet<string>? expandedTerms,
+        double expansionWeight)
     {
         var priorityMultiplier = rule.Priority switch
         {
@@ -66,19 +77,32 @@ internal sealed class KeywordScorer
             _ => PriorityMultiplierMedium,
         };
 
-        var matchCount = 0;
+        var matchCount = 0.0;
+        var hasExpansion = expandedTerms is { Count: > 0 };
 
-        // Tags: task-text match (+1), direct concept match (+2)
+        // Tags: task-text match (+1), direct concept match (+2), expanded-term match (+2·w, B5).
         foreach (var tag in rule.Tags)
         {
             var lower = tag.ToLowerInvariant();
+            var direct = false;
             if (MatchesWholeTokens(lower, taskTokens))
+            {
                 matchCount++;
+                direct = true;
+            }
+
             if (conceptSet.Contains(lower))
+            {
                 matchCount += 2;
+                direct = true;
+            }
+
+            if (!direct && hasExpansion && expandedTerms!.Contains(lower))
+                matchCount += 2 * expansionWeight;
         }
 
-        // WhenRelevant.DetectedConcepts: direct concept match (+3), task-text match (+1)
+        // WhenRelevant.DetectedConcepts: direct concept match (+3), task-text match (+1),
+        // expanded-term match (+3·w, B5).
         if (rule.WhenRelevant is not null)
         {
             foreach (var concept in rule.WhenRelevant.DetectedConcepts)
@@ -88,6 +112,8 @@ internal sealed class KeywordScorer
                     matchCount += 3;
                 else if (MatchesWholeTokens(lower, taskTokens))
                     matchCount++;
+                else if (hasExpansion && expandedTerms!.Contains(lower))
+                    matchCount += 3 * expansionWeight;
             }
         }
 
@@ -108,7 +134,7 @@ internal sealed class KeywordScorer
     /// </summary>
     /// <param name="lowerText">The lowercase text to tokenise.</param>
     /// <returns>The distinct tokens.</returns>
-    private static HashSet<string> Tokenize(string lowerText)
+    internal static HashSet<string> Tokenize(string lowerText)
     {
         var tokens = new HashSet<string>(StringComparer.Ordinal);
         var start = -1;
@@ -139,7 +165,7 @@ internal sealed class KeywordScorer
     /// <param name="phraseLower">The lowercase tag/concept to test.</param>
     /// <param name="taskTokens">The task's token set.</param>
     /// <returns><see langword="true"/> when the phrase matches on whole tokens.</returns>
-    private static bool MatchesWholeTokens(string phraseLower, IReadOnlySet<string> taskTokens)
+    internal static bool MatchesWholeTokens(string phraseLower, IReadOnlySet<string> taskTokens)
     {
         var phraseTokens = Tokenize(phraseLower);
         return phraseTokens.Count > 0 && phraseTokens.All(taskTokens.Contains);

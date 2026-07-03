@@ -29,6 +29,12 @@ public sealed record RetrievalOptions
     /// </summary>
     public const int DefaultFallbackMaxCandidates = 500;
 
+    /// <summary>Default number of co-occurrence query-expansion terms (B5). 0 = expansion off.</summary>
+    public const int DefaultQueryExpansionTerms = 0;
+
+    /// <summary>Default score weight of an expanded-term match relative to a direct match (B5).</summary>
+    public const double DefaultQueryExpansionWeight = 0.5;
+
     /// <summary>Minimum cosine similarity for a rule to be considered a semantic match.</summary>
     public double SimilarityThreshold { get; init; } = DefaultSimilarityThreshold;
 
@@ -50,4 +56,13 @@ public sealed record RetrievalOptions
     /// dropped, bounding the fallback's O(N) cost. Ignored on the fast vector-index path.
     /// </summary>
     public int FallbackMaxCandidates { get; init; } = DefaultFallbackMaxCandidates;
+
+    /// <summary>
+    /// Number of related terms added to the keyword path via concept co-occurrence over the curated
+    /// knowledge (B5). 0 (the default) disables query expansion — behavior is then unchanged.
+    /// </summary>
+    public int QueryExpansionTerms { get; init; } = DefaultQueryExpansionTerms;
+
+    /// <summary>Score weight of an expanded-term match relative to a direct match (B5).</summary>
+    public double QueryExpansionWeight { get; init; } = DefaultQueryExpansionWeight;
 }

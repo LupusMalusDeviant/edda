@@ -442,6 +442,52 @@ public class Neo4jKnowledgeGraphTests
     }
 
     [Fact]
+    public async Task UpsertRuleAsync_WithConcepts_PersistsConceptsProperty()
+    {
+        // B5: the rule's trigger concepts must survive the round-trip — previously the SET clause
+        // dropped them, leaving the scorer's concept branch dead on graph-loaded rules.
+        var graph = CreateGraph();
+        var rule = new KnowledgeRule
+        {
+            Id = "concept-rule",
+            Domain = "docs",
+            Type = "Rule",
+            Priority = RulePriority.Medium,
+            Body = "Body.",
+            WhenRelevant = new WhenRelevant { DetectedConcepts = ["password", "secret"] },
+        };
+
+        await graph.UpsertRuleAsync(rule);
+
+        _cypher.ExecutedWriteQueries.Should().Contain(q =>
+            q.Contains("MERGE (r:Rule {id: $id})") && q.Contains("r.concepts = $concepts"));
+    }
+
+    [Fact]
+    public async Task GetRuleAsync_NodeWithConcepts_MapsWhenRelevant()
+    {
+        var node = new Mock<INode>();
+        node.SetupGet(n => n.Properties).Returns(new Dictionary<string, object?>
+        {
+            ["id"] = "concept-rule",
+            ["body"] = "b",
+            ["priority"] = "Medium",
+            ["domain"] = "docs",
+            ["type"] = "Rule",
+            ["tags"] = new List<object>(),
+            ["concepts"] = new List<object> { "password", "secret" },
+        });
+        _cypher.DefaultResult = RowsWithNode("r", node.Object);
+        var graph = CreateGraph();
+
+        var rule = await graph.GetRuleAsync("concept-rule", "u1");
+
+        rule.Should().NotBeNull();
+        rule!.WhenRelevant.Should().NotBeNull();
+        rule.WhenRelevant!.DetectedConcepts.Should().BeEquivalentTo(["password", "secret"]);
+    }
+
+    [Fact]
     public async Task UpsertRuleAsync_EmptyRelationList_StillClosesStaleEdges()
     {
         // C9: the old guard skipped the edge query for empty lists, leaving dropped relations

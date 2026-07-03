@@ -29,6 +29,7 @@ public sealed class InMemoryCypherExecutorTests
             r.requires = $requires,
             r.supersedes = $supersedes,
             r.related = $related,
+            r.concepts = $concepts,
             r.chunkStyle = $chunkStyle,
             r.validFrom = coalesce(r.validFrom, $now)
         """;
@@ -87,7 +88,8 @@ public sealed class InMemoryCypherExecutorTests
 
     private Task Upsert(
         string id, string domain = "csharp", string type = "Rule", string? ownerId = null,
-        string[]? tags = null, string[]? supersedes = null, string now = "2026-01-01T00:00:00.0000000+00:00")
+        string[]? tags = null, string[]? supersedes = null, string[]? concepts = null,
+        string now = "2026-01-01T00:00:00.0000000+00:00")
         => _sut.ExecuteAsync(UpsertQuery, new
         {
             id,
@@ -103,6 +105,7 @@ public sealed class InMemoryCypherExecutorTests
             requires = Array.Empty<string>(),
             supersedes = supersedes ?? [],
             related = Array.Empty<string>(),
+            concepts = concepts ?? [],
             chunkStyle = (string?)null,
             now,
         });
@@ -410,6 +413,20 @@ public sealed class InMemoryCypherExecutorTests
         bin.Should().BeEmpty();
         var active = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "a", userId = "u1" });
         active.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Upsert_GetRule_RoundTripsConcepts()
+    {
+        // B5: the concepts property survives the in-memory round-trip like on Neo4j.
+        await Upsert("c-rule", concepts: ["password", "secret"]);
+
+        var rows = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "c-rule", userId = (string?)null });
+
+        rows.Should().ContainSingle();
+        var props = (IReadOnlyDictionary<string, object?>)rows[0]["r"]!;
+        var concepts = props.GetValueOrDefault("concepts") as string[];
+        concepts.Should().BeEquivalentTo(["password", "secret"]);
     }
 
     private const string T1 = "2026-01-01T00:00:00.0000000+00:00";

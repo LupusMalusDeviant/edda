@@ -93,3 +93,31 @@ Stufe 1). Gleiche Konfiguration wie oben (memory, keyword-only, k=5, derselbe Da
 Per-Fall: `secprin` (world-security-principles) verbessert sich von Recall 0.0 → 1.0, `except` von
 MRR 0.50 → 1.00. Es verbleiben zwei Fehltreffer (`secrets`, `arch`) — reine Keyword-Grenzen, die erst
 die semantische Phase (Embeddings) schließen dürfte. Latenz unverändert unkritisch.
+
+## B5 — Vorher/Nachher (concepts-Reparatur + Query-Expansion)
+
+Zwei Änderungen (Spec `docs/plans/0018-b5-query-expansion.md`), gemessen unter derselben
+Konfiguration (memory, keyword-only, k=5, derselbe Datensatz):
+
+1. **concepts-Reparatur** (Default-Wirkung): Der `concepts`-Scoring-Zweig des `KeywordScorer`
+   (+3 je Konzept-Treffer) war im Produktivpfad tot verdrahtet — `concepts` wurden weder
+   persistiert noch gemappt (F1-Muster), aus dem Graphen geladene Regeln hatten
+   `WhenRelevant = null`. Die Kette (Upsert-SET → NodeMapper → InMemory) ist repariert.
+2. **Query-Expansion** (opt-in, `RETRIEVAL_QUERY_EXPANSION_TERMS`, Default 0 = aus):
+   deterministische Ko-Okkurrenz-Expansion über die kuratierten Tags/Konzepte, nur im
+   Keyword-Pfad, Treffer-Gewicht `RETRIEVAL_QUERY_EXPANSION_WEIGHT` (Default 0.5).
+
+| Metrik | B1 (vorher) | + concepts-Fix (Default) | + Expansion (TERMS=3) |
+|---|---|---|---|
+| Recall@5 | 0.818 | **0.909** | 0.909 |
+| Precision@5 | 0.182 | **0.200** | 0.200 |
+| MRR | 0.705 | **0.795** | 0.795 |
+| nDCG@5 | 0.733 | **0.824** | 0.824 |
+
+**Ergebnis:** Die concepts-Reparatur ist **messbar besser auf allen vier IR-Metriken** — der
+`secrets`-Fall (no-plaintext-secrets, Konzepte `password`/`api-key`/`secret`/…) springt von
+Recall 0.0 → 1.0 (MRR 1.0). Verbleibender Fehltreffer: nur noch `arch` (1 von 11). Die
+**Expansion ist auf diesem Datensatz exakt neutral** (identische Zahlen, kein Noise-Regress):
+Die Fälle, die der concepts-Fix nicht löst, haben in der kleinen Baseline-Wissensbasis keine
+Ko-Okkurrenz-Brücke. Empfehlung: **Default bleibt 0 (aus)** — das Feature ist für reichere,
+stärker vernetzte Wissensbasen gedacht und dort risikofrei zuschaltbar.

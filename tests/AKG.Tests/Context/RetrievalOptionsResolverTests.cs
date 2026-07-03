@@ -49,6 +49,28 @@ public sealed class RetrievalOptionsResolverTests
     }
 
     [Fact]
+    public void Resolve_ExpansionKeys_ParsesValues()
+    {
+        var options = RetrievalOptionsResolver.Resolve(Config(new Dictionary<string, string?>
+        {
+            ["RETRIEVAL_QUERY_EXPANSION_TERMS"] = "3",
+            ["RETRIEVAL_QUERY_EXPANSION_WEIGHT"] = "0.25",
+        }));
+
+        options.QueryExpansionTerms.Should().Be(3);
+        options.QueryExpansionWeight.Should().Be(0.25);
+    }
+
+    [Fact]
+    public void Resolve_ExpansionKeysUnset_UsesDisabledDefaults()
+    {
+        var options = RetrievalOptionsResolver.Resolve(null);
+
+        options.QueryExpansionTerms.Should().Be(0, because: "expansion is opt-in — default off");
+        options.QueryExpansionWeight.Should().Be(0.5);
+    }
+
+    [Fact]
     public void Resolve_NonNumericOrEmptyValues_FallBackToDefaults()
     {
         var options = RetrievalOptionsResolver.Resolve(Config(new Dictionary<string, string?>
