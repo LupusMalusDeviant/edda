@@ -3,6 +3,7 @@
 @inject IKnowledgeGraph KnowledgeGraph
 @inject ITdkEngine TdkEngine
 @inject ITdkFixtureVerifier FixtureVerifier
+@inject ITdkDryRunService DryRun
 @inject IIdentityContext Identity
 @inject ILocalizationService Loc
 @implements IDisposable
@@ -158,6 +159,92 @@
     }
 }
 
+<hr class="my-3" style="max-width:900px;" />
+
+<h4 class="mb-2" style="font-size:1rem;">@Loc["tdk.dryrun.heading"]</h4>
+<p style="font-size:0.82rem;color:#94a3b8;">@Loc["tdk.dryrun.desc"]</p>
+
+<div class="mb-3" style="max-width:900px;">
+    <label class="form-label" style="font-size:0.8rem;">@Loc["tdk.dryrun.script.label"]</label>
+    <textarea class="form-control form-control-sm mb-2" style="font-family:monospace;" rows="10"
+              @bind="_drScript" placeholder="from tdk import validator, violation"></textarea>
+
+    <label class="form-label" style="font-size:0.8rem;">@Loc["tdk.dryrun.code.label"]</label>
+    <textarea class="form-control form-control-sm mb-2" style="font-family:monospace;" rows="6"
+              @bind="_drCode"></textarea>
+
+    <label class="form-label" style="font-size:0.8rem;">@Loc["tdk.dryrun.lang.label"]</label>
+    <input class="form-control form-control-sm mb-2" style="max-width:220px;" @bind="_drLang"
+           placeholder="python" />
+
+    <button class="btn btn-sm btn-primary" @onclick="RunDryRunAsync" disabled="@_drRunning">
+        @(_drRunning ? Loc["tdk.dryrun.running"] : Loc["tdk.dryrun.btn"])
+    </button>
+</div>
+
+@if (_drError is not null)
+{
+    <div class="alert alert-danger" style="max-width:900px;">@_drError</div>
+}
+
+@if (_drResult is not null)
+{
+    <div style="font-size:0.82rem;color:#94a3b8;" class="mb-1">
+        @Loc["tdk.dryrun.exit"]: <code>@_drResult.ExitCode</code>
+        @if (_drResult.TimedOut) { <text> (@Loc["tdk.engine.timeout"])</text> }
+    </div>
+
+    @if (!string.IsNullOrEmpty(_drResult.Stdout))
+    {
+        <div style="font-size:0.78rem;color:#94a3b8;">@Loc["tdk.dryrun.stdout"]</div>
+        <pre style="max-width:900px;white-space:pre-wrap;background:#0f172a;color:#e2e8f0;padding:0.5rem;font-size:0.8rem;">@_drResult.Stdout</pre>
+    }
+
+    @if (!string.IsNullOrEmpty(_drResult.Stderr))
+    {
+        <div style="font-size:0.78rem;color:#94a3b8;">@Loc["tdk.dryrun.stderr"]</div>
+        <pre style="max-width:900px;white-space:pre-wrap;background:#1e1b1b;color:#fca5a5;padding:0.5rem;font-size:0.8rem;">@_drResult.Stderr</pre>
+    }
+
+    @if (_drResult.OutputParsed)
+    {
+        @if (_drResult.Violations.Count > 0)
+        {
+            <table class="table table-sm" style="max-width:900px;">
+                <thead>
+                    <tr>
+                        <th>@Loc["tdk.col.rule"]</th>
+                        <th>@Loc["tdk.col.severity"]</th>
+                        <th>@Loc["tdk.col.line"]</th>
+                        <th>@Loc["tdk.col.message"]</th>
+                        <th>@Loc["tdk.col.suggestion"]</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var v in _drResult.Violations)
+                    {
+                        <tr>
+                            <td><code>@v.RuleId</code></td>
+                            <td>@v.Severity</td>
+                            <td>@(v.Line?.ToString() ?? "—")</td>
+                            <td>@v.Message</td>
+                            <td>@(string.IsNullOrWhiteSpace(v.Suggestion) ? "—" : v.Suggestion)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <div class="alert alert-success" style="max-width:900px;">@Loc["tdk.noviolations"]</div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-secondary" style="max-width:900px;">@Loc["tdk.dryrun.unparsed"]</div>
+    }
+}
+
 @code {
     private string _task = "";
     private string _code = "";
@@ -169,6 +256,13 @@
     private bool _fxRunning;
     private string? _fxError;
     private TdkFixtureVerificationReport? _fxReport;
+
+    private string _drScript = "";
+    private string _drCode = "";
+    private string _drLang = "";
+    private bool _drRunning;
+    private string? _drError;
+    private TdkDryRunResult? _drResult;
 
     protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
 
@@ -236,6 +330,33 @@
         finally
         {
             _fxRunning = false;
+        }
+    }
+
+    private async Task RunDryRunAsync()
+    {
+        _drRunning = true;
+        _drError = null;
+        _drResult = null;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_drScript))
+            {
+                _drError = Loc["tdk.dryrun.noscript"];
+                return;
+            }
+
+            var lang = string.IsNullOrWhiteSpace(_drLang) ? null : _drLang.Trim();
+            _drResult = await DryRun.RunAsync(_drScript, _drCode, lang);
+        }
+        catch (Exception ex)
+        {
+            _drError = string.Format(Loc["tdk.dryrun.error"], ex.Message);
+        }
+        finally
+        {
+            _drRunning = false;
         }
     }
 

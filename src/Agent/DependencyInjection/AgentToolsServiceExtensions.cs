@@ -47,6 +47,9 @@ public static class AgentToolsServiceExtensions
         // F4: the bundled tdk.py helper module, delivered next to every validator script in the sandbox.
         services.AddSingleton<ITdkHelperModule, TdkHelperModule>();
 
+        // F6: dry-run service for the /tdk editor — runs an arbitrary script against sample code.
+        services.AddSingleton<ITdkDryRunService, TdkDryRunService>();
+
         services.AddSingleton<ITdkEngine>(sp =>
             new TdkEngine(
                 sp.GetRequiredService<ISandboxFactory>(),
