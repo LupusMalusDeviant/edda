@@ -1,0 +1,174 @@
+@page "/quality"
+@rendermode InteractiveServer
+@inject ILocalizationService Loc
+@inject IKnowledgeGraph KnowledgeGraph
+@inject IRuleFeedbackService Feedback
+@inject IIdentityContext Identity
+@inject TimeProvider Time
+@inject IBenchmarkRunner Benchmark
+@inject IFileSystem FileSystem
+@implements IDisposable
+
+<PageTitle>@Loc["quality.title"]</PageTitle>
+
+<h3 class="mb-3">@Loc["quality.heading"]</h3>
+
+@if (_report is null)
+{
+    <div class="alert alert-secondary py-2 px-3">@Loc["quality.empty"]</div>
+}
+else
+{
+    <div class="d-flex flex-wrap gap-3 mb-3">
+        <div class="card bg-dark border-secondary px-3 py-2">
+            <div style="font-size:1.4rem;">@_report.TotalRules</div>
+            <div class="text-muted" style="font-size:.78rem;">@Loc["quality.rules"]</div>
+        </div>
+        <div class="card bg-dark border-secondary px-3 py-2">
+            <div style="font-size:1.4rem;">@_report.DomainCount</div>
+            <div class="text-muted" style="font-size:.78rem;">@Loc["quality.domains"]</div>
+        </div>
+        <div class="card bg-dark border-secondary px-3 py-2">
+            <div style="font-size:1.4rem;color:@(_report.ConflictCount > 0 ? "#f87171" : "inherit");">@_report.ConflictCount</div>
+            <div class="text-muted" style="font-size:.78rem;">@Loc["quality.conflicts"]</div>
+        </div>
+        <div class="card bg-dark border-secondary px-3 py-2">
+            <div style="font-size:1.4rem;color:@(_report.DanglingReferenceCount > 0 ? "#fbbf24" : "inherit");">@_report.DanglingReferenceCount</div>
+            <div class="text-muted" style="font-size:.78rem;">@Loc["quality.dangling"]</div>
+        </div>
+    </div>
+
+    <h5 style="font-size:.95rem;">@Loc["quality.conf.low"] · @Loc["quality.conf.neutral"] · @Loc["quality.conf.boosted"]</h5>
+    <div class="mb-3" style="max-width:520px;">
+        @{
+            var total = _report.Confidence.Low + _report.Confidence.Neutral + _report.Confidence.Boosted;
+        }
+        @if (total == 0)
+        {
+            <div class="text-muted" style="font-size:.82rem;">—</div>
+        }
+        else
+        {
+            <div class="d-flex" style="height:22px;border-radius:4px;overflow:hidden;">
+                <div style="width:@(Pct(_report.Confidence.Low, total))%;background:#f87171;" title="@Loc["quality.conf.low"]: @_report.Confidence.Low"></div>
+                <div style="width:@(Pct(_report.Confidence.Neutral, total))%;background:#64748b;" title="@Loc["quality.conf.neutral"]: @_report.Confidence.Neutral"></div>
+                <div style="width:@(Pct(_report.Confidence.Boosted, total))%;background:#22c55e;" title="@Loc["quality.conf.boosted"]: @_report.Confidence.Boosted"></div>
+            </div>
+            <div class="text-muted mt-1" style="font-size:.78rem;">
+                @_report.Confidence.Low / @_report.Confidence.Neutral / @_report.Confidence.Boosted
+            </div>
+        }
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <h6 style="font-size:.9rem;">@Loc["quality.thin"] (@_report.ThinDomains.Count)</h6>
+            @foreach (var d in _report.ThinDomains)
+            {
+                <div style="font-size:.82rem;">@d.Domain <span class="badge bg-secondary">@d.RuleCount</span></div>
+            }
+        </div>
+        <div class="col-md-4">
+            <h6 style="font-size:.9rem;">@Loc["quality.lowconf"] (@_report.LowConfidence.Count)</h6>
+            @foreach (var r in _report.LowConfidence)
+            {
+                <div style="font-size:.82rem;">@r.RuleId <span class="badge bg-danger">@r.Multiplier</span></div>
+            }
+        </div>
+        <div class="col-md-4">
+            <h6 style="font-size:.9rem;">@Loc["quality.stale"] (@_report.Stale.Count)</h6>
+            @foreach (var r in _report.Stale)
+            {
+                <div style="font-size:.82rem;">@r.RuleId <span class="badge bg-warning text-dark">@r.AgeDays d</span></div>
+            }
+        </div>
+    </div>
+}
+
+<hr />
+
+<button class="btn btn-sm btn-primary" @onclick="RunBenchmarkAsync" disabled="@_benchRunning">
+    @(_benchRunning ? "…" : Loc["quality.bench.run"])
+</button>
+@if (_benchMessage is not null)
+{
+    <div class="alert alert-secondary py-2 px-3 mt-2" style="font-size:.85rem;">@_benchMessage</div>
+}
+@if (_benchReport is not null)
+{
+    <table class="table table-sm table-dark mt-3" style="max-width:640px;font-size:.85rem;">
+        <tbody>
+            <tr><td>Dataset</td><td>@_benchReport.DatasetName (@_benchReport.CaseCount cases, k=@_benchReport.K)</td></tr>
+            <tr><td>Recall@@k</td><td>@_benchReport.Aggregate.RecallAtK.ToString("F3")</td></tr>
+            <tr><td>Precision@@k</td><td>@_benchReport.Aggregate.PrecisionAtK.ToString("F3")</td></tr>
+            <tr><td>MRR</td><td>@_benchReport.Aggregate.Mrr.ToString("F3")</td></tr>
+            <tr><td>nDCG@@k</td><td>@_benchReport.Aggregate.NdcgAtK.ToString("F3")</td></tr>
+            <tr><td>Latenz p50 / p95</td><td>@_benchReport.LatencyMsP50.ToString("F1") / @_benchReport.LatencyMsP95.ToString("F1") ms</td></tr>
+            <tr><td>Ø Tokens</td><td>@_benchReport.AvgEstimatedTokens.ToString("F0")</td></tr>
+        </tbody>
+    </table>
+}
+
+@code {
+    private const int StaleDays = 90;
+    private const string DatasetPath = "docs/benchmark-baseline-dataset.json";
+
+    private GraphHealthReport? _report;
+    private BenchmarkReport? _benchReport;
+    private bool _benchRunning;
+    private string? _benchMessage;
+
+    protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
+
+    public void Dispose() => Loc.OnLanguageChanged -= StateHasChanged;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var rules = await KnowledgeGraph.GetRulesAsync(null, null, null, Identity.UserId);
+            var stats = await Feedback.GetAllStatsAsync();
+            _report = GraphHealth.Analyze(rules, stats, Time.GetUtcNow(), StaleDays);
+        }
+        catch
+        {
+            _report = null;   // best-effort — the page still renders a friendly message
+        }
+    }
+
+    private static int Pct(int part, int total) => total == 0 ? 0 : (int)Math.Round(100.0 * part / total);
+
+    private async Task RunBenchmarkAsync()
+    {
+        _benchRunning = true;
+        _benchMessage = null;
+        _benchReport = null;
+        try
+        {
+            if (!FileSystem.FileExists(DatasetPath))
+            {
+                _benchMessage = Loc["quality.bench.nodataset"];
+                return;
+            }
+
+            var json = await FileSystem.ReadAllTextAsync(DatasetPath);
+            var dataset = System.Text.Json.JsonSerializer.Deserialize<BenchmarkDataset>(
+                json, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            if (dataset is null || dataset.Cases.Count == 0)
+            {
+                _benchMessage = Loc["quality.bench.nodataset"];
+                return;
+            }
+
+            _benchReport = await Benchmark.RunAsync(dataset, 5);
+        }
+        catch (Exception ex)
+        {
+            _benchMessage = ex.Message;
+        }
+        finally
+        {
+            _benchRunning = false;
+        }
+    }
+}
