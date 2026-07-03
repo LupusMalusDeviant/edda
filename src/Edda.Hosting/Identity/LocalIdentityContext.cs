@@ -1,4 +1,5 @@
 using Edda.Core.Abstractions;
+using Edda.Core.Models;
 
 namespace Edda.Hosting.Identity;
 
@@ -23,4 +24,7 @@ public sealed class LocalIdentityContext : IIdentityContext
 
     /// <inheritdoc />
     public bool IsAdmin => true;
+
+    /// <inheritdoc />
+    public TenantRole Role => TenantRole.Owner;
 }

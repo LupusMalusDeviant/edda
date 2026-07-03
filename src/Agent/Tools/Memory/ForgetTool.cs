@@ -34,11 +34,16 @@ internal sealed class ForgetTool : IAgentTool
     /// <summary>Initializes a new <see cref="ForgetTool"/>.</summary>
     /// <param name="knowledgeGraph">Graph the memory node is deleted from.</param>
     /// <param name="logger">Structured logger.</param>
-    public ForgetTool(IKnowledgeGraph knowledgeGraph, ILogger<ForgetTool> logger)
+    /// <param name="authorizer">C2: central role gate — writing requires Editor. Null permits (legacy).</param>
+    public ForgetTool(IKnowledgeGraph knowledgeGraph, ILogger<ForgetTool> logger,
+        IRuleAuthorizer? authorizer = null)
     {
         _graph = knowledgeGraph;
         _logger = logger;
+        _authorizer = authorizer;
     }
+
+    private readonly IRuleAuthorizer? _authorizer;
 
     /// <inheritdoc />
     public async Task<ToolResult> ExecuteAsync(
@@ -48,6 +53,10 @@ internal sealed class ForgetTool : IAgentTool
     {
         try
         {
+            // C2: mutating tool — the role gate rejects Viewers before any argument is parsed.
+            if (!MemoryToolAuthorization.MayMutate(_authorizer))
+                return ToolResult.Fail(call.Id, Definition.Name, MemoryToolAuthorization.InsufficientRoleMessage);
+
             var userId = context.UserId ?? "anonymous";
             var content = ToolArgumentHelper.GetRequiredString(call.Arguments, "content");
             var id = MemoryNodes.NodeId(userId, content);

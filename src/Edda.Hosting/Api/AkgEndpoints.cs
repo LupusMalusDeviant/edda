@@ -63,9 +63,20 @@ public static class AkgEndpoints
            .RequireAuthorization();
 
         // Admin-only: deletes all :WorldKnowledge nodes and re-seeds from knowledge/world/.
+        // C2: the central authorizer additionally requires the Owner role.
         app.MapPost("/api/akg/world-knowledge/reload",
-                async (IKnowledgeGraph graph, CancellationToken ct) =>
+                async (IIdentityContext identity, IRuleAuthorizer authorizer,
+                       IKnowledgeGraph graph, CancellationToken ct) =>
                 {
+                    try
+                    {
+                        authorizer.EnsureCanAdminister(identity.IsAdmin);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        return Results.Forbid();
+                    }
+
                     var count = await graph.ReloadWorldKnowledgeAsync(ct);
                     return Results.Ok(new { loaded = count });
                 })

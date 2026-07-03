@@ -1,7 +1,9 @@
 using Edda.Agent.Tests.TestUtilities;
 using Edda.Agent.Tools.Memory;
+using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace Edda.Agent.Tests.Tools.Memory;
 
@@ -133,5 +135,32 @@ public class ManageUserdataToolTests
     public void Definition_HasCorrectName()
     {
         _sut.Definition.Name.Should().Be("manage_userdata");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRoleWrite_ReturnsInsufficientRoleFail()
+    {
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ManageUserdataTool(_fs, NullLogger<ManageUserdataTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call("set", "Name: Alice"), Ctx());
+
+        result.Success.Should().BeFalse("the set alias maps to write and is role-gated");
+        result.Error.Should().Contain("Insufficient role");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRoleRead_StillAllowed()
+    {
+        await _sut.ExecuteAsync(Call("write", "Name: Alice"), Ctx());
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ManageUserdataTool(_fs, NullLogger<ManageUserdataTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call("read"), Ctx());
+
+        result.Success.Should().BeTrue("Viewers may read (matrix row 1)");
+        result.Content.Should().Be("Name: Alice");
     }
 }

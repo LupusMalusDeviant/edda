@@ -40,11 +40,16 @@ internal sealed class ManageMemoryTool : IAgentTool
     /// </summary>
     /// <param name="fileSystem">Abstracted file system for all I/O.</param>
     /// <param name="logger">Structured logger.</param>
-    public ManageMemoryTool(IFileSystem fileSystem, ILogger<ManageMemoryTool> logger)
+    /// <param name="authorizer">C2: central role gate — writing requires Editor. Null permits (legacy).</param>
+    public ManageMemoryTool(IFileSystem fileSystem, ILogger<ManageMemoryTool> logger,
+        IRuleAuthorizer? authorizer = null)
     {
         _fs = fileSystem;
         _logger = logger;
+        _authorizer = authorizer;
     }
+
+    private readonly IRuleAuthorizer? _authorizer;
 
     /// <inheritdoc />
     public async Task<ToolResult> ExecuteAsync(
@@ -59,6 +64,10 @@ internal sealed class ManageMemoryTool : IAgentTool
 
             var action = ToolArgumentHelper.GetRequiredString(call.Arguments, "action").ToLowerInvariant();
             var path = _fs.CombinePath("data", "users", userId, MemoryFileName);
+
+            // C2: only the mutating actions are role-gated — Viewers may still read (matrix row 1).
+            if (action is "write" or "clear" && !MemoryToolAuthorization.MayMutate(_authorizer))
+                return ToolResult.Fail(call.Id, Definition.Name, MemoryToolAuthorization.InsufficientRoleMessage);
 
             _logger.LogInformation("manage_memory action={Action} userId={UserId}", action, userId);
 

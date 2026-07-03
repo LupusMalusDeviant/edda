@@ -1,7 +1,9 @@
 using Edda.Agent.Tests.TestUtilities;
 using Edda.Agent.Tools.Memory;
+using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace Edda.Agent.Tests.Tools.Memory;
 
@@ -118,5 +120,32 @@ public class ManageMemoryToolTests
     public void Definition_HasCorrectName()
     {
         _sut.Definition.Name.Should().Be("manage_memory");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRoleWrite_ReturnsInsufficientRoleFail()
+    {
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ManageMemoryTool(_fs, NullLogger<ManageMemoryTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call("write", "data"), Ctx());
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Insufficient role");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRoleRead_StillAllowed()
+    {
+        await _sut.ExecuteAsync(Call("write", "existing"), Ctx());
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ManageMemoryTool(_fs, NullLogger<ManageMemoryTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call("read"), Ctx());
+
+        result.Success.Should().BeTrue("Viewers may read (matrix row 1)");
+        result.Content.Should().Be("existing");
     }
 }

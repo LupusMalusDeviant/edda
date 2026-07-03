@@ -1,3 +1,4 @@
+using Edda.AKG.Authorization;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -7,23 +8,32 @@ namespace Edda.AKG.Rules;
 /// <summary>
 /// Default <see cref="IRuleBatchService"/> (E8): applies a batch tag/priority operation to a set of rules —
 /// fetching each user-scoped, mutating it via <see cref="BatchRuleOperations"/>, upserting it — and writes a
-/// single audit entry for the whole batch. Best-effort per rule; non-admins may only modify their own rules.
+/// single audit entry for the whole batch. Best-effort per rule; rules the central role matrix (C2) does
+/// not permit the caller to modify are counted as skipped, exactly like the pre-C2 ownership skips.
 /// </summary>
 internal sealed class RuleBatchService : IRuleBatchService
 {
     private readonly IKnowledgeGraph _graph;
     private readonly IAuditLog _audit;
     private readonly ILogger<RuleBatchService> _logger;
+    private readonly IRuleAuthorizer _authorizer;
 
     /// <summary>Initializes a new <see cref="RuleBatchService"/>.</summary>
     /// <param name="graph">Graph the rules are read from and upserted into.</param>
     /// <param name="audit">Audit log the batch outcome is written to.</param>
     /// <param name="logger">Structured logger.</param>
-    public RuleBatchService(IKnowledgeGraph graph, IAuditLog audit, ILogger<RuleBatchService> logger)
+    /// <param name="authorizer">
+    /// C2: central role enforcement per rule. Null falls back to an identity-less
+    /// <see cref="RuleAuthorizer"/> — the legacy owner/admin check.
+    /// </param>
+    public RuleBatchService(
+        IKnowledgeGraph graph, IAuditLog audit, ILogger<RuleBatchService> logger,
+        IRuleAuthorizer? authorizer = null)
     {
         _graph = graph;
         _audit = audit;
         _logger = logger;
+        _authorizer = authorizer ?? new RuleAuthorizer();
     }
 
     /// <inheritdoc />
@@ -45,9 +55,21 @@ internal sealed class RuleBatchService : IRuleBatchService
             try
             {
                 var rule = await _graph.GetRuleAsync(id, userId, cancellationToken).ConfigureAwait(false);
-                if (rule is null || (!isAdmin && !string.Equals(rule.OwnerId, userId, StringComparison.Ordinal)))
+                if (rule is null)
                 {
-                    skipped++;   // not found, or not owned by a non-admin caller
+                    skipped++;   // not found (or out of the caller's scope)
+                    continue;
+                }
+
+                try
+                {
+                    // C2: central role matrix — a rule the caller may not modify is skipped, not failed,
+                    // preserving the pre-C2 accounting for non-owned rules.
+                    _authorizer.EnsureCanMutate(rule, userId, isAdmin);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    skipped++;
                     continue;
                 }
 

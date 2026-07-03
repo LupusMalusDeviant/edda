@@ -48,17 +48,22 @@ internal sealed class ManageLearningsTool : IAgentTool
     /// <param name="timeProvider">Provides the current UTC time for entry timestamps.</param>
     /// <param name="knowledgeGraph">Knowledge graph for mirroring learnings as AKG nodes.</param>
     /// <param name="logger">Structured logger.</param>
+    /// <param name="authorizer">C2: central role gate — writing requires Editor. Null permits (legacy).</param>
     public ManageLearningsTool(
         IFileSystem fileSystem,
         TimeProvider timeProvider,
         IKnowledgeGraph knowledgeGraph,
-        ILogger<ManageLearningsTool> logger)
+        ILogger<ManageLearningsTool> logger,
+        IRuleAuthorizer? authorizer = null)
     {
         _fs = fileSystem;
         _timeProvider = timeProvider;
         _knowledgeGraph = knowledgeGraph;
         _logger = logger;
+        _authorizer = authorizer;
     }
+
+    private readonly IRuleAuthorizer? _authorizer;
 
     /// <inheritdoc />
     public async Task<ToolResult> ExecuteAsync(
@@ -73,6 +78,10 @@ internal sealed class ManageLearningsTool : IAgentTool
 
             var action = ToolArgumentHelper.GetRequiredString(call.Arguments, "action").ToLowerInvariant();
             var path = _fs.CombinePath("data", "users", userId, LearningsFileName);
+
+            // C2: only the mutating actions are role-gated — Viewers may still read (matrix row 1).
+            if (action is "append" or "clear" && !MemoryToolAuthorization.MayMutate(_authorizer))
+                return ToolResult.Fail(call.Id, Definition.Name, MemoryToolAuthorization.InsufficientRoleMessage);
 
             _logger.LogInformation("manage_learnings action={Action} userId={UserId}", action, userId);
 

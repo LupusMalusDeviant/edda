@@ -44,17 +44,22 @@ internal sealed class RememberTool : IAgentTool
     /// C3: token-Jaccard threshold above which an existing memory is treated as superseded by the new fact.
     /// A value greater than 1.0 disables contradiction detection. Defaults to 0.6.
     /// </param>
+    /// <param name="authorizer">C2: central role gate — writing requires Editor. Null permits (legacy).</param>
     public RememberTool(
         IKnowledgeGraph knowledgeGraph,
         TimeProvider timeProvider,
         ILogger<RememberTool> logger,
-        double jaccardThreshold = 0.6)
+        double jaccardThreshold = 0.6,
+        IRuleAuthorizer? authorizer = null)
     {
         _graph = knowledgeGraph;
         _timeProvider = timeProvider;
         _jaccardThreshold = jaccardThreshold;
         _logger = logger;
+        _authorizer = authorizer;
     }
+
+    private readonly IRuleAuthorizer? _authorizer;
 
     /// <inheritdoc />
     public async Task<ToolResult> ExecuteAsync(
@@ -64,6 +69,10 @@ internal sealed class RememberTool : IAgentTool
     {
         try
         {
+            // C2: mutating tool — the role gate rejects Viewers before any argument is parsed.
+            if (!MemoryToolAuthorization.MayMutate(_authorizer))
+                return ToolResult.Fail(call.Id, Definition.Name, MemoryToolAuthorization.InsufficientRoleMessage);
+
             var userId = context.UserId ?? "anonymous";
             var content = ToolArgumentHelper.GetRequiredString(call.Arguments, "content");
             if (string.IsNullOrWhiteSpace(content))

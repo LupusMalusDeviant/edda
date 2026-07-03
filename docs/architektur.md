@@ -93,3 +93,29 @@ diese Bäume sind re-ingestierbar und würden den Papierkorb fluten. Statistiken
 weiterhin den ganzen Graphen (inkl. Papierkorb und Kanten-Historie). Die Historie der Aktionen
 selbst zeigt die Karte **„Letzte Änderungen"** auf `/quality` — die neuesten Einträge des
 HMAC-signierten Audit-Logs mit Signatur-Prüfung je Eintrag.
+
+## Rollen-Modell (ADR-0012)
+
+Aufbauend auf der Tenant-Isolation (der Tenant kommt **ambient** aus `IIdentityContext`, nie aus
+Argumenten oder Modellfeldern) trägt die Identität eine Tenant-Rolle: `TenantRole` mit
+**Viewer < Editor < Owner**. Ungemappte Identitäten sind Viewer (deny-by-default, Enum-Wert 0);
+der Standalone-`LocalIdentityContext` liefert Owner (+ `IsAdmin`) — das Ein-Nutzer-Verhalten
+bleibt unverändert.
+
+| Aktion | Viewer | Editor | Owner | IsAdmin |
+|---|---|---|---|---|
+| Lesen/Kompilieren (im Tenant) | ✓ | ✓ | ✓ | ✓ |
+| Eigene Regel anlegen/ändern/löschen | ✗ | ✓ | ✓ | ✓ |
+| Memory-Tools schreiben (remember/forget/consolidate/rate/manage_*) | ✗ | ✓ | ✓ | ✓ |
+| Fremde/globale Regel ändern/löschen/wiederherstellen/purgen | ✗ | ✗ | ✓ | ✓ |
+| Batch-Operationen über fremde Regeln | ✗ | ✗ | ✓ | ✓ |
+| Tenant-Administration (Reload, Seed, Import) | ✗ | ✗ | ✓ | ✓ |
+
+Durchgesetzt wird die Matrix **zentral** durch einen `IRuleAuthorizer` (statt verstreuter
+owner/admin-Checks): Graph-Löschung, Papierkorb (Restore/Purge), Batch-Service und die
+Admin-Endpoints rufen den Authorizer; die mutierenden Memory-Tools prüfen `CanMutateOwn()` am
+Eintritt und antworten mit `ToolResult.Fail` (Tools werfen nie). `IsAdmin` (Betreiber-Flag)
+übersteuert die Matrix; ohne registrierte Identität gilt die Legacy-Semantik (nur
+Ownership/`isAdmin`). Die **Verwaltung** von Tenant-Mitgliedschaften und Rollen (Claim → Rolle)
+ist bewusst Sache des künftigen Multi-User-Identity-Providers — es gibt keinen Rollen-Store im
+Graphen.

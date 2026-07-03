@@ -183,4 +183,20 @@ public class RememberToolTests
     {
         _sut.Definition.Name.Should().Be("remember");
     }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRole_ReturnsInsufficientRoleFail()
+    {
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new RememberTool(
+            _graph.Object, _time, NullLogger<RememberTool>.Instance, authorizer: authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call(), Ctx());
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Insufficient role");
+        _graph.Verify(g => g.UpsertRuleAsync(It.IsAny<KnowledgeRule>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 }

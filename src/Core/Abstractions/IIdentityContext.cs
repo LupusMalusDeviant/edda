@@ -1,3 +1,5 @@
+using Edda.Core.Models;
+
 namespace Edda.Core.Abstractions;
 
 /// <summary>
@@ -32,4 +34,10 @@ public interface IIdentityContext
     /// Admins can manage global AKG rules and perform privileged operations.
     /// </summary>
     bool IsAdmin { get; }
+
+    /// <summary>
+    /// The identity's membership role within its tenant (C2, ADR-0012). Defaults to the safest role —
+    /// providers that do not map roles yield <see cref="TenantRole.Viewer"/>.
+    /// </summary>
+    TenantRole Role { get; }
 }

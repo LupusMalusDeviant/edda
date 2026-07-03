@@ -111,6 +111,11 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<ICypherExecutor>(),
             sp.GetRequiredService<ILogger<GraphValidator>>()));
 
+        // C2 — central role enforcement (ADR-0012): ONE authorizer over the ambient identity replaces
+        // the scattered owner/admin checks. Without a registered identity it keeps the legacy semantics.
+        services.AddSingleton<IRuleAuthorizer>(sp =>
+            new Authorization.RuleAuthorizer(sp.GetService<IIdentityContext>()));
+
         // Context compiler (orchestrates all 4 phases + F32 feedback multiplier)
         services.AddSingleton<IContextCompiler>(sp => new ContextCompiler(
             sp.GetRequiredService<ICypherExecutor>(),
@@ -138,7 +143,9 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<IBackgroundWorkQueue>(),
             sp.GetRequiredService<ILogger<Neo4jKnowledgeGraph>>(),
             // C1: ambient tenant source (user decision) — null falls back to the default tenant.
-            sp.GetService<IIdentityContext>()));
+            sp.GetService<IIdentityContext>(),
+            // C2: central role matrix for delete/subtree mutations.
+            sp.GetRequiredService<IRuleAuthorizer>()));
 
         // F48 — retrieval benchmark runner (measures CompileContextAsync quality)
         services.AddSingleton<IBenchmarkRunner>(sp => new AkgBenchmarkRunner(
@@ -209,7 +216,12 @@ public static class AkgServiceExtensions
         services.AddSingleton<IRuleConfidenceStore, SlidingWindowRuleConfidenceStore>();
 
         // E8 — batch tag/priority operations over a set of rules (used by the UI + POST /api/akg/rules/batch).
-        services.AddSingleton<IRuleBatchService, Rules.RuleBatchService>();
+        // C2: per-rule mutations go through the central role matrix.
+        services.AddSingleton<IRuleBatchService>(sp => new Rules.RuleBatchService(
+            sp.GetRequiredService<IKnowledgeGraph>(),
+            sp.GetRequiredService<IAuditLog>(),
+            sp.GetRequiredService<ILogger<Rules.RuleBatchService>>(),
+            sp.GetRequiredService<IRuleAuthorizer>()));
 
         // F32 — Rule Feedback Loop (SQLite-backed, optional — disabled if path not set)
         var feedbackDbPath = configuration?["Feedback:DbPath"]
@@ -268,7 +280,9 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<ICypherExecutor>(),
             sp.GetRequiredService<IAuditLog>(),
             sp.GetRequiredService<ILogger<RuleRecycleBin>>(),
-            sp.GetService<IIdentityContext>()));
+            sp.GetService<IIdentityContext>(),
+            // C2: central role matrix for restore/purge.
+            sp.GetRequiredService<IRuleAuthorizer>()));
 
         return services;
     }

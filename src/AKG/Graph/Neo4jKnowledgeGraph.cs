@@ -1,3 +1,4 @@
+using Edda.AKG.Authorization;
 using Edda.AKG.Context;
 using Edda.AKG.Embeddings;
 using Edda.Core.Abstractions;
@@ -49,6 +50,11 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <see cref="IIdentityContext"/>, no per-method tenant parameters). Null falls back to the
     /// default tenant — the single-tenant standalone behavior.
     /// </param>
+    /// <param name="authorizer">
+    /// C2: central role enforcement for rule mutations. Null falls back to an internal
+    /// <see cref="RuleAuthorizer"/> over <paramref name="identity"/> — without an identity that is
+    /// the legacy owner/admin check.
+    /// </param>
     internal Neo4jKnowledgeGraph(
         ICypherExecutor cypher,
         IContextCompiler contextCompiler,
@@ -60,7 +66,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         TimeProvider timeProvider,
         IBackgroundWorkQueue backgroundWorkQueue,
         ILogger<Neo4jKnowledgeGraph> logger,
-        IIdentityContext? identity = null)
+        IIdentityContext? identity = null,
+        IRuleAuthorizer? authorizer = null)
     {
         _cypher = cypher;
         _contextCompiler = contextCompiler;
@@ -73,9 +80,11 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         _backgroundWorkQueue = backgroundWorkQueue;
         _logger = logger;
         _identity = identity;
+        _authorizer = authorizer ?? new RuleAuthorizer(identity);
     }
 
     private readonly IIdentityContext? _identity;
+    private readonly IRuleAuthorizer _authorizer;
 
     /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
     private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
@@ -378,9 +387,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         var rule = await GetRuleAsync(ruleId, userId, cancellationToken).ConfigureAwait(false);
         if (rule is null) return;
 
-        if (!isAdmin && rule.OwnerId != userId)
-            throw new UnauthorizedAccessException(
-                $"User '{userId}' is not authorized to delete rule '{ruleId}'.");
+        // C2: central role matrix (Editor for own rules, Owner for foreign/global; admins override).
+        _authorizer.EnsureCanMutate(rule, userId, isAdmin);
 
         // E10 soft delete: mark the rule instead of removing it. validUntil (coalesced, so an earlier
         // supersede timestamp survives) drops it from context compilation immediately; deletedAt hides
@@ -410,9 +418,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         var root = await GetRuleAsync(rootId, userId, cancellationToken).ConfigureAwait(false);
         if (root is null) return 0;
 
-        if (!isAdmin && root.OwnerId != userId)
-            throw new UnauthorizedAccessException(
-                $"User '{userId}' is not authorized to delete rule '{rootId}'.");
+        // C2: central role matrix (Editor for own rules, Owner for foreign/global; admins override).
+        _authorizer.EnsureCanMutate(root, userId, isAdmin);
 
         // Most heads nest their descendants by id prefix (repo -> its files). The two ingested branch
         // roots aggregate nodes that don't share their prefix, so they map to the whole branch.

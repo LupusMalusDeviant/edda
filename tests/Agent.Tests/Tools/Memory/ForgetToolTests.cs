@@ -80,4 +80,20 @@ public class ForgetToolTests
     {
         _sut.Definition.Name.Should().Be("forget");
     }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRole_ReturnsInsufficientRoleFail()
+    {
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ForgetTool(_graph.Object, NullLogger<ForgetTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call(), Ctx());
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Insufficient role");
+        _graph.Verify(g => g.DeleteRuleAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 }

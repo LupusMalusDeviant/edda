@@ -35,11 +35,16 @@ internal sealed class ConsolidateTool : IAgentTool
     /// <summary>Initializes a new <see cref="ConsolidateTool"/>.</summary>
     /// <param name="consolidator">Shared consolidation logic.</param>
     /// <param name="logger">Structured logger.</param>
-    public ConsolidateTool(IMemoryConsolidator consolidator, ILogger<ConsolidateTool> logger)
+    /// <param name="authorizer">C2: central role gate — writing requires Editor. Null permits (legacy).</param>
+    public ConsolidateTool(IMemoryConsolidator consolidator, ILogger<ConsolidateTool> logger,
+        IRuleAuthorizer? authorizer = null)
     {
         _consolidator = consolidator;
         _logger = logger;
+        _authorizer = authorizer;
     }
+
+    private readonly IRuleAuthorizer? _authorizer;
 
     /// <inheritdoc />
     public async Task<ToolResult> ExecuteAsync(
@@ -49,6 +54,10 @@ internal sealed class ConsolidateTool : IAgentTool
     {
         try
         {
+            // C2: mutating tool — the role gate rejects Viewers before any memory is touched.
+            if (!MemoryToolAuthorization.MayMutate(_authorizer))
+                return ToolResult.Fail(call.Id, Definition.Name, MemoryToolAuthorization.InsufficientRoleMessage);
+
             var userId = context.UserId ?? "anonymous";
             var result = await _consolidator.ConsolidateUserAsync(userId, cancellationToken).ConfigureAwait(false);
 

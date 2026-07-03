@@ -147,5 +147,7 @@ internal sealed class TdkValidateTool : IAgentTool
         public string TenantId => "system";
         public bool IsClone => false;
         public bool IsAdmin => false;
+        // The synthetic validation identity never mutates knowledge — the safest role suffices (C2).
+        public TenantRole Role => TenantRole.Viewer;
     }
 }

@@ -113,4 +113,21 @@ public class RateMemoryToolTests
     {
         _sut.Definition.Name.Should().Be("rate_memory");
     }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRole_ReturnsInsufficientRoleFail()
+    {
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new RateMemoryTool(
+            _feedback.Object, NullLogger<RateMemoryTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call(), Ctx());
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Insufficient role");
+        _feedback.Verify(f => f.RecordRuleRatingAsync(
+            It.IsAny<string>(), It.IsAny<RuleRating>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 }

@@ -106,7 +106,9 @@ public static class AgentToolsServiceExtensions
             sp.GetRequiredService<IKnowledgeGraph>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<RememberTool>>(),
-            jaccardThreshold: ParseSupersedeThreshold(sp.GetService<IConfiguration>())));
+            jaccardThreshold: ParseSupersedeThreshold(sp.GetService<IConfiguration>()),
+            // C2: central role gate for the mutating memory tools (Editor+; null = legacy permit).
+            authorizer: sp.GetService<IRuleAuthorizer>()));
         services.AddSingleton<IAgentTool, RecallTool>();
         services.AddSingleton<IAgentTool, ForgetTool>();
         services.AddSingleton<IAgentTool, ConsolidateTool>();

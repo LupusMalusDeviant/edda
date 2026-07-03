@@ -40,11 +40,16 @@ internal sealed class RateMemoryTool : IAgentTool
     /// <summary>Initializes a new <see cref="RateMemoryTool"/>.</summary>
     /// <param name="feedback">Feedback service the rating is recorded into.</param>
     /// <param name="logger">Structured logger.</param>
-    public RateMemoryTool(IRuleFeedbackService feedback, ILogger<RateMemoryTool> logger)
+    /// <param name="authorizer">C2: central role gate — writing requires Editor. Null permits (legacy).</param>
+    public RateMemoryTool(IRuleFeedbackService feedback, ILogger<RateMemoryTool> logger,
+        IRuleAuthorizer? authorizer = null)
     {
         _feedback = feedback;
         _logger = logger;
+        _authorizer = authorizer;
     }
+
+    private readonly IRuleAuthorizer? _authorizer;
 
     /// <inheritdoc />
     public async Task<ToolResult> ExecuteAsync(
@@ -52,6 +57,10 @@ internal sealed class RateMemoryTool : IAgentTool
     {
         try
         {
+            // C2: mutating tool — the role gate rejects Viewers before any argument is parsed.
+            if (!MemoryToolAuthorization.MayMutate(_authorizer))
+                return ToolResult.Fail(call.Id, Definition.Name, MemoryToolAuthorization.InsufficientRoleMessage);
+
             var userId = context.UserId ?? "anonymous";
 
             var ruleId = ToolArgumentHelper.GetRequiredString(call.Arguments, "ruleId");

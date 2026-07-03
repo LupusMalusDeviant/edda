@@ -1,3 +1,4 @@
+using Edda.AKG.Authorization;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -6,8 +7,9 @@ namespace Edda.AKG.Graph;
 
 /// <summary>
 /// <see cref="IRuleRecycleBin"/> over the graph (E10): lists soft-deleted rules and restores or
-/// permanently purges them. Ownership mirrors the delete rules — non-admins only see and act on
-/// their own rules. Restore and purge are audited (RuleRestored / RulePurged).
+/// permanently purges them. Mutations go through the central role matrix (C2) — Editors act on
+/// their own rules, restoring or purging foreign ones needs the Owner role (admins override).
+/// Restore and purge are audited (RuleRestored / RulePurged).
 /// </summary>
 internal sealed class RuleRecycleBin : IRuleRecycleBin
 {
@@ -17,20 +19,27 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     private readonly IAuditLog _auditLog;
     private readonly ILogger<RuleRecycleBin> _logger;
     private readonly IIdentityContext? _identity;
+    private readonly IRuleAuthorizer _authorizer;
 
     /// <summary>Initializes a new <see cref="RuleRecycleBin"/>.</summary>
     /// <param name="cypher">Cypher executor for graph access.</param>
     /// <param name="auditLog">Audit log for restore/purge events.</param>
     /// <param name="logger">Structured logger.</param>
     /// <param name="identity">C1: ambient tenant source; null = default tenant.</param>
+    /// <param name="authorizer">
+    /// C2: central role enforcement for restore/purge. Null falls back to an internal
+    /// <see cref="RuleAuthorizer"/> over <paramref name="identity"/> — without an identity that is
+    /// the legacy owner/admin check.
+    /// </param>
     public RuleRecycleBin(
         ICypherExecutor cypher, IAuditLog auditLog, ILogger<RuleRecycleBin> logger,
-        IIdentityContext? identity = null)
+        IIdentityContext? identity = null, IRuleAuthorizer? authorizer = null)
     {
         _cypher = cypher;
         _auditLog = auditLog;
         _logger = logger;
         _identity = identity;
+        _authorizer = authorizer ?? new RuleAuthorizer(identity);
     }
 
     /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
@@ -65,7 +74,7 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     {
         var deleted = await FindDeletedAsync(ruleId, cancellationToken).ConfigureAwait(false);
         if (deleted is null) return false;
-        EnsureOwnership(deleted, ruleId, userId, isAdmin, "restore");
+        _authorizer.EnsureCanMutate(OwnerOf(deleted), userId, isAdmin);
 
         // The CASE only clears validUntil when it came from the delete — an earlier supersede
         // timestamp survives the restore.
@@ -93,7 +102,7 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     {
         var deleted = await FindDeletedAsync(ruleId, cancellationToken).ConfigureAwait(false);
         if (deleted is null) return false;
-        EnsureOwnership(deleted, ruleId, userId, isAdmin, "purge");
+        _authorizer.EnsureCanMutate(OwnerOf(deleted), userId, isAdmin);
 
         // The pre-E10 hard delete: remove the rule and its chunks for good.
         await _cypher.ExecuteAsync(
@@ -125,14 +134,11 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
             : NodeMapper.ExtractProperties(rows[0].TryGetValue("r", out var r) ? r : null);
     }
 
-    private static void EnsureOwnership(
-        IReadOnlyDictionary<string, object?> props, string ruleId, string userId, bool isAdmin, string action)
-    {
-        var ownerId = props.TryGetValue("ownerId", out var o) ? o?.ToString() : null;
-        if (!isAdmin && ownerId != userId)
-            throw new UnauthorizedAccessException(
-                $"User '{userId}' is not authorized to {action} rule '{ruleId}'.");
-    }
+    /// <summary>Extracts the owner id from a soft-deleted rule's property row (C2 authorizer input).</summary>
+    /// <param name="props">The rule node's properties.</param>
+    /// <returns>The owner id, or <see langword="null"/> for a global rule.</returns>
+    private static string? OwnerOf(IReadOnlyDictionary<string, object?> props)
+        => props.TryGetValue("ownerId", out var o) ? o?.ToString() : null;
 
     private static DeletedRuleInfo ToInfo(IReadOnlyDictionary<string, object?> props) => new()
     {

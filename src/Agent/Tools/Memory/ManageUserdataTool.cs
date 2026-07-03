@@ -41,11 +41,16 @@ internal sealed class ManageUserdataTool : IAgentTool
     /// </summary>
     /// <param name="fileSystem">Abstracted file system for all I/O.</param>
     /// <param name="logger">Structured logger.</param>
-    public ManageUserdataTool(IFileSystem fileSystem, ILogger<ManageUserdataTool> logger)
+    /// <param name="authorizer">C2: central role gate — writing requires Editor. Null permits (legacy).</param>
+    public ManageUserdataTool(IFileSystem fileSystem, ILogger<ManageUserdataTool> logger,
+        IRuleAuthorizer? authorizer = null)
     {
         _fs = fileSystem;
         _logger = logger;
+        _authorizer = authorizer;
     }
+
+    private readonly IRuleAuthorizer? _authorizer;
 
     /// <inheritdoc />
     public async Task<ToolResult> ExecuteAsync(
@@ -63,6 +68,10 @@ internal sealed class ManageUserdataTool : IAgentTool
             rawAction = rawAction.ToLowerInvariant();
             var action = rawAction switch { "get" => "read", "set" => "write", _ => rawAction };
             var path = _fs.CombinePath("data", "users", userId, UserdataFileName);
+
+            // C2: only the mutating actions are role-gated — Viewers may still read (matrix row 1).
+            if (action is "write" or "delete" && !MemoryToolAuthorization.MayMutate(_authorizer))
+                return ToolResult.Fail(call.Id, Definition.Name, MemoryToolAuthorization.InsufficientRoleMessage);
 
             _logger.LogInformation("manage_userdata action={Action} userId={UserId}", action, userId);
 

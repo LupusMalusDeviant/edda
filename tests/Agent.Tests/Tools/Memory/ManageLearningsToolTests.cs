@@ -148,4 +148,35 @@ public class ManageLearningsToolTests
             true,
             It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRoleAppend_ReturnsInsufficientRoleFail()
+    {
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ManageLearningsTool(
+            _fs, _time, _knowledgeGraph.Object, NullLogger<ManageLearningsTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call("append", "a learning"), Ctx());
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Insufficient role");
+        _knowledgeGraph.Verify(g => g.UpsertRuleAsync(It.IsAny<KnowledgeRule>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRoleRead_StillAllowed()
+    {
+        await _sut.ExecuteAsync(Call("append", "a learning"), Ctx());
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ManageLearningsTool(
+            _fs, _time, _knowledgeGraph.Object, NullLogger<ManageLearningsTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call("read"), Ctx());
+
+        result.Success.Should().BeTrue("Viewers may read (matrix row 1)");
+        result.Content.Should().Contain("a learning");
+    }
 }

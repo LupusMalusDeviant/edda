@@ -103,15 +103,29 @@ internal static class AkgEndpointHandlers
 
     /// <summary>
     /// Reloads all rules from the <c>knowledge/</c> directory into Neo4j.
-    /// Restricted to admins.
+    /// Restricted to admins; the central authorizer (C2) additionally requires the Owner role.
     /// </summary>
+    /// <param name="identity">Authenticated caller identity.</param>
+    /// <param name="authorizer">Central role enforcement (C2).</param>
     /// <param name="graph">Knowledge graph service.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>204 No Content on success.</returns>
+    /// <returns>204 No Content on success; 403 when the role does not permit administration.</returns>
     internal static async Task<IResult> ReloadAsync(
+        IIdentityContext identity,
+        IRuleAuthorizer authorizer,
         IKnowledgeGraph graph,
         CancellationToken ct)
     {
+        // C2: the route policy authenticates; the authorizer enforces the tenant role centrally.
+        try
+        {
+            authorizer.EnsureCanAdminister(identity.IsAdmin);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.Forbid();
+        }
+
         await graph.ReloadAsync(ct);
         return Results.NoContent();
     }

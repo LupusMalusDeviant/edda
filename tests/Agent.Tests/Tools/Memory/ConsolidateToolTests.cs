@@ -75,4 +75,20 @@ public class ConsolidateToolTests
     [Fact]
     public void Definition_HasCorrectName()
         => _sut.Definition.Name.Should().Be("consolidate_memory");
+
+    [Fact]
+    public async Task ExecuteAsync_ViewerRole_ReturnsInsufficientRoleFail()
+    {
+        var authorizer = new Mock<IRuleAuthorizer>();
+        authorizer.Setup(a => a.CanMutateOwn()).Returns(false);
+        var sut = new ConsolidateTool(
+            _consolidator.Object, NullLogger<ConsolidateTool>.Instance, authorizer.Object);
+
+        var result = await sut.ExecuteAsync(Call(), Ctx("user-1"));
+
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("Insufficient role");
+        _consolidator.Verify(c => c.ConsolidateUserAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 }
