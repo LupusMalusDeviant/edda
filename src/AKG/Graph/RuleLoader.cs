@@ -110,6 +110,8 @@ internal sealed class RuleLoader : IRuleLoader
                 r.concepts = $concepts,
                 r.validatorScript = $validatorScript,
                 r.validatorEnabled = $validatorEnabled,
+                r.validatorType = $validatorType,
+                r.validatorPrompt = $validatorPrompt,
                 r.validatorHash = $validatorHash
             """,
             new
@@ -130,8 +132,11 @@ internal sealed class RuleLoader : IRuleLoader
                 concepts,
                 validatorScript = rule.ValidatorScript,
                 validatorEnabled = rule.ValidatorEnabled,
-                // F7: persist the script hash for confidence-history traceability (recomputed on each load).
-                validatorHash = ValidatorScriptHash.Compute(rule.ValidatorScript),
+                validatorType = rule.ValidatorType,
+                validatorPrompt = rule.ValidatorPrompt,
+                // F7: persist the validator-source hash for confidence-history traceability (recomputed
+                // on each load). F16: llm rules hash their prompt — a prompt change resets the window.
+                validatorHash = ValidatorScriptHash.Compute(rule.ValidatorScript ?? rule.ValidatorPrompt),
             },
             ct).ConfigureAwait(false);
 

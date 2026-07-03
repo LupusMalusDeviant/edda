@@ -464,6 +464,55 @@ public class Neo4jKnowledgeGraphTests
     }
 
     [Fact]
+    public async Task UpsertRuleAsync_LlmValidator_PersistsTypeAndPrompt()
+    {
+        // F16: validatorType/validatorPrompt survive the round-trip like the other validator fields.
+        var graph = CreateGraph();
+        var rule = new KnowledgeRule
+        {
+            Id = "llm-rule",
+            Domain = "coding",
+            Type = "Rule",
+            Priority = RulePriority.Medium,
+            Body = "Body.",
+            ValidatorType = "llm",
+            ValidatorPrompt = "Error messages must be actionable.",
+        };
+
+        await graph.UpsertRuleAsync(rule);
+
+        _cypher.ExecutedWriteQueries.Should().Contain(q =>
+            q.Contains("MERGE (r:Rule {id: $id})")
+            && q.Contains("r.validatorType = $validatorType")
+            && q.Contains("r.validatorPrompt = $validatorPrompt"));
+    }
+
+    [Fact]
+    public async Task GetRuleAsync_NodeWithLlmValidator_MapsTypeAndPrompt()
+    {
+        var node = new Mock<INode>();
+        node.SetupGet(n => n.Properties).Returns(new Dictionary<string, object?>
+        {
+            ["id"] = "llm-rule",
+            ["body"] = "b",
+            ["priority"] = "Medium",
+            ["domain"] = "coding",
+            ["type"] = "Rule",
+            ["tags"] = new List<object>(),
+            ["validatorType"] = "llm",
+            ["validatorPrompt"] = "Error messages must be actionable.",
+        });
+        _cypher.DefaultResult = RowsWithNode("r", node.Object);
+        var graph = CreateGraph();
+
+        var rule = await graph.GetRuleAsync("llm-rule", "u1");
+
+        rule.Should().NotBeNull();
+        rule!.ValidatorType.Should().Be("llm");
+        rule.ValidatorPrompt.Should().Be("Error messages must be actionable.");
+    }
+
+    [Fact]
     public async Task GetRuleAsync_NodeWithConcepts_MapsWhenRelevant()
     {
         var node = new Mock<INode>();

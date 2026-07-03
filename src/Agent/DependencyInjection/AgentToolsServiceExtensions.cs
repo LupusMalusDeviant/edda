@@ -58,7 +58,9 @@ public static class AgentToolsServiceExtensions
                 sp.GetRequiredService<ITdkHelperModule>(),
                 resultCache: sp.GetRequiredService<ITdkResultCache>(),
                 // F11: opt-in single-container batch mode; default off preserves per-pair behavior.
-                batchEnabled: ParseTdkBatch(sp.GetService<IConfiguration>())));
+                batchEnabled: ParseTdkBatch(sp.GetService<IConfiguration>()),
+                // F16: optional llm judge — registered by the host only when TDK_LLM_JUDGE=true.
+                llmJudge: sp.GetService<ITdkLlmJudge>()));
 
         return services;
     }

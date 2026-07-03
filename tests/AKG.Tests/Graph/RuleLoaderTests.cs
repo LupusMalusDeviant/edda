@@ -66,6 +66,32 @@ public class RuleLoaderTests
     }
 
     [Fact]
+    public async Task LoadFromDirectoryAsync_LlmRule_PersistsTypeAndPrompt()
+    {
+        // F16 load-path test: frontmatter validatorType/validatorPrompt reach the upsert query.
+        _fs.AddFile(
+            "knowledge/actionable.md",
+            """
+            ---
+            id: actionable-errors
+            title: Actionable Errors
+            domain: coding
+            validatorType: llm
+            validatorPrompt: |
+              Error messages must be actionable.
+            ---
+            Body.
+            """);
+        var loader = CreateLoader();
+
+        var loaded = await loader.LoadFromDirectoryAsync("knowledge", CancellationToken.None);
+
+        loaded.Should().Be(1);
+        _cypher.ExecutedWriteQueries.Should().Contain(q =>
+            q.Contains("r.validatorType = $validatorType") && q.Contains("r.validatorPrompt = $validatorPrompt"));
+    }
+
+    [Fact]
     public async Task LoadFromDirectoryAsync_MissingDirectory_ReturnsZero()
     {
         var loader = CreateLoader();

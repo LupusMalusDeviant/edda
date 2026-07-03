@@ -211,6 +211,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
                 r.supersedes = $supersedes,
                 r.related = $related,
                 r.concepts = $concepts,
+                r.validatorType = $validatorType,
+                r.validatorPrompt = $validatorPrompt,
                 r.chunkStyle = $chunkStyle,
                 r.validFrom = coalesce(r.validFrom, $now)
             """,
@@ -231,6 +233,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
                 supersedes,
                 related,
                 concepts,
+                validatorType = rule.ValidatorType,
+                validatorPrompt = rule.ValidatorPrompt,
                 chunkStyle = rule.ChunkStyle,
                 now = _timeProvider.GetUtcNow().ToString("O"),
             },

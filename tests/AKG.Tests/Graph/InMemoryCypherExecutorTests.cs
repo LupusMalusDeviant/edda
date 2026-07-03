@@ -30,6 +30,8 @@ public sealed class InMemoryCypherExecutorTests
             r.supersedes = $supersedes,
             r.related = $related,
             r.concepts = $concepts,
+            r.validatorType = $validatorType,
+            r.validatorPrompt = $validatorPrompt,
             r.chunkStyle = $chunkStyle,
             r.validFrom = coalesce(r.validFrom, $now)
         """;
@@ -89,6 +91,7 @@ public sealed class InMemoryCypherExecutorTests
     private Task Upsert(
         string id, string domain = "csharp", string type = "Rule", string? ownerId = null,
         string[]? tags = null, string[]? supersedes = null, string[]? concepts = null,
+        string? validatorType = null, string? validatorPrompt = null,
         string now = "2026-01-01T00:00:00.0000000+00:00")
         => _sut.ExecuteAsync(UpsertQuery, new
         {
@@ -106,6 +109,8 @@ public sealed class InMemoryCypherExecutorTests
             supersedes = supersedes ?? [],
             related = Array.Empty<string>(),
             concepts = concepts ?? [],
+            validatorType,
+            validatorPrompt,
             chunkStyle = (string?)null,
             now,
         });
@@ -413,6 +418,20 @@ public sealed class InMemoryCypherExecutorTests
         bin.Should().BeEmpty();
         var active = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "a", userId = "u1" });
         active.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Upsert_GetRule_RoundTripsValidatorTypeAndPrompt()
+    {
+        // F16: the llm-judge fields survive the in-memory round-trip like on Neo4j.
+        await Upsert("llm-rule", validatorType: "llm", validatorPrompt: "Be actionable.");
+
+        var rows = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "llm-rule", userId = (string?)null });
+
+        rows.Should().ContainSingle();
+        var props = (IReadOnlyDictionary<string, object?>)rows[0]["r"]!;
+        props.GetValueOrDefault("validatorType").Should().Be("llm");
+        props.GetValueOrDefault("validatorPrompt").Should().Be("Be actionable.");
     }
 
     [Fact]

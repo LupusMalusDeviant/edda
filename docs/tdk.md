@@ -127,6 +127,33 @@ Auslöser:
 Fixtures sind **Authoring-Metadaten**: Sie werden aus dem Markdown geparst, aber **nicht** in den
 Graphen persistiert und spielen zur Laufzeit von `tdk_validate` keine Rolle.
 
+## LLM-Judge-Validatoren (opt-in)
+
+Für **semantische** Prüfungen, die Regex/AST nicht fassen, kann eine Regel statt eines Skripts
+einen natürlichsprachlichen Prüf-Prompt tragen:
+
+```yaml
+validatorType: llm
+validatorPrompt: |
+  Fehlermeldungen im Code müssen actionable sein: Sie nennen die Ursache UND den nächsten
+  Schritt für den Nutzer. Melde jede Fehlermeldung, die nur den Zustand beschreibt.
+```
+
+Der Judge liefert dasselbe Verdikt-Format wie Skript-Validatoren (`pass` + `violations` mit
+Severity/Zeile/Vorschlag) und läuft **nie** in der Sandbox oder im F11-Batch.
+
+**Doppeltes Opt-in (konsistent zu ADR-0010):** `TDK_LLM_JUDGE=true` **und** ein konfigurierter
+Ingest-LLM-Provider (`INGESTION_LLM_*`) sind nötig. Ohne Flag werden llm-Regeln still übersprungen;
+ohne funktionierenden Provider werden sie als Engine-Fehler gemeldet (und **nicht** in die
+Konfidenz gebucht). Echte Verdikte buchen dagegen normal Konfidenz — das Sliding-Window (F7)
+wertet einen flatternden, unzuverlässigen Judge dadurch automatisch ab; eine Prompt-Änderung
+resettet das Fenster (Hash über den Prompt).
+
+**Härtung:** Der Judge bekommt einen festen JSON-only-Systemrahmen, der den Code ausdrücklich als
+Daten deklariert (Anweisungen im geprüften Code werden ignoriert); unparsebare Antworten sind
+Engine-Fehler. Der Judge hat keinerlei Tool- oder Dateizugriff. Die F5-`validatorFixtures` gelten
+nur für Skript-Validatoren; deterministische Validatoren bleiben der Kern von TDK.
+
 ## Schweregrade (`severity`)
 
 Jeder Verstoß trägt einen `severity`-Wert. Die drei Stufen haben eine feste Bedeutung:

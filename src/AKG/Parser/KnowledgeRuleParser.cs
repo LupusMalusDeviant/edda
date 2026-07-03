@@ -61,6 +61,9 @@ public sealed class KnowledgeRuleParser
         var tenantIdStr = GetString(fields, "tenantId");
         var author = GetString(fields, "author");
         var validatorScript = GetString(fields, "validatorScript");
+        // F16: optional LLM-judge validator (validatorType: llm + a natural-language prompt).
+        var validatorType = GetString(fields, "validatorType");
+        var validatorPrompt = GetString(fields, "validatorPrompt");
         // F7 kill-switch: enabled unless the frontmatter explicitly sets `validatorEnabled: false`.
         var validatorEnabled = !string.Equals(GetString(fields, "validatorEnabled"), "false", StringComparison.OrdinalIgnoreCase);
         // F5: optional validator self-test fixtures (nested pass/fail block-scalar lists).
@@ -115,6 +118,8 @@ public sealed class KnowledgeRuleParser
             AppliesTo = appliesTo,
             ValidatorScript = string.IsNullOrWhiteSpace(validatorScript) ? null : validatorScript,
             ValidatorEnabled = validatorEnabled,
+            ValidatorType = string.IsNullOrWhiteSpace(validatorType) ? null : validatorType,
+            ValidatorPrompt = string.IsNullOrWhiteSpace(validatorPrompt) ? null : validatorPrompt,
             ValidatorFixtures = validatorFixtures,
         };
     }

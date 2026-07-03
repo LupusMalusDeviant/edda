@@ -54,6 +54,8 @@ internal static class NodeMapper
             ValidatorScript = node.Properties.TryGetValue("validatorScript", out var vs) ? vs?.ToString() : null,
             ValidatorEnabled = !(node.Properties.TryGetValue("validatorEnabled", out var ve) && (ve is false || ve as string == "false")),
             ValidatorHash = node.Properties.TryGetValue("validatorHash", out var vh) ? vh?.ToString() : null,
+            ValidatorType = node.Properties.TryGetValue("validatorType", out var vt) ? vt?.ToString() : null,
+            ValidatorPrompt = node.Properties.TryGetValue("validatorPrompt", out var vp) ? vp?.ToString() : null,
         };
     }
 
@@ -118,6 +120,8 @@ internal static class NodeMapper
             ValidatorScript = props.TryGetValue("validatorScript", out var vs) ? vs?.ToString() : null,
             ValidatorEnabled = !(props.TryGetValue("validatorEnabled", out var ve) && (ve is false || ve as string == "false")),
             ValidatorHash = props.TryGetValue("validatorHash", out var vh) ? vh?.ToString() : null,
+            ValidatorType = props.TryGetValue("validatorType", out var vt) ? vt?.ToString() : null,
+            ValidatorPrompt = props.TryGetValue("validatorPrompt", out var vp) ? vp?.ToString() : null,
         };
     }
 
@@ -141,6 +145,8 @@ internal static class NodeMapper
             ValidatorScript = dict.TryGetValue("validatorScript", out var vs) ? vs?.ToString() : null,
             ValidatorEnabled = !(dict.TryGetValue("validatorEnabled", out var ve) && (ve is false || ve as string == "false")),
             ValidatorHash = dict.TryGetValue("validatorHash", out var vh) ? vh?.ToString() : null,
+            ValidatorType = dict.TryGetValue("validatorType", out var vt) ? vt?.ToString() : null,
+            ValidatorPrompt = dict.TryGetValue("validatorPrompt", out var vp) ? vp?.ToString() : null,
         };
     }
 

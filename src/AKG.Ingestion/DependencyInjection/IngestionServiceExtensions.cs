@@ -83,6 +83,12 @@ public static class IngestionServiceExtensions
             sp.GetRequiredService<IPdfTextExtractor>(),
             allowImportedValidators));
 
+        // F16: opt-in LLM judge for TDK rules (validatorType: llm). Default off — registered only when
+        // TDK_LLM_JUDGE=true; degrades to an engine error when no LLM provider is configured. The TDK
+        // engine takes the judge as an optional dependency, so absence simply skips llm rules.
+        if (string.Equals(configuration["TDK_LLM_JUDGE"], "true", StringComparison.OrdinalIgnoreCase))
+            services.AddSingleton<ITdkLlmJudge, LlmTdkJudge>();
+
         return services;
     }
 

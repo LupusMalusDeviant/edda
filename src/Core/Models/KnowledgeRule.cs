@@ -60,6 +60,15 @@ public sealed record KnowledgeRule
     public string? ValidatorHash { get; init; }
 
     /// <summary>
+    /// Validator kind (F16): null/absent = script validator (the default); <c>"llm"</c> = the rule is
+    /// judged by the optional LLM judge using <see cref="ValidatorPrompt"/>.
+    /// </summary>
+    public string? ValidatorType { get; init; }
+
+    /// <summary>Natural-language judge prompt for <c>validatorType: llm</c> rules (F16). Null otherwise.</summary>
+    public string? ValidatorPrompt { get; init; }
+
+    /// <summary>
     /// Optional list of source languages this rule's TDK validator targets (e.g. <c>python</c>,
     /// <c>csharp</c>). Empty means the validator applies to code blocks in any language. Lets the TDK
     /// engine skip a (rule × block) pair whose block language the rule does not target — before a

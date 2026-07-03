@@ -35,6 +35,10 @@ public sealed class TdkEngine : ITdkEngine
     /// runner instead of one sandbox per pair. Default false preserves the per-pair behavior.</summary>
     private readonly bool _batchEnabled;
 
+    /// <summary>F16: optional LLM judge for <c>validatorType: llm</c> rules. Null = feature off —
+    /// llm rules are skipped with a debug log (no engine error, no confidence outcome).</summary>
+    private readonly ITdkLlmJudge? _llmJudge;
+
     /// <summary>
     /// Initializes a new <see cref="TdkEngine"/>.
     /// </summary>
@@ -57,6 +61,10 @@ public sealed class TdkEngine : ITdkEngine
     /// F11: when true, all (rule × block) validators run in a single sandbox (batch runner) instead of
     /// one sandbox per pair. Defaults to false — the per-pair behavior, unchanged.
     /// </param>
+    /// <param name="llmJudge">
+    /// F16: optional LLM judge for <c>validatorType: llm</c> rules. Null (the default) disables the
+    /// feature — llm rules are skipped silently. Registered only when <c>TDK_LLM_JUDGE=true</c>.
+    /// </param>
     public TdkEngine(
         ISandboxFactory sandboxFactory,
         IRuleConfidenceStore confidenceStore,
@@ -64,7 +72,8 @@ public sealed class TdkEngine : ITdkEngine
         ITdkHelperModule helper,
         IRuleFeedbackService? feedbackService = null,
         ITdkResultCache? resultCache = null,
-        bool batchEnabled = false)
+        bool batchEnabled = false,
+        ITdkLlmJudge? llmJudge = null)
     {
         _sandboxFactory  = sandboxFactory;
         _confidenceStore = confidenceStore;
@@ -73,6 +82,7 @@ public sealed class TdkEngine : ITdkEngine
         _logger          = logger;
         _helperFiles     = new Dictionary<string, string>(1) { [helper.FileName] = helper.Source };
         _batchEnabled    = batchEnabled;
+        _llmJudge        = llmJudge;
     }
 
     /// <inheritdoc />
@@ -82,9 +92,10 @@ public sealed class TdkEngine : ITdkEngine
         AgentRequest request,
         CancellationToken cancellationToken = default)
     {
-        // 1. Only rules with a ValidatorScript whose validator is enabled (F7 kill-switch: a disabled
-        //    validator stays in the graph but does not run).
-        var validatorRules = rules.Where(r => r.ValidatorScript != null && r.ValidatorEnabled).ToList();
+        // 1. Only enabled validators run (F7 kill-switch): script rules carry a ValidatorScript;
+        //    llm rules (F16) carry validatorType: llm plus a ValidatorPrompt.
+        var validatorRules = rules.Where(r =>
+            r.ValidatorEnabled && (r.ValidatorScript != null || IsLlmRule(r))).ToList();
         if (validatorRules.Count == 0)
         {
             _logger.LogDebug("TDK: no validator rules active — skipping validation");
@@ -103,16 +114,25 @@ public sealed class TdkEngine : ITdkEngine
             "TDK: validating {BlockCount} code block(s) against {RuleCount} rule(s)",
             codeBlocks.Count, validatorRules.Count);
 
-        // F11: opt-in batch mode runs every (rule × block) pair in a single sandbox.
-        if (_batchEnabled)
-            return await BatchValidateAsync(validatorRules, codeBlocks, request, cancellationToken)
-                .ConfigureAwait(false);
+        // F16: llm-judge rules never run in the sandbox — they are judged separately (in both the
+        // per-pair and the batch mode), before the script validators.
+        var llmRules = validatorRules.Where(IsLlmRule).ToList();
+        var scriptRules = validatorRules.Where(r => !IsLlmRule(r)).ToList();
 
-        // 3. Validate each (rule × code block) combination
         var allViolations = new List<TdkViolation>();
         var engineErrors = new List<TdkEngineError>();
 
-        foreach (var rule in validatorRules)
+        await JudgeLlmRulesAsync(llmRules, codeBlocks, allViolations, engineErrors, cancellationToken)
+            .ConfigureAwait(false);
+
+        // F11: opt-in batch mode runs every script (rule × block) pair in a single sandbox.
+        if (_batchEnabled)
+            return await BatchValidateAsync(
+                scriptRules, codeBlocks, request, allViolations, engineErrors, cancellationToken)
+                .ConfigureAwait(false);
+
+        // 3. Validate each script (rule × code block) combination
+        foreach (var rule in scriptRules)
         {
             foreach (var block in codeBlocks)
             {
@@ -299,10 +319,10 @@ public sealed class TdkEngine : ITdkEngine
         IReadOnlyList<KnowledgeRule> validatorRules,
         IReadOnlyList<CodeBlock> codeBlocks,
         AgentRequest request,
+        List<TdkViolation> allViolations,
+        List<TdkEngineError> engineErrors,
         CancellationToken ct)
     {
-        var allViolations = new List<TdkViolation>();
-        var engineErrors = new List<TdkEngineError>();
         var jobs = new List<TdkBatchJob>();
         var meta = new List<(KnowledgeRule Rule, string? CacheKey)>();
 
@@ -446,5 +466,89 @@ public sealed class TdkEngine : ITdkEngine
         }
 
         return BuildResult(allViolations, engineErrors);
+    }
+
+    /// <summary>Whether the rule is an F16 llm-judge rule (validatorType: llm plus a prompt).</summary>
+    private static bool IsLlmRule(KnowledgeRule rule)
+        => string.Equals(rule.ValidatorType, "llm", StringComparison.OrdinalIgnoreCase)
+           && rule.ValidatorPrompt != null;
+
+    /// <summary>
+    /// F16: judges every (llm rule × block) pair via the optional LLM judge. Honors the F9 language
+    /// filter and the F13 cache (prompt as the validator source); a real verdict records a confidence
+    /// outcome (the sliding window automatically devalues an unreliable judge), while judge failures
+    /// become engine errors and never touch confidence. Without a registered judge, llm rules are
+    /// skipped silently — off is off.
+    /// </summary>
+    private async Task JudgeLlmRulesAsync(
+        IReadOnlyList<KnowledgeRule> llmRules,
+        IReadOnlyList<CodeBlock> codeBlocks,
+        List<TdkViolation> allViolations,
+        List<TdkEngineError> engineErrors,
+        CancellationToken ct)
+    {
+        if (llmRules.Count == 0)
+            return;
+
+        if (_llmJudge is null)
+        {
+            _logger.LogDebug(
+                "TDK: {Count} llm-judge rule(s) present but TDK_LLM_JUDGE is not enabled — skipping",
+                llmRules.Count);
+            return;
+        }
+
+        foreach (var rule in llmRules)
+        {
+            foreach (var block in codeBlocks)
+            {
+                if (!TdkLanguageMatcher.Applies(rule.AppliesTo, block.Language))
+                    continue;
+
+                var cacheKey = _resultCache is null
+                    ? null
+                    : TdkResultCacheKey.Compute(rule.Id, rule.ValidatorPrompt!, block.Language, block.Code);
+                if (cacheKey is not null && _resultCache!.Get(cacheKey) is { } cached)
+                {
+                    if (!cached.Pass)
+                        allViolations.AddRange(cached.Violations);
+                    continue;
+                }
+
+                TdkJudgeResult verdict;
+                try
+                {
+                    verdict = await _llmJudge.JudgeAsync(new TdkJudgeRequest
+                    {
+                        RuleId = rule.Id,
+                        Prompt = rule.ValidatorPrompt!,
+                        Code = block.Code,
+                        Language = block.Language,
+                    }, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "TDK: llm judge threw for rule {RuleId}", rule.Id);
+                    engineErrors.Add(new TdkEngineError(rule.Id, "llm judge threw: " + ex.Message));
+                    continue;
+                }
+
+                if (!verdict.Executed)
+                {
+                    engineErrors.Add(new TdkEngineError(
+                        rule.Id, "llm judge failed: " + (verdict.Error ?? "unknown")));
+                    continue;
+                }
+
+                RecordTdkOutcome(
+                    rule.Id, passed: verdict.Pass, ValidatorScriptHash.Compute(rule.ValidatorPrompt), ct);
+
+                if (cacheKey is not null)
+                    _resultCache?.Set(cacheKey, new TdkCachedOutcome(verdict.Pass, verdict.Violations));
+
+                if (!verdict.Pass)
+                    allViolations.AddRange(verdict.Violations);
+            }
+        }
     }
 }
