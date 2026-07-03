@@ -39,6 +39,28 @@ public sealed record AuditEntry
 /// <param name="EntryHash">SHA-256 hex digest of <see cref="Entry"/>, used as <see cref="AuditEntry.PrevHash"/> by the next entry.</param>
 public sealed record SignedAuditEntry(string Entry, string Mac, string EntryHash);
 
+/// <summary>A decoded audit entry as returned by the read API (E10), including its HMAC verdict.</summary>
+public sealed record AuditLogEntryView
+{
+    /// <summary>Monotonic sequence number.</summary>
+    public required long Seq { get; init; }
+
+    /// <summary>When the entry was written.</summary>
+    public required DateTimeOffset Timestamp { get; init; }
+
+    /// <summary>The event type name (string form of <see cref="AuditEvent"/>).</summary>
+    public required string EventType { get; init; }
+
+    /// <summary>The acting user.</summary>
+    public required string UserId { get; init; }
+
+    /// <summary>Human-readable description.</summary>
+    public required string Description { get; init; }
+
+    /// <summary>Whether the entry's HMAC signature verified.</summary>
+    public required bool Valid { get; init; }
+}
+
 /// <summary>
 /// Summarizes the result of a full Merkle audit chain verification.
 /// </summary>

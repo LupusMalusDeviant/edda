@@ -281,6 +281,34 @@ public class Neo4jKnowledgeGraphTests
     }
 
     [Fact]
+    public async Task DeleteRuleAsync_SoftDeletes_SetsMarkersInsteadOfDetachDelete()
+    {
+        // E10: deletion marks the rule (deletedAt/deletedBy + coalesced validUntil) instead of
+        // removing it, so it can be restored from the recycle bin.
+        var node = CreateRuleNode("rule-soft", ownerId: "u1");
+        _cypher.DefaultResult = RowsWithNode("r", node);
+        var graph = CreateGraph();
+
+        await graph.DeleteRuleAsync("rule-soft", userId: "u1");
+
+        var deleteQuery = _cypher.ExecutedWriteQueries.Single(q => q.Contains("r.deletedAt"));
+        deleteQuery.Should().Contain("SET r.deletedAt = $now");
+        deleteQuery.Should().Contain("r.validUntil = coalesce(r.validUntil, $now)");
+        _cypher.ExecutedWriteQueries.Should().NotContain(q => q.Contains("DETACH DELETE"));
+    }
+
+    [Fact]
+    public async Task GetRuleAsync_Query_ExcludesSoftDeleted()
+    {
+        var graph = CreateGraph();
+
+        await graph.GetRuleAsync("any-rule", "u1");
+
+        _cypher.ExecutedQueries.Should().Contain(q =>
+            q.Contains("{id: $ruleId}") && q.Contains("r.deletedAt IS NULL"));
+    }
+
+    [Fact]
     public async Task UpsertRuleAsync_EmbeddingAvailable_EmbedsSingleRule()
     {
         var embeddingService = new Mock<IEmbeddingService>();

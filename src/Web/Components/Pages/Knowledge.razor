@@ -5,6 +5,7 @@
 @inject IKnowledgeGraph KnowledgeGraph
 @inject IIdentityContext Identity
 @inject IRuleBatchService RuleBatch
+@inject IRuleRecycleBin RecycleBin
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -181,6 +182,67 @@ else
             }
         </div>
     </div>
+
+    <div class="mt-3">
+        <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleBinAsync" disabled="@_binBusy">
+            @(_binOpen ? Loc["knowledge.bin.hide"] : Loc["knowledge.bin.toggle"])@(_binItems is { Count: > 0 } ? $" ({_binItems.Count})" : "")
+        </button>
+    </div>
+
+    @if (_binError is not null)
+    {
+        <div class="alert alert-danger mt-2" style="max-width:900px;">@_binError</div>
+    }
+
+    @if (_binOpen)
+    {
+        <h5 class="mt-2" style="font-size:.95rem;">@Loc["knowledge.bin.heading"]</h5>
+        @if (_binItems is null || _binItems.Count == 0)
+        {
+            <div class="alert alert-secondary" style="max-width:900px;">@Loc["knowledge.bin.empty"]</div>
+        }
+        else
+        {
+            <table class="table table-sm" style="max-width:900px;">
+                <thead>
+                    <tr>
+                        <th>@Loc["knowledge.bin.col.rule"]</th>
+                        <th>@Loc["knowledge.bin.col.domain"]</th>
+                        <th>@Loc["knowledge.bin.col.deletedat"]</th>
+                        <th>@Loc["knowledge.bin.col.deletedby"]</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _binItems)
+                    {
+                        <tr>
+                            <td>
+                                <code>@item.Id</code>
+                                @if (!string.IsNullOrEmpty(item.BodyPreview))
+                                {
+                                    <div style="font-size:.75rem;color:#94a3b8;">@item.BodyPreview</div>
+                                }
+                            </td>
+                            <td>@item.Domain</td>
+                            <td>@(item.DeletedAt?.ToLocalTime().ToString("g") ?? "—")</td>
+                            <td>@(item.DeletedBy ?? "—")</td>
+                            <td class="text-nowrap">
+                                <button class="btn btn-sm btn-outline-success me-1"
+                                        @onclick="() => RestoreAsync(item.Id)" disabled="@_binBusy">
+                                    @Loc["knowledge.bin.restore"]
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => PurgeAsync(item.Id)" disabled="@_binBusy">
+                                    @Loc["knowledge.bin.purge"]
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
 }
 
 @code {
@@ -202,6 +264,11 @@ else
     private string? _deleteError;
     private bool _seeding;
     private string? _seedMessage;
+
+    private bool _binOpen;
+    private bool _binBusy;
+    private string? _binError;
+    private IReadOnlyList<DeletedRuleInfo>? _binItems;
     private KnowledgeGraphView? _graphView;
 
     // E1: search + filter over the loaded head nodes.
@@ -500,5 +567,72 @@ else
     {
         _mode = PageMode.View;
         _editRule = null;
+    }
+
+    private async Task ToggleBinAsync()
+    {
+        _binOpen = !_binOpen;
+        if (_binOpen)
+            await LoadBinAsync();
+    }
+
+    private async Task LoadBinAsync()
+    {
+        _binBusy = true;
+        _binError = null;
+        try
+        {
+            _binItems = await RecycleBin.ListAsync(Identity.UserId ?? "local", Identity.IsAdmin);
+        }
+        catch (Exception ex)
+        {
+            _binError = string.Format(Loc["knowledge.bin.error"], ex.Message);
+        }
+        finally
+        {
+            _binBusy = false;
+        }
+    }
+
+    private async Task RestoreAsync(string ruleId)
+    {
+        _binBusy = true;
+        _binError = null;
+        try
+        {
+            await RecycleBin.RestoreAsync(ruleId, Identity.UserId ?? "local", Identity.IsAdmin);
+            _graphKey++;
+            await LoadRulesAsync();
+        }
+        catch (Exception ex)
+        {
+            _binError = string.Format(Loc["knowledge.bin.error"], ex.Message);
+        }
+        finally
+        {
+            _binBusy = false;
+        }
+
+        await LoadBinAsync();
+    }
+
+    private async Task PurgeAsync(string ruleId)
+    {
+        _binBusy = true;
+        _binError = null;
+        try
+        {
+            await RecycleBin.PurgeAsync(ruleId, Identity.UserId ?? "local", Identity.IsAdmin);
+        }
+        catch (Exception ex)
+        {
+            _binError = string.Format(Loc["knowledge.bin.error"], ex.Message);
+        }
+        finally
+        {
+            _binBusy = false;
+        }
+
+        await LoadBinAsync();
     }
 }

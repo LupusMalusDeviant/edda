@@ -7,6 +7,7 @@
 @inject TimeProvider Time
 @inject IBenchmarkRunner Benchmark
 @inject IFileSystem FileSystem
+@inject IAuditLog AuditLog
 @implements IDisposable
 
 <PageTitle>@Loc["quality.title"]</PageTitle>
@@ -109,6 +110,49 @@ else
     </table>
 }
 
+<hr />
+
+<h5 style="font-size:.95rem;">@Loc["quality.audit.heading"]</h5>
+<p class="text-muted" style="font-size:.8rem;">@Loc["quality.audit.desc"]</p>
+@if (_auditError is not null)
+{
+    <div class="alert alert-danger py-2 px-3" style="font-size:.85rem;">@_auditError</div>
+}
+else if (_auditEntries is null || _auditEntries.Count == 0)
+{
+    <div class="alert alert-secondary py-2 px-3" style="font-size:.85rem;">@Loc["quality.audit.empty"]</div>
+}
+else
+{
+    <table class="table table-sm table-dark" style="max-width:900px;font-size:.82rem;">
+        <thead>
+            <tr>
+                <th>@Loc["quality.audit.col.time"]</th>
+                <th>@Loc["quality.audit.col.event"]</th>
+                <th>@Loc["quality.audit.col.user"]</th>
+                <th>@Loc["quality.audit.col.desc"]</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var e in _auditEntries)
+            {
+                <tr>
+                    <td class="text-nowrap">@e.Timestamp.ToLocalTime().ToString("g")</td>
+                    <td>
+                        <code>@e.EventType</code>
+                        @if (!e.Valid)
+                        {
+                            <span title="@Loc["quality.audit.invalid"]" style="color:#f87171;"> ⚠️</span>
+                        }
+                    </td>
+                    <td>@e.UserId</td>
+                    <td>@e.Description</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
 @code {
     private const int StaleDays = 90;
     private const string DatasetPath = "docs/benchmark-baseline-dataset.json";
@@ -117,6 +161,8 @@ else
     private BenchmarkReport? _benchReport;
     private bool _benchRunning;
     private string? _benchMessage;
+    private IReadOnlyList<AuditLogEntryView>? _auditEntries;
+    private string? _auditError;
 
     protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
 
@@ -133,6 +179,15 @@ else
         catch
         {
             _report = null;   // best-effort — the page still renders a friendly message
+        }
+
+        try
+        {
+            _auditEntries = await AuditLog.ReadRecentAsync(50);
+        }
+        catch (Exception ex)
+        {
+            _auditError = string.Format(Loc["quality.audit.error"], ex.Message);
         }
     }
 

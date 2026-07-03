@@ -22,4 +22,13 @@ public interface IAuditLog
         string description,
         IDictionary<string, object?>? metadata = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the most recent audit entries (newest first), verifying each entry's HMAC. Intended for
+    /// the UI history view (E10); reads never mutate the chain.
+    /// </summary>
+    /// <param name="limit">Maximum number of entries to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The decoded entries, newest first.</returns>
+    Task<IReadOnlyList<AuditLogEntryView>> ReadRecentAsync(int limit, CancellationToken cancellationToken = default);
 }

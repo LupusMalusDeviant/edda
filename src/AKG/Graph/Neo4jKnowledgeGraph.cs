@@ -82,8 +82,9 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         string? userId = null,
         CancellationToken cancellationToken = default)
     {
+        // E10: soft-deleted rules are invisible to the regular API (recycle bin only).
         var rows = await _cypher.QueryAsync(
-            "MATCH (r:Rule {id: $ruleId}) WHERE r.ownerId IS NULL OR r.ownerId = $userId RETURN r",
+            "MATCH (r:Rule {id: $ruleId}) WHERE (r.ownerId IS NULL OR r.ownerId = $userId) AND r.deletedAt IS NULL RETURN r",
             new { ruleId, userId },
             cancellationToken).ConfigureAwait(false);
 
@@ -125,6 +126,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
             """
             MATCH (r:Rule)
             WHERE (r.ownerId IS NULL OR r.ownerId = $userId)
+              AND r.deletedAt IS NULL
               AND NOT ((r.id STARTS WITH 'git:' OR r.id STARTS WITH 'upload:') AND size(split(r.id, ':')) >= 3)
             RETURN r
             """,
@@ -353,16 +355,22 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
             throw new UnauthorizedAccessException(
                 $"User '{userId}' is not authorized to delete rule '{ruleId}'.");
 
+        // E10 soft delete: mark the rule instead of removing it. validUntil (coalesced, so an earlier
+        // supersede timestamp survives) drops it from context compilation immediately; deletedAt hides
+        // it from the active views and lists it in the recycle bin, where it can be restored or purged.
+        // Chunks stay for a lossless restore and are removed on purge.
+        var now = _timeProvider.GetUtcNow().ToString("O");
         await _cypher.ExecuteAsync(
             """
             MATCH (r:Rule {id: $ruleId})
-            OPTIONAL MATCH (r)-[:HAS_CHUNK]->(c:RuleChunk)
-            DETACH DELETE r, c
+            SET r.deletedAt = $now,
+                r.deletedBy = $userId,
+                r.validUntil = coalesce(r.validUntil, $now)
             """,
-            new { ruleId },
+            new { ruleId, userId, now },
             cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Deleted rule '{RuleId}' by user '{UserId}' | {Component}", ruleId, userId, "AKG");
+        _logger.LogInformation("Soft-deleted rule '{RuleId}' by user '{UserId}' | {Component}", ruleId, userId, "AKG");
     }
 
     /// <inheritdoc/>
@@ -564,6 +572,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         var conditions = new List<string>
         {
             "(r.ownerId IS NULL OR r.ownerId = $userId)",
+            // E10: active listings never show soft-deleted rules.
+            "r.deletedAt IS NULL",
         };
 
         if (domain != null) conditions.Add("r.domain = $domain");

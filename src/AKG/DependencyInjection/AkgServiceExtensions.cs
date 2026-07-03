@@ -258,6 +258,13 @@ public static class AkgServiceExtensions
             enabled: ParseFlag(configuration, "TDK_FIXTURE_SELFTEST"),
             strict: ParseFlag(configuration, "TDK_FIXTURE_SELFTEST_STRICT")));
 
+        // E10: recycle bin over soft-deleted rules (list/restore/purge). IAuditLog is registered by
+        // the host (Security layer); resolved lazily.
+        services.AddSingleton<IRuleRecycleBin>(sp => new RuleRecycleBin(
+            sp.GetRequiredService<ICypherExecutor>(),
+            sp.GetRequiredService<IAuditLog>(),
+            sp.GetRequiredService<ILogger<RuleRecycleBin>>()));
+
         return services;
     }
 

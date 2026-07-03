@@ -70,3 +70,19 @@ tragen einen Gültigkeitszeitraum — analog zu `validFrom`/`validUntil` auf den
 Nur der **Retrieval-Pfad** filtert geschlossene Kanten (die Graph-Expansion der Kontext-
 Kompilierung traversiert ausschließlich gültige Beziehungen, konsistent zum Knoten-Filter).
 Anzeige und Diagnose (Nachbarn, Statistiken, Graph-UI, Validator) zeigen die Historie ungefiltert.
+
+### Soft-Delete & Papierkorb
+
+Das Löschen einer Regel **markiert** sie statt sie zu entfernen: `deletedAt`/`deletedBy` werden
+gestempelt und `validUntil` gesetzt (per `coalesce` — ein früherer Supersede-Zeitpunkt bleibt
+erhalten). Damit verschwindet die Regel sofort aus der Kontext-Kompilierung und aus den aktiven
+Sichten (Liste, Einzelabruf, Graph-Heads), bleibt aber im **Papierkorb** auf `/knowledge`
+wiederherstellbar („Wiederherstellen" stellt `validUntil` nur zurück, wenn es vom Löschen stammt)
+oder endgültig löschbar („Endgültig löschen" = das frühere `DETACH DELETE` inkl. Chunks).
+Wiederherstellen und endgültiges Löschen werden auditiert (`RuleRestored`/`RulePurged`).
+
+Ausnahmen und bewusste Grenzen: Die **Subtree-Löschung** (git-/upload-Importbäume) bleibt hart —
+diese Bäume sind re-ingestierbar und würden den Papierkorb fluten. Statistiken/Diagnose zählen
+weiterhin den ganzen Graphen (inkl. Papierkorb und Kanten-Historie). Die Historie der Aktionen
+selbst zeigt die Karte **„Letzte Änderungen"** auf `/quality` — die neuesten Einträge des
+HMAC-signierten Audit-Logs mit Signatur-Prüfung je Eintrag.

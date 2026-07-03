@@ -100,6 +100,9 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         if (q.Contains("r.body AS body")) return [];                   // rules-to-embed (rebuild)
         if (q.Contains("r.bodyHash AS hash")) return [];               // has-embedding check
         if (q.Contains("r.ownerId AS ownerId")) return [];             // dirty heads to rebuild
+        // E10 recycle bin reads (checked before the generic rule reads they resemble).
+        if (q.Contains("{id: $ruleId}") && q.Contains("r.deletedAt IS NOT NULL")) return FindDeletedRule(p);
+        if (q.Contains("r.deletedAt IS NOT NULL")) return ListDeleted(p);
         // Knowledge-graph reads.
         if (q.Contains("-[]-(n:Rule)")) return FindNeighbors(p);
         if (q.Contains("RETURN count(r) AS n")) return SubtreeCount(p);
@@ -120,6 +123,33 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         var id = AsString(p, "ruleId");
         var userId = AsString(p, "userId");
         return id is not null && _rules.TryGetValue(id, out var rule) && InScope(rule, userId)
+            && IsNotDeleted(rule)
+            ? [RuleRow("r", rule)]
+            : [];
+    }
+
+    /// <summary>E10: whether the rule is not soft-deleted (active views hide deleted rules).</summary>
+    private static bool IsNotDeleted(Dictionary<string, object?> rule)
+        => rule.GetValueOrDefault("deletedAt") is null;
+
+    /// <summary>E10 recycle bin: soft-deleted rules visible to the user.</summary>
+    private List<IReadOnlyDictionary<string, object?>> ListDeleted(IReadOnlyDictionary<string, object?> p)
+    {
+        var userId = AsString(p, "userId");
+        var isAdmin = p.GetValueOrDefault("isAdmin") is true;
+        return _rules.Values
+            .Where(r => r.GetValueOrDefault("deletedAt") is not null)
+            .Where(r => isAdmin || AsString(r, "ownerId") == userId)
+            .Select(r => RuleRow("r", r))
+            .ToList();
+    }
+
+    /// <summary>E10 recycle bin: single soft-deleted rule lookup (ownership check).</summary>
+    private List<IReadOnlyDictionary<string, object?>> FindDeletedRule(IReadOnlyDictionary<string, object?> p)
+    {
+        var id = AsString(p, "ruleId");
+        return id is not null && _rules.TryGetValue(id, out var rule)
+            && rule.GetValueOrDefault("deletedAt") is not null
             ? [RuleRow("r", rule)]
             : [];
     }
@@ -132,7 +162,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         var filterTag    = q.Contains("$tag IN r.tags") ? AsString(p, "tag") : null;
 
         return _rules.Values
-            .Where(r => InScope(r, userId))
+            .Where(r => InScope(r, userId) && IsNotDeleted(r))
             .Where(r => filterDomain is null || AsString(r, "domain") == filterDomain)
             .Where(r => filterType is null || AsString(r, "type") == filterType)
             .Where(r => filterTag is null || AsStrings(r.GetValueOrDefault("tags")).Contains(filterTag))
@@ -144,7 +174,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     {
         var userId = AsString(p, "userId");
         return _rules.Values
-            .Where(r => InScope(r, userId) && !IsNestedLeaf(AsString(r, "id")))
+            .Where(r => InScope(r, userId) && IsNotDeleted(r) && !IsNestedLeaf(AsString(r, "id")))
             .Select(r => RuleRow("r", r))
             .ToList();
     }
@@ -226,6 +256,9 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         // otherwise partially match those.
         if (q.Contains("UNWIND $targetIds AS targetId") && q.Contains("MERGE (s)-[e:")) { ReplaceEdges(q, p); return true; }
         if (q.Contains("MERGE (r:Rule {id: $id})")) { UpsertRule(p); return true; }
+        // E10 soft delete / restore (checked before the generic delete shapes).
+        if (q.Contains("SET r.deletedAt = $now")) { SoftDeleteRule(p); return true; }
+        if (q.Contains("CASE WHEN r.validUntil = r.deletedAt")) { RestoreRule(p); return true; }
         if (q.Contains("-[e:") && q.Contains("DELETE e")) { DeleteEdges(q, p); return true; }
         if (q.Contains("MERGE (s)-[:")) { MergeEdge(q, p); return true; }
         if (q.Contains("UNWIND newer.supersedes AS olderId")) { InvalidateSuperseded(p); return true; }
@@ -334,6 +367,32 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     {
         var id = AsString(p, "ruleId");
         if (id is not null) RemoveRules([id]);
+    }
+
+    /// <summary>E10: soft delete — mark the rule (deletedAt/deletedBy + coalesced validUntil).</summary>
+    private void SoftDeleteRule(IReadOnlyDictionary<string, object?> p)
+    {
+        var id = AsString(p, "ruleId");
+        if (id is null || !_rules.TryGetValue(id, out var rule)) return;
+
+        var now = p.GetValueOrDefault("now");
+        rule["deletedAt"] = now;
+        rule["deletedBy"] = p.GetValueOrDefault("userId");
+        if (rule.GetValueOrDefault("validUntil") is null)
+            rule["validUntil"] = now; // coalesce: keep an earlier supersede timestamp
+    }
+
+    /// <summary>E10: restore — clear the delete markers; validUntil only when it came from the delete.</summary>
+    private void RestoreRule(IReadOnlyDictionary<string, object?> p)
+    {
+        var id = AsString(p, "ruleId");
+        if (id is null || !_rules.TryGetValue(id, out var rule)) return;
+        if (rule.GetValueOrDefault("deletedAt") is null) return;
+
+        if (Equals(rule.GetValueOrDefault("validUntil"), rule.GetValueOrDefault("deletedAt")))
+            rule["validUntil"] = null;
+        rule["deletedAt"] = null;
+        rule["deletedBy"] = null;
     }
 
     private void DeleteSubtree(IReadOnlyDictionary<string, object?> p)

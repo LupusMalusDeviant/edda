@@ -61,5 +61,11 @@ public enum AuditEvent
     MemoryConsolidated,
 
     /// <summary>A batch tag/priority operation was applied to multiple AKG rules (E8).</summary>
-    RuleBatchUpdated
+    RuleBatchUpdated,
+
+    /// <summary>A soft-deleted AKG rule was restored from the recycle bin (E10).</summary>
+    RuleRestored,
+
+    /// <summary>A soft-deleted AKG rule was permanently purged from the recycle bin (E10).</summary>
+    RulePurged
 }

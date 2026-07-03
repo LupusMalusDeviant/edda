@@ -108,6 +108,87 @@ public sealed class HmacAuditLog : IAuditLog
         }
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AuditLogEntryView>> ReadRecentAsync(
+        int limit, CancellationToken cancellationToken = default)
+    {
+        if (limit <= 0) return [];
+
+        // Reads share the lock so the HMAC key is initialized exactly once and file rotation
+        // cannot interleave with a write. Reads never mutate the chain state.
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!_chainInitialized)
+            {
+                _hmacKey = await LoadHmacKeyAsync(cancellationToken).ConfigureAwait(false);
+                await InitializeChainStateAsync(cancellationToken).ConfigureAwait(false);
+                _chainInitialized = true;
+            }
+
+            if (!_fileSystem.DirectoryExists(AuditDir)) return [];
+
+            // Daily files descend lexicographically = descending by date; read newest lines first.
+            var files = _fileSystem.EnumerateFiles(AuditDir, "audit-*.jsonl")
+                .OrderByDescending(f => f)
+                .ToList();
+
+            var result = new List<AuditLogEntryView>(limit);
+            foreach (var file in files)
+            {
+                if (result.Count >= limit) break;
+
+                var content = await _fileSystem.ReadAllTextAsync(file, cancellationToken).ConfigureAwait(false);
+                var lines = content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                for (var i = lines.Length - 1; i >= 0 && result.Count < limit; i--)
+                {
+                    var view = DecodeLine(lines[i]);
+                    if (view is not null)
+                        result.Add(view);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Decodes a single signed audit line into its read view, verifying the HMAC.
+    /// Returns null for malformed lines (skipped with a warning).
+    /// </summary>
+    /// <param name="line">One JSONL line from an audit file.</param>
+    /// <returns>The decoded view, or <see langword="null"/> when the line cannot be parsed.</returns>
+    private AuditLogEntryView? DecodeLine(string line)
+    {
+        try
+        {
+            var signed = JsonSerializer.Deserialize<SignedAuditEntry>(line);
+            if (signed?.Entry is null) return null;
+
+            var entry = JsonSerializer.Deserialize<AuditEntry>(signed.Entry);
+            if (entry is null) return null;
+
+            return new AuditLogEntryView
+            {
+                Seq = entry.Seq,
+                Timestamp = entry.Timestamp,
+                EventType = entry.EventType,
+                UserId = entry.UserId,
+                Description = entry.Description,
+                Valid = VerifyEntry(signed),
+            };
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning("Skipping malformed audit line: {Error}", ex.Message);
+            return null;
+        }
+    }
+
     /// <summary>
     /// Verifies the HMAC signature of a single signed audit entry.
     /// Uses constant-time comparison to prevent timing attacks.

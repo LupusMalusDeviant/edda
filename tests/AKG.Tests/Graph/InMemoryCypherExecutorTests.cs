@@ -325,6 +325,93 @@ public sealed class InMemoryCypherExecutorTests
         neighbors.Should().BeEquivalentTo(["new", "other"]);
     }
 
+    // ── E10: soft delete / recycle bin ───────────────────────────────────────────
+
+    private const string SoftDeleteQuery = """
+        MATCH (r:Rule {id: $ruleId})
+        SET r.deletedAt = $now,
+            r.deletedBy = $userId,
+            r.validUntil = coalesce(r.validUntil, $now)
+        """;
+
+    private const string RestoreQuery = """
+        MATCH (r:Rule {id: $ruleId})
+        WHERE r.deletedAt IS NOT NULL
+        SET r.validUntil = CASE WHEN r.validUntil = r.deletedAt THEN null ELSE r.validUntil END,
+            r.deletedAt = null,
+            r.deletedBy = null
+        """;
+
+    private const string ListDeletedQuery = """
+        MATCH (r:Rule)
+        WHERE r.deletedAt IS NOT NULL AND ($isAdmin OR r.ownerId = $userId)
+        RETURN r
+        """;
+
+    private Task SoftDelete(string id, string userId = "u1", string now = T2)
+        => _sut.ExecuteAsync(SoftDeleteQuery, new { ruleId = id, userId, now });
+
+    [Fact]
+    public async Task SoftDelete_RuleDisappearsFromActiveViews_AppearsInBin()
+    {
+        await Upsert("a", ownerId: "u1");
+
+        await SoftDelete("a");
+
+        var active = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "a", userId = "u1" });
+        active.Should().BeEmpty("active views hide soft-deleted rules");
+
+        var bin = await GetRuleIds(ListDeletedQuery, new { userId = "u1", isAdmin = false });
+        bin.Should().BeEquivalentTo(["a"]);
+    }
+
+    [Fact]
+    public async Task Restore_DeletedRule_VisibleAgain_WithValidUntilCleared()
+    {
+        await Upsert("a", ownerId: "u1");
+        await SoftDelete("a", now: T2); // validUntil = deletedAt = T2 (came from the delete)
+
+        await _sut.ExecuteAsync(RestoreQuery, new { ruleId = "a" });
+
+        var rows = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "a", userId = "u1" });
+        rows.Should().ContainSingle();
+        var props = (IReadOnlyDictionary<string, object?>)rows[0]["r"]!;
+        props.GetValueOrDefault("validUntil").Should().BeNull("the delete-born validUntil is cleared on restore");
+        props.GetValueOrDefault("deletedAt").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Restore_RuleWithSupersedeValidUntil_KeepsSupersedeTimestamp()
+    {
+        // old is superseded at T1 (validUntil = T1), then soft-deleted at T2 (coalesce keeps T1).
+        await Upsert("old", ownerId: "u1");
+        await Upsert("newer", supersedes: ["old"]);
+        await _sut.ExecuteAsync(InvalidateQuery, new { now = T1 });
+        await SoftDelete("old", now: T2);
+
+        await _sut.ExecuteAsync(RestoreQuery, new { ruleId = "old" });
+
+        var rows = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "old", userId = "u1" });
+        rows.Should().ContainSingle();
+        var props = (IReadOnlyDictionary<string, object?>)rows[0]["r"]!;
+        props.GetValueOrDefault("validUntil").Should().Be(T1, "a supersede timestamp survives the restore");
+        props.GetValueOrDefault("deletedAt").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Purge_UsesExistingDeleteShape_RemovesRuleForGood()
+    {
+        await Upsert("a", ownerId: "u1");
+        await SoftDelete("a");
+
+        await _sut.ExecuteAsync(DeleteRuleQuery, new { ruleId = "a" });
+
+        var bin = await GetRuleIds(ListDeletedQuery, new { userId = "u1", isAdmin = false });
+        bin.Should().BeEmpty();
+        var active = await _sut.QueryAsync(GetRuleQuery, new { ruleId = "a", userId = "u1" });
+        active.Should().BeEmpty();
+    }
+
     private const string T1 = "2026-01-01T00:00:00.0000000+00:00";
     private const string T2 = "2026-02-01T00:00:00.0000000+00:00";
     private const string T3 = "2026-03-01T00:00:00.0000000+00:00";
