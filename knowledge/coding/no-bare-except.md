@@ -40,6 +40,20 @@ validatorScript: |
           })
 
   json.dump({"pass": len(violations) == 0, "violations": violations}, sys.stdout)
+validatorFixtures:
+  pass:
+    - |
+      try:
+          value = int(raw)
+      except ValueError as exc:
+          logger.warning("Ungueltige Zahl %r: %s", raw, exc)
+          value = 0
+  fail:
+    - |
+      try:
+          value = int(raw)
+      except:
+          pass
 ---
 
 ## Kein stilles Verschlucken von Exceptions

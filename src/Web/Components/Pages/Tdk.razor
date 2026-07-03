@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject IKnowledgeGraph KnowledgeGraph
 @inject ITdkEngine TdkEngine
+@inject ITdkFixtureVerifier FixtureVerifier
 @inject IIdentityContext Identity
 @inject ILocalizationService Loc
 @implements IDisposable
@@ -87,6 +88,76 @@
     }
 }
 
+<hr class="my-3" style="max-width:900px;" />
+
+<h4 class="mb-2" style="font-size:1rem;">@Loc["tdk.fixtures.heading"]</h4>
+<p style="font-size:0.82rem;color:#94a3b8;">@Loc["tdk.fixtures.desc"]</p>
+<button class="btn btn-sm btn-outline-primary mb-2" @onclick="RunFixturesAsync" disabled="@_fxRunning">
+    @(_fxRunning ? Loc["tdk.fixtures.running"] : Loc["tdk.fixtures.btn"])
+</button>
+
+@if (_fxError is not null)
+{
+    <div class="alert alert-danger" style="max-width:900px;">@_fxError</div>
+}
+
+@if (_fxReport is not null)
+{
+    @if (_fxReport.TotalCount == 0)
+    {
+        <div class="alert alert-secondary" style="max-width:900px;">@Loc["tdk.fixtures.none"]</div>
+    }
+    else
+    {
+        <table class="table table-sm" style="max-width:900px;">
+            <thead>
+                <tr>
+                    <th>@Loc["tdk.fixtures.col.rule"]</th>
+                    <th>@Loc["tdk.fixtures.col.pass"]</th>
+                    <th>@Loc["tdk.fixtures.col.fail"]</th>
+                    <th>@Loc["tdk.fixtures.col.status"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _fxReport.Rules)
+                {
+                    var passCases = r.Cases.Where(c => c.Kind == "pass").ToList();
+                    var failCases = r.Cases.Where(c => c.Kind == "fail").ToList();
+                    var allEngine = r.Cases.Count > 0 && r.Cases.All(c => c.EngineError);
+                    <tr>
+                        <td><code>@r.RuleId</code></td>
+                        <td>@(passCases.Count(c => c.Ok)) / @(passCases.Count)</td>
+                        <td>@(failCases.Count(c => c.Ok)) / @(failCases.Count)</td>
+                        <td>
+                            @if (allEngine)
+                            {
+                                <span style="color:#f59e0b;">@Loc["tdk.fixtures.nosandbox"]</span>
+                            }
+                            else if (r.Verified)
+                            {
+                                <span style="color:#22c55e;">@Loc["tdk.fixtures.verified"]</span>
+                            }
+                            else
+                            {
+                                <span style="color:#ef4444;">@Loc["tdk.fixtures.failed"]</span>
+                            }
+                        </td>
+                    </tr>
+                    @foreach (var c in r.Cases.Where(c => !c.Ok))
+                    {
+                        <tr>
+                            <td></td>
+                            <td colspan="3" style="font-size:0.8rem;color:#94a3b8;">
+                                <code>@($"{c.Kind} #{c.Index}")</code> — @c.Detail
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    }
+}
+
 @code {
     private string _task = "";
     private string _code = "";
@@ -94,6 +165,10 @@
     private string? _error;
     private TdkResult? _result;
     private int _activeRuleCount;
+
+    private bool _fxRunning;
+    private string? _fxError;
+    private TdkFixtureVerificationReport? _fxReport;
 
     protected override void OnInitialized() => Loc.OnLanguageChanged += StateHasChanged;
 
@@ -141,6 +216,26 @@
         finally
         {
             _running = false;
+        }
+    }
+
+    private async Task RunFixturesAsync()
+    {
+        _fxRunning = true;
+        _fxError = null;
+        _fxReport = null;
+
+        try
+        {
+            _fxReport = await FixtureVerifier.VerifyAllAsync();
+        }
+        catch (Exception ex)
+        {
+            _fxError = string.Format(Loc["tdk.fixtures.error"], ex.Message);
+        }
+        finally
+        {
+            _fxRunning = false;
         }
     }
 

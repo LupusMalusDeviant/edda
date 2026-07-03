@@ -47,6 +47,13 @@ validatorScript: |
           })
 
   json.dump({"pass": len(violations) == 0, "violations": violations}, sys.stdout)
+validatorFixtures:
+  pass:
+    - |
+      cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+  fail:
+    - |
+      query = "SELECT * FROM users WHERE id = " + user_id
 ---
 
 ## Kein SQL per String-Verkettung bauen

@@ -67,6 +67,13 @@ public sealed record KnowledgeRule
     /// </summary>
     public IReadOnlyList<string> AppliesTo { get; init; } = [];
 
+    /// <summary>
+    /// Optional TDK validator self-test fixtures (F5). Null when the rule declares none.
+    /// Authoring-time metadata: parsed from frontmatter and consumed by the fixture verifier; like
+    /// <see cref="AppliesTo"/> it is NOT persisted to the graph and not used during runtime validation.
+    /// </summary>
+    public RuleValidatorFixtures? ValidatorFixtures { get; init; }
+
     /// <summary>The Markdown body of the rule — the actual content shown to the agent.</summary>
     public required string Body { get; init; }
 

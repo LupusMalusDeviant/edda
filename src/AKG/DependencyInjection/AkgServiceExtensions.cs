@@ -9,6 +9,7 @@ using Edda.AKG.Feedback;
 using Edda.AKG.Graph;
 using Edda.AKG.Import;
 using Edda.AKG.Providers;
+using Edda.AKG.Tdk;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using Microsoft.Extensions.Configuration;
@@ -238,6 +239,38 @@ public static class AkgServiceExtensions
         services.AddSingleton<IArchiveExtractor, ZipArchiveExtractor>();
         services.AddSingleton<IPdfTextExtractor, PdfPigTextExtractor>();
 
+        // F5: TDK validator self-test. The verifier parses the knowledge directory and runs each rule's
+        // validator against its validatorFixtures via the sandbox (with the F4 helper). ISandboxFactory
+        // and ITdkHelperModule are registered by the host (Sandboxing / AddTdkEngine); resolved lazily.
+        services.AddSingleton<ITdkFixtureVerifier>(sp => new TdkFixtureVerifier(
+            sp.GetRequiredService<IFileSystem>(),
+            sp.GetRequiredService<ISandboxFactory>(),
+            sp.GetRequiredService<ITdkHelperModule>(),
+            sp.GetRequiredService<ILogger<TdkFixtureVerifier>>(),
+            knowledgeDirectory: "knowledge"));
+
+        // Registered after WorldKnowledgeSeedHostedService so the knowledge/ files exist when it runs.
+        // Default off (TDK_FIXTURE_SELFTEST); self-gating so registration is unconditional.
+        services.AddHostedService(sp => new TdkFixtureSelfTestHostedService(
+            sp.GetRequiredService<ITdkFixtureVerifier>(),
+            sp.GetRequiredService<ILogger<TdkFixtureSelfTestHostedService>>(),
+            enabled: ParseFlag(configuration, "TDK_FIXTURE_SELFTEST"),
+            strict: ParseFlag(configuration, "TDK_FIXTURE_SELFTEST_STRICT")));
+
         return services;
+    }
+
+    /// <summary>
+    /// Reads a boolean flag from configuration (falling back to the environment). Returns
+    /// <see langword="true"/> only when the value equals <c>"true"</c> (case-insensitive); unset or
+    /// any other value is <see langword="false"/> — preserving the default-off behavior.
+    /// </summary>
+    /// <param name="configuration">The host configuration, if available.</param>
+    /// <param name="key">The configuration/environment key to read.</param>
+    /// <returns>The parsed flag.</returns>
+    private static bool ParseFlag(IConfiguration? configuration, string key)
+    {
+        var raw = configuration?[key] ?? Environment.GetEnvironmentVariable(key);
+        return string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
     }
 }

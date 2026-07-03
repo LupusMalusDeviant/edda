@@ -35,6 +35,13 @@ validatorScript: |
 
   json.dump({"pass": len(violations) == 0, "violations": violations}, sys.stdout)
 requires: [tool-manage-credentials, world-security-principles]
+validatorFixtures:
+  pass:
+    - |
+      await credentialStore.StoreAsync("my-service-api-key", apiKey, ct);
+  fail:
+    - |
+      password = "meinGeheimesPasswort123"
 ---
 
 ## Keine Klartext-Secrets

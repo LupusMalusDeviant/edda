@@ -84,6 +84,34 @@ zuvor. Wirft ein Validator eine Ausnahme, schreibt das Modul den Traceback nach 
 sich mit ExitCode 1 — die Engine behandelt das als Validator-/Engine-Fehler und bucht **keine**
 Konfidenz (analog zu Timeout/Crash), verfälscht die Regel-Konfidenz also nicht.
 
+## Validator-Selbsttests (`validatorFixtures`)
+
+Eine Regel kann im Frontmatter Selbsttest-Fixtures tragen — Codebeispiele, die der eigene
+Validator akzeptieren bzw. ablehnen muss:
+
+```yaml
+validatorFixtures:
+  pass:
+    - |
+      await credentialStore.StoreAsync("api-key", key, ct);
+  fail:
+    - |
+      password = "hunter2"
+```
+
+Ein Prüf-Lauf führt den Validator gegen seine Fixtures aus. Die Regel gilt nur als **verifiziert**,
+wenn *alle* `pass`-Snippets keinen Verstoß erzeugen und *alle* `fail`-Snippets mindestens einen.
+So testet „Test-Driven Knowledge" auch die Regel selbst.
+
+Auslöser:
+- **UI:** Button „Fixtures prüfen" auf der Seite `/tdk` (`ITdkFixtureVerifier`).
+- **Startup:** `TDK_FIXTURE_SELFTEST=true` prüft alle Regeln beim Start; `TDK_FIXTURE_SELFTEST_STRICT=true`
+  lässt den Start bei echten Mismatches fehlschlagen (Fail-Fast für CI). Ohne verfügbare Sandbox
+  (z. B. `null`) wird der Prüf-Lauf sauber übersprungen.
+
+Fixtures sind **Authoring-Metadaten**: Sie werden aus dem Markdown geparst, aber **nicht** in den
+Graphen persistiert und spielen zur Laufzeit von `tdk_validate` keine Rolle.
+
 ## Schweregrade (`severity`)
 
 Jeder Verstoß trägt einen `severity`-Wert. Die drei Stufen haben eine feste Bedeutung:

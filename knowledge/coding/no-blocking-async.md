@@ -35,6 +35,13 @@ validatorScript: |
           })
 
   json.dump({"pass": len(violations) == 0, "violations": violations}, sys.stdout)
+validatorFixtures:
+  pass:
+    - |
+      var content = await httpClient.GetStringAsync(url, ct);
+  fail:
+    - |
+      var content = httpClient.GetStringAsync(url).Result;
 ---
 
 ## Kein blockierendes Warten auf async-Code

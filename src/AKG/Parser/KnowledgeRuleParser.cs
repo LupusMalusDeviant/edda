@@ -63,6 +63,12 @@ public sealed class KnowledgeRuleParser
         var validatorScript = GetString(fields, "validatorScript");
         // F7 kill-switch: enabled unless the frontmatter explicitly sets `validatorEnabled: false`.
         var validatorEnabled = !string.Equals(GetString(fields, "validatorEnabled"), "false", StringComparison.OrdinalIgnoreCase);
+        // F5: optional validator self-test fixtures (nested pass/fail block-scalar lists).
+        var validatorFixtures = fields.TryGetValue("validatorFixtures", out var vfo)
+            ? vfo as RuleValidatorFixtures
+            : null;
+        if (validatorFixtures is { } vf && vf.Pass.Count == 0 && vf.Fail.Count == 0)
+            validatorFixtures = null;
         var createdStr = GetString(fields, "created");
         DateOnly? created = null;
         if (!string.IsNullOrWhiteSpace(createdStr) && DateOnly.TryParse(createdStr, out var parsedDate))
@@ -109,6 +115,7 @@ public sealed class KnowledgeRuleParser
             AppliesTo = appliesTo,
             ValidatorScript = string.IsNullOrWhiteSpace(validatorScript) ? null : validatorScript,
             ValidatorEnabled = validatorEnabled,
+            ValidatorFixtures = validatorFixtures,
         };
     }
 
@@ -174,6 +181,14 @@ public sealed class KnowledgeRuleParser
 
             var key = line[..colonIdx].Trim();
             var value = line[(colonIdx + 1)..].Trim();
+
+            if (string.Equals(key, "validatorFixtures", StringComparison.OrdinalIgnoreCase)
+                && string.IsNullOrEmpty(value))
+            {
+                // F5: nested pass/fail lists of literal block scalars — a dedicated sub-parser.
+                result[key] = ReadFixtures(lines, ref i);
+                continue;
+            }
 
             if (string.IsNullOrEmpty(value))
             {
@@ -262,6 +277,108 @@ public sealed class KnowledgeRuleParser
         return folded
             ? string.Join(' ', blockLines.Where(l => l.Length > 0))
             : string.Join('\n', blockLines);
+    }
+
+    /// <summary>
+    /// Reads a <c>validatorFixtures:</c> block (nested <c>pass:</c>/<c>fail:</c> lists of literal
+    /// block scalars). <paramref name="i"/> points at the <c>validatorFixtures:</c> line; it is
+    /// advanced past the whole block.
+    /// </summary>
+    /// <param name="lines">All frontmatter lines.</param>
+    /// <param name="i">The current line index (at the indicator); advanced past the block on return.</param>
+    /// <returns>The parsed fixtures (empty <see cref="RuleValidatorFixtures.Pass"/>/<see cref="RuleValidatorFixtures.Fail"/> when none).</returns>
+    private static RuleValidatorFixtures ReadFixtures(string[] lines, ref int i)
+    {
+        i++; // past "validatorFixtures:"
+        var pass = new List<string>();
+        var fail = new List<string>();
+        while (i < lines.Length)
+        {
+            var raw = lines[i];
+            if (string.IsNullOrWhiteSpace(raw)) { i++; continue; }
+
+            var leading = raw.Length - raw.AsSpan().TrimStart().Length;
+            if (leading == 0) break; // dedent to key level → the fixtures block ended
+
+            var trimmed = raw.Trim();
+            if (trimmed == "pass:") { i++; ReadFixtureItems(lines, ref i, leading, pass); }
+            else if (trimmed == "fail:") { i++; ReadFixtureItems(lines, ref i, leading, fail); }
+            else i++; // ignore unrecognized lines defensively
+        }
+
+        return new RuleValidatorFixtures { Pass = pass, Fail = fail };
+    }
+
+    /// <summary>
+    /// Reads the <c>- |</c> block-scalar list items under a <c>pass:</c>/<c>fail:</c> sub-key.
+    /// Stops when a line dedents to <paramref name="subKeyIndent"/> or less (sibling key / block end).
+    /// </summary>
+    /// <param name="lines">All frontmatter lines.</param>
+    /// <param name="i">The current line index; advanced past the list on return.</param>
+    /// <param name="subKeyIndent">Indent of the owning <c>pass:</c>/<c>fail:</c> sub-key.</param>
+    /// <param name="items">Accumulator the parsed snippets are appended to.</param>
+    private static void ReadFixtureItems(string[] lines, ref int i, int subKeyIndent, List<string> items)
+    {
+        while (i < lines.Length)
+        {
+            var raw = lines[i];
+            if (string.IsNullOrWhiteSpace(raw)) { i++; continue; }
+
+            var leading = raw.Length - raw.AsSpan().TrimStart().Length;
+            if (leading <= subKeyIndent) break; // sibling key or dedent → list ended
+
+            var trimmed = raw.TrimStart();
+            if (!trimmed.StartsWith('-')) { i++; continue; } // defensive: skip non-item lines
+
+            var afterDash = trimmed[1..].Trim();
+            if (afterDash is "|" or "|-" or "|+")
+            {
+                i++; // move to the block body
+                items.Add(ReadListItemScalar(lines, ref i, markerIndent: leading));
+            }
+            else if (afterDash.Length > 0)
+            {
+                items.Add(afterDash); // inline single-line item: "- some code"
+                i++;
+            }
+            else
+            {
+                i++; // lone "-" → skip
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads a literal block scalar that belongs to a list item whose <c>-</c> marker sits at
+    /// <paramref name="markerIndent"/>. Body lines are indented beyond the marker; the common indent
+    /// is stripped and trailing blank lines are clipped.
+    /// </summary>
+    /// <param name="lines">All frontmatter lines.</param>
+    /// <param name="i">The current line index (first body line); advanced past the scalar on return.</param>
+    /// <param name="markerIndent">Indent of the list item's <c>-</c> marker.</param>
+    /// <returns>The block-scalar content with newlines preserved.</returns>
+    private static string ReadListItemScalar(string[] lines, ref int i, int markerIndent)
+    {
+        var blockLines = new List<string>();
+        int? indent = null;
+        while (i < lines.Length)
+        {
+            var raw = lines[i];
+            if (string.IsNullOrWhiteSpace(raw)) { blockLines.Add(string.Empty); i++; continue; }
+
+            var leading = raw.Length - raw.AsSpan().TrimStart().Length;
+            if (leading <= markerIndent) break; // next item / sibling key / dedent
+
+            indent ??= leading;
+            var strip = Math.Min(indent.Value, leading);
+            blockLines.Add(raw[strip..]);
+            i++;
+        }
+
+        while (blockLines.Count > 0 && blockLines[^1].Length == 0)
+            blockLines.RemoveAt(blockLines.Count - 1);
+
+        return string.Join('\n', blockLines);
     }
 
     /// <summary>

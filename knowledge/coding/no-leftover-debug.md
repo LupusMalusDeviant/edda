@@ -36,6 +36,13 @@ validatorScript: |
           })
 
   json.dump({"pass": len(violations) == 0, "violations": violations}, sys.stdout)
+validatorFixtures:
+  pass:
+    - |
+      logger.info("Order processed", { orderId });
+  fail:
+    - |
+      console.log("hier bin ich", user);
 ---
 
 ## Kein vergessenes Debug-Logging im Code
