@@ -31,6 +31,10 @@ public sealed class TdkEngine : ITdkEngine
     /// may import it. Harmless for raw stdin/stdout validators that never import it.</summary>
     private readonly IReadOnlyDictionary<string, string> _helperFiles;
 
+    /// <summary>F11: when true, all (rule × block) validators run in a single sandbox via the batch
+    /// runner instead of one sandbox per pair. Default false preserves the per-pair behavior.</summary>
+    private readonly bool _batchEnabled;
+
     /// <summary>
     /// Initializes a new <see cref="TdkEngine"/>.
     /// </summary>
@@ -49,13 +53,18 @@ public sealed class TdkEngine : ITdkEngine
     /// Optional F13 result cache. When provided, the outcome of an identical (rule × validator × block)
     /// validation is reused instead of re-running the sandbox. Null disables caching.
     /// </param>
+    /// <param name="batchEnabled">
+    /// F11: when true, all (rule × block) validators run in a single sandbox (batch runner) instead of
+    /// one sandbox per pair. Defaults to false — the per-pair behavior, unchanged.
+    /// </param>
     public TdkEngine(
         ISandboxFactory sandboxFactory,
         IRuleConfidenceStore confidenceStore,
         ILogger<TdkEngine> logger,
         ITdkHelperModule helper,
         IRuleFeedbackService? feedbackService = null,
-        ITdkResultCache? resultCache = null)
+        ITdkResultCache? resultCache = null,
+        bool batchEnabled = false)
     {
         _sandboxFactory  = sandboxFactory;
         _confidenceStore = confidenceStore;
@@ -63,6 +72,7 @@ public sealed class TdkEngine : ITdkEngine
         _resultCache     = resultCache;
         _logger          = logger;
         _helperFiles     = new Dictionary<string, string>(1) { [helper.FileName] = helper.Source };
+        _batchEnabled    = batchEnabled;
     }
 
     /// <inheritdoc />
@@ -92,6 +102,11 @@ public sealed class TdkEngine : ITdkEngine
         _logger.LogInformation(
             "TDK: validating {BlockCount} code block(s) against {RuleCount} rule(s)",
             codeBlocks.Count, validatorRules.Count);
+
+        // F11: opt-in batch mode runs every (rule × block) pair in a single sandbox.
+        if (_batchEnabled)
+            return await BatchValidateAsync(validatorRules, codeBlocks, request, cancellationToken)
+                .ConfigureAwait(false);
 
         // 3. Validate each (rule × code block) combination
         var allViolations = new List<TdkViolation>();
@@ -129,15 +144,19 @@ public sealed class TdkEngine : ITdkEngine
                 "TDK: {ErrorCount} validator(s) could not be executed", engineErrors.Count);
         }
 
-        return allViolations.Count == 0 && engineErrors.Count == 0
+        return BuildResult(allViolations, engineErrors);
+    }
+
+    /// <summary>Builds a <see cref="TdkResult"/> from collected violations and engine errors.</summary>
+    private static TdkResult BuildResult(List<TdkViolation> violations, List<TdkEngineError> engineErrors)
+        => violations.Count == 0 && engineErrors.Count == 0
             ? TdkResult.NoViolations
             : new TdkResult
             {
-                HasViolations = allViolations.Count > 0,
-                Violations = allViolations,
+                HasViolations = violations.Count > 0,
+                Violations = violations,
                 EngineErrors = engineErrors,
             };
-    }
 
     /// <summary>
     /// Records a TDK outcome to both the sliding-window confidence store (F04)
@@ -268,5 +287,164 @@ public sealed class TdkEngine : ITdkEngine
             if (!output.Pass)
                 allViolations.AddRange(violations);
         }
+    }
+
+    /// <summary>
+    /// F11 batch path: runs every eligible (rule × block) validator in a single sandbox via the batch
+    /// runner. Applies the same per-job semantics as <see cref="ValidateBlockAsync"/> — F9 language
+    /// filter and F13 cache are honored before batching; a confidence outcome is recorded only for a
+    /// real verdict; sandbox/validator failures become per-job engine errors (never confidence).
+    /// </summary>
+    private async Task<TdkResult> BatchValidateAsync(
+        IReadOnlyList<KnowledgeRule> validatorRules,
+        IReadOnlyList<CodeBlock> codeBlocks,
+        AgentRequest request,
+        CancellationToken ct)
+    {
+        var allViolations = new List<TdkViolation>();
+        var engineErrors = new List<TdkEngineError>();
+        var jobs = new List<TdkBatchJob>();
+        var meta = new List<(KnowledgeRule Rule, string? CacheKey)>();
+
+        // Collect jobs, honoring F9 (language) and F13 (cache) before any sandbox is created.
+        foreach (var rule in validatorRules)
+        {
+            foreach (var block in codeBlocks)
+            {
+                if (!TdkLanguageMatcher.Applies(rule.AppliesTo, block.Language))
+                    continue;
+
+                var cacheKey = _resultCache is null
+                    ? null
+                    : TdkResultCacheKey.Compute(rule.Id, rule.ValidatorScript!, block.Language, block.Code);
+                if (cacheKey is not null && _resultCache!.Get(cacheKey) is { } cached)
+                {
+                    if (!cached.Pass)
+                        allViolations.AddRange(cached.Violations);
+                    continue;
+                }
+
+                jobs.Add(new TdkBatchJob
+                {
+                    Id = meta.Count,
+                    Script = rule.ValidatorScript!,
+                    Input = new TdkValidatorInput
+                    {
+                        Code = block.Code,
+                        Language = block.Language,
+                        RuleId = rule.Id,
+                        UserMessage = request.UserMessage,
+                    },
+                });
+                meta.Add((rule, cacheKey));
+            }
+        }
+
+        if (jobs.Count == 0)
+            return BuildResult(allViolations, engineErrors);
+
+        // One sandbox for the whole batch — the runner executes each job as a subprocess.
+        SandboxResult sandboxResult;
+        try
+        {
+            await using var sandbox = await _sandboxFactory.CreateAsync(ct).ConfigureAwait(false);
+            sandboxResult = await sandbox.ExecuteAsync(
+                TdkBatchRunner.Source,
+                JsonSerializer.Serialize(new TdkBatchRequest { Jobs = jobs }),
+                _helperFiles,
+                ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "TDK batch: sandbox execution failed");
+            foreach (var (rule, _) in meta)
+                engineErrors.Add(new TdkEngineError(rule.Id, "batch sandbox execution failed"));
+            return BuildResult(allViolations, engineErrors);
+        }
+
+        if (!sandboxResult.Success)
+        {
+            foreach (var (rule, _) in meta)
+                engineErrors.Add(new TdkEngineError(
+                    rule.Id,
+                    sandboxResult.TimedOut ? "batch runner timed out" : "batch runner exited with an error",
+                    sandboxResult.ExitCode,
+                    Truncate(sandboxResult.Stderr),
+                    sandboxResult.TimedOut));
+            return BuildResult(allViolations, engineErrors);
+        }
+
+        TdkBatchResponse? batch;
+        try
+        {
+            batch = JsonSerializer.Deserialize<TdkBatchResponse>(sandboxResult.Stdout, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            batch = null;
+        }
+
+        if (batch is null)
+        {
+            foreach (var (rule, _) in meta)
+                engineErrors.Add(new TdkEngineError(rule.Id, "batch runner returned invalid JSON"));
+            return BuildResult(allViolations, engineErrors);
+        }
+
+        var byId = new Dictionary<int, TdkBatchJobResult>();
+        foreach (var jobResult in batch.Results)
+            byId[jobResult.Id] = jobResult;
+
+        for (var id = 0; id < meta.Count; id++)
+        {
+            var (rule, cacheKey) = meta[id];
+            if (!byId.TryGetValue(id, out var jobResult))
+            {
+                engineErrors.Add(new TdkEngineError(rule.Id, "batch runner produced no result for this job"));
+                continue;
+            }
+
+            if (jobResult.ExitCode != 0)
+            {
+                engineErrors.Add(new TdkEngineError(
+                    rule.Id,
+                    jobResult.TimedOut ? "validator timed out" : "validator exited with an error",
+                    jobResult.ExitCode,
+                    Truncate(jobResult.Stderr),
+                    jobResult.TimedOut));
+                continue;
+            }
+
+            TdkValidatorOutput? output;
+            try
+            {
+                output = JsonSerializer.Deserialize<TdkValidatorOutput>(jobResult.Stdout, JsonOptions);
+            }
+            catch (JsonException)
+            {
+                engineErrors.Add(new TdkEngineError(rule.Id, "validator returned invalid JSON"));
+                continue;
+            }
+
+            if (output is null)
+            {
+                engineErrors.Add(new TdkEngineError(rule.Id, "validator returned no output"));
+                continue;
+            }
+
+            RecordTdkOutcome(rule.Id, passed: output.Pass, ValidatorScriptHash.Compute(rule.ValidatorScript), ct);
+
+            var violations = output.Violations
+                .Select(v => new TdkViolation(v.RuleId, v.Message, v.Severity, v.Line, v.Suggestion))
+                .ToList();
+
+            if (cacheKey is not null)
+                _resultCache?.Set(cacheKey, new TdkCachedOutcome(output.Pass, violations));
+
+            if (!output.Pass)
+                allViolations.AddRange(violations);
+        }
+
+        return BuildResult(allViolations, engineErrors);
     }
 }

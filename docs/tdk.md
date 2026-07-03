@@ -44,6 +44,21 @@ Host-Ressourcen und -Dateien im Rahmen der Prozessrechte nutzen. Für nicht vert
 **`TDK_SANDBOX_TYPE=docker` verwenden**; `wasm` ist für lokale, kuratierte Validatoren gedacht, wenn kein
 Docker verfügbar ist. Vollständige cgroup-/Namespace-Isolation ist bewusst außerhalb des Umfangs dieses Pfads.
 
+### Batch-Ausführung (`TDK_SANDBOX_BATCH`)
+
+Standardmäßig erzeugt TDK **einen Container pro (Regel × Block)**. Mit `TDK_SANDBOX_BATCH=true`
+läuft stattdessen **ein Container pro Validierung**: ein Runner-Skript bekommt alle Jobs als JSON und
+führt jeden Validator als Subprozess aus (frische stdin/stdout — Verhalten identisch zum Einzellauf).
+Da der Container-Start der teure Teil ist, sinkt die Latenz bei mehreren Paaren deutlich (~15
+Container → 1).
+
+**Trade-offs (Default AUS):**
+- Die Validatoren eines Batches teilen sich einen Container (gleiche Vertrauensdomäne = eigene
+  Wissensbasis). Wer harte Isolation je Validator braucht, bleibt beim Default.
+- Der Batch läuft im Container-Timeout (10 s); viele/langsame Validatoren können den Batch killen —
+  betroffene Jobs werden dann als Engine-Fehler gemeldet. Batch ist für schnelle Validatoren gedacht.
+- Verstöße, Konfidenz-Buchung und Ergebnis-Cache sind pro Job identisch zum Per-Paar-Modus.
+
 ## Validator-Skript-Format
 
 Ein Validator liest `TdkValidatorInput` (Code, Sprache, RuleId, UserMessage) von stdin als JSON

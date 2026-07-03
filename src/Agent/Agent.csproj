@@ -12,6 +12,10 @@
     <EmbeddedResource Include="Tdk\tdk.py">
       <LogicalName>Edda.Agent.Tdk.tdk.py</LogicalName>
     </EmbeddedResource>
+    <!-- F11: batch runner that executes all (rule x block) jobs in one sandbox. -->
+    <EmbeddedResource Include="Tdk\batch_runner.py">
+      <LogicalName>Edda.Agent.Tdk.batch_runner.py</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

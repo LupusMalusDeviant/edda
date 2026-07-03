@@ -56,9 +56,25 @@ public static class AgentToolsServiceExtensions
                 sp.GetRequiredService<IRuleConfidenceStore>(),
                 sp.GetRequiredService<ILogger<TdkEngine>>(),
                 sp.GetRequiredService<ITdkHelperModule>(),
-                resultCache: sp.GetRequiredService<ITdkResultCache>()));
+                resultCache: sp.GetRequiredService<ITdkResultCache>(),
+                // F11: opt-in single-container batch mode; default off preserves per-pair behavior.
+                batchEnabled: ParseTdkBatch(sp.GetService<IConfiguration>())));
 
         return services;
+    }
+
+    /// <summary>
+    /// Reads <c>TDK_SANDBOX_BATCH</c> from configuration (falling back to the environment). Returns
+    /// <see langword="true"/> only when the value equals <c>"true"</c> (case-insensitive); unset or any
+    /// other value is <see langword="false"/> — preserving the default per-pair behavior.
+    /// </summary>
+    /// <param name="configuration">The host configuration, if available.</param>
+    /// <returns>Whether batch sandbox execution is enabled.</returns>
+    private static bool ParseTdkBatch(IConfiguration? configuration)
+    {
+        var raw = configuration?["TDK_SANDBOX_BATCH"]
+                  ?? Environment.GetEnvironmentVariable("TDK_SANDBOX_BATCH");
+        return string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
