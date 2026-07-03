@@ -73,7 +73,7 @@ public class Neo4jKnowledgeGraphTests
         var fs = new Mock<IFileSystem>();
         fs.Setup(f => f.DirectoryExists(It.IsAny<string>())).Returns(false);
         var logger = new Mock<ILogger<RuleLoader>>();
-        return new RuleLoader(fs.Object, _cypher, logger.Object);
+        return new RuleLoader(fs.Object, _cypher, TimeProvider.System, logger.Object);
     }
 
     private WorldKnowledgeSeeder CreateWorldKnowledgeSeeder()
@@ -128,6 +128,21 @@ public class Neo4jKnowledgeGraphTests
 
         _cypher.ExecutedWriteQueries.Should().Contain(q =>
             q.Contains("validUntil") && q.Contains("supersedes") && q.Contains("invalidatedBy"));
+    }
+
+    [Fact]
+    public async Task InvalidateSupersededRulesAsync_ClosesEdgesOfInvalidatedRule()
+    {
+        // C9: a superseded fact's relationships end with it — the invalidation write also closes the
+        // rule's open edges, keeping only the incoming SUPERSEDES edge that documents the supersession.
+        var graph = CreateGraph();
+
+        await graph.InvalidateSupersededRulesAsync();
+
+        var query = _cypher.ExecutedWriteQueries.Single(q => q.Contains("UNWIND newer.supersedes"));
+        query.Should().Contain("OPTIONAL MATCH (older)-[e]-(other:Rule)");
+        query.Should().Contain("SET e.validUntil = $now");
+        query.Should().Contain("type(e) = 'SUPERSEDES' AND endNode(e) = older");
     }
 
     [Fact]
@@ -368,9 +383,55 @@ public class Neo4jKnowledgeGraphTests
 
         // Exactly one write query MERGEs the RELATED edges, regardless of the number of targets
         // (previously this was one MERGE per target — the N+1 round-trips that D1 removes).
-        _cypher.ExecutedWriteQueries.Count(q => q.Contains("MERGE (s)-[:RELATED]")).Should().Be(1);
+        _cypher.ExecutedWriteQueries.Count(q => q.Contains("MERGE (s)-[e:RELATED]")).Should().Be(1);
         _cypher.ExecutedWriteQueries.Should().Contain(q =>
-            q.Contains("MERGE (s)-[:RELATED]") && q.Contains("UNWIND $targetIds AS targetId"));
+            q.Contains("MERGE (s)-[e:RELATED]") && q.Contains("UNWIND $targetIds AS targetId"));
+    }
+
+    [Fact]
+    public async Task UpsertRuleAsync_EdgeUpsert_UsesTemporalReplaceQuery()
+    {
+        // C9: dropped edges are closed (validUntil) instead of deleted; created edges get a
+        // first-seen validFrom; re-declared edges are re-opened.
+        var graph = CreateGraph();
+        var rule = new KnowledgeRule
+        {
+            Id        = "temporal-source",
+            Domain    = "docs",
+            Type      = "Rule",
+            Priority  = RulePriority.Medium,
+            Body      = "Body.",
+            RelatesTo = new RuleRelations { Related = ["other"] },
+        };
+
+        await graph.UpsertRuleAsync(rule);
+
+        var edgeQuery = _cypher.ExecutedWriteQueries.Single(q => q.Contains("MERGE (s)-[e:RELATED]"));
+        edgeQuery.Should().Contain("SET stale.validUntil = $now");
+        edgeQuery.Should().Contain("ON CREATE SET e.validFrom = $now");
+        edgeQuery.Should().Contain("SET e.validUntil = null");
+        edgeQuery.Should().NotContain("DELETE e");
+    }
+
+    [Fact]
+    public async Task UpsertRuleAsync_EmptyRelationList_StillClosesStaleEdges()
+    {
+        // C9: the old guard skipped the edge query for empty lists, leaving dropped relations
+        // dangling. The temporal replace runs for every relation type and closes leftovers.
+        var graph = CreateGraph();
+        var rule = new KnowledgeRule
+        {
+            Id       = "no-relations",
+            Domain   = "docs",
+            Type     = "Rule",
+            Priority = RulePriority.Medium,
+            Body     = "Body.",
+        };
+
+        await graph.UpsertRuleAsync(rule);
+
+        _cypher.ExecutedWriteQueries.Count(q => q.Contains("SET stale.validUntil = $now")).Should().Be(6,
+            "each of the six relation types closes its stale edges even when the declared list is empty");
     }
 
     [Fact]

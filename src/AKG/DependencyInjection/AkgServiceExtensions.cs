@@ -90,6 +90,7 @@ public static class AkgServiceExtensions
         services.AddSingleton<IRuleLoader>(sp => new RuleLoader(
             sp.GetRequiredService<IFileSystem>(),
             sp.GetRequiredService<ICypherExecutor>(),
+            sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<RuleLoader>>()));
 
         services.AddSingleton<IWorldKnowledgeSeeder>(sp => new WorldKnowledgeSeeder(

@@ -16,6 +16,7 @@ internal sealed class RuleLoader : IRuleLoader
     private readonly IFileSystem _fileSystem;
     private readonly KnowledgeRuleParser _parser;
     private readonly ICypherExecutor _cypher;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<RuleLoader> _logger;
 
     /// <summary>
@@ -23,12 +24,14 @@ internal sealed class RuleLoader : IRuleLoader
     /// </summary>
     /// <param name="fileSystem">File system abstraction for reading Markdown files.</param>
     /// <param name="cypher">Cypher executor for upserting rules into Neo4j.</param>
+    /// <param name="timeProvider">Time source for temporal edge stamps (C9).</param>
     /// <param name="logger">Logger for diagnostics.</param>
-    public RuleLoader(IFileSystem fileSystem, ICypherExecutor cypher, ILogger<RuleLoader> logger)
+    public RuleLoader(IFileSystem fileSystem, ICypherExecutor cypher, TimeProvider timeProvider, ILogger<RuleLoader> logger)
     {
         _fileSystem = fileSystem;
         _parser = new KnowledgeRuleParser();
         _cypher = cypher;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -138,20 +141,24 @@ internal sealed class RuleLoader : IRuleLoader
 
     private async Task UpsertEdgesAsync(string sourceId, string relType, string[] targetIds, CancellationToken ct)
     {
-        if (targetIds.Length == 0) return;
-
-        // Remove stale edges of this type from source, then create current ones
+        // C9: same temporal replace query as Neo4jKnowledgeGraph.UpsertEdgesAsync (one batched
+        // round-trip instead of the previous 1+N): open edges of this type whose target is no longer
+        // declared are closed (validUntil = now) instead of deleted; declared targets are merged with
+        // a first-seen validFrom (ON CREATE) and re-opened when previously closed. relType is a fixed
+        // internal constant (never user input), so interpolating it into the query is safe.
+        var now = _timeProvider.GetUtcNow().ToString("O");
         await _cypher.ExecuteAsync(
-            $"MATCH (s:Rule {{id: $sourceId}})-[e:{relType}]->() DELETE e",
-            new { sourceId },
+            "MATCH (s:Rule {id: $sourceId}) " +
+            $"OPTIONAL MATCH (s)-[stale:{relType}]->(t0:Rule) " +
+            "WHERE stale.validUntil IS NULL AND NOT t0.id IN $targetIds " +
+            "SET stale.validUntil = $now " +
+            "WITH DISTINCT s " +
+            "UNWIND $targetIds AS targetId " +
+            "MATCH (t:Rule {id: targetId}) " +
+            $"MERGE (s)-[e:{relType}]->(t) " +
+            "ON CREATE SET e.validFrom = $now " +
+            "SET e.validUntil = null",
+            new { sourceId, targetIds, now },
             ct).ConfigureAwait(false);
-
-        foreach (var targetId in targetIds)
-        {
-            await _cypher.ExecuteAsync(
-                $"MATCH (s:Rule {{id: $sourceId}}), (t:Rule {{id: $targetId}}) MERGE (s)-[:{relType}]->(t)",
-                new { sourceId, targetId },
-                ct).ConfigureAwait(false);
-        }
     }
 }

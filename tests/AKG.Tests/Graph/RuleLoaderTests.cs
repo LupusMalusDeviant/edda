@@ -11,7 +11,7 @@ public class RuleLoaderTests
     private readonly FakeCypherExecutor _cypher = new();
     private readonly Mock<ILogger<RuleLoader>> _logger = new();
 
-    private RuleLoader CreateLoader() => new(_fs, _cypher, _logger.Object);
+    private RuleLoader CreateLoader() => new(_fs, _cypher, TimeProvider.System, _logger.Object);
 
     [Fact]
     public async Task LoadFromDirectoryAsync_RuleWithRelated_UpsertsRelatedEdge()
@@ -32,7 +32,13 @@ public class RuleLoaderTests
         var loaded = await loader.LoadFromDirectoryAsync("knowledge", CancellationToken.None);
 
         loaded.Should().Be(1);
-        _cypher.ExecutedWriteQueries.Should().Contain(q => q.Contains("RELATED"));
+        // C9: the loader issues the same batched temporal replace as Neo4jKnowledgeGraph — one
+        // round-trip per relation type, closing dropped edges instead of deleting them.
+        var edgeQuery = _cypher.ExecutedWriteQueries.Single(q => q.Contains("MERGE (s)-[e:RELATED]"));
+        edgeQuery.Should().Contain("UNWIND $targetIds AS targetId");
+        edgeQuery.Should().Contain("SET stale.validUntil = $now");
+        edgeQuery.Should().Contain("ON CREATE SET e.validFrom = $now");
+        edgeQuery.Should().NotContain("DELETE e");
     }
 
     [Fact]

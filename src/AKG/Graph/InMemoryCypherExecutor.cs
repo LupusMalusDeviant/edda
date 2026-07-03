@@ -221,9 +221,10 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         if (q.Contains("CREATE (:HeadVector")) return true;
         if (q.Contains("CREATE VECTOR INDEX")) return true;
         // Knowledge-graph writes.
-        // Batched edge replace (UNWIND $targetIds) must be checked before the single-edge shapes: it
-        // contains both "-[e:…] DELETE e" and "MERGE (s)-[:…" and would otherwise match those first.
-        if (q.Contains("UNWIND $targetIds AS targetId") && q.Contains("MERGE (s)-[:")) { ReplaceEdges(q, p); return true; }
+        // C9 batched temporal edge replace (UNWIND $targetIds + MERGE (s)-[e:…]) must be checked before
+        // the legacy single-edge shapes: it contains "-[stale:…]" / "MERGE (s)-[e:" tokens that would
+        // otherwise partially match those.
+        if (q.Contains("UNWIND $targetIds AS targetId") && q.Contains("MERGE (s)-[e:")) { ReplaceEdges(q, p); return true; }
         if (q.Contains("MERGE (r:Rule {id: $id})")) { UpsertRule(p); return true; }
         if (q.Contains("-[e:") && q.Contains("DELETE e")) { DeleteEdges(q, p); return true; }
         if (q.Contains("MERGE (s)-[:")) { MergeEdge(q, p); return true; }
@@ -282,17 +283,33 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
 
     private void ReplaceEdges(string q, IReadOnlyDictionary<string, object?> p)
     {
-        var relType = ExtractBetween(q, "MERGE (s)-[:", "]");
+        var relType = ExtractBetween(q, "MERGE (s)-[e:", "]");
         var sourceId = AsString(p, "sourceId");
         if (relType is null || sourceId is null) return;
 
-        // Replace semantics (mirrors the batched Neo4j query): drop all existing edges of this type
-        // from the source, then add an edge to each target id in the UNWIND batch.
-        _edges.RemoveAll(e => e.Source == sourceId && e.Rel == relType);
-        foreach (var targetId in AsStrings(p.GetValueOrDefault("targetIds")))
+        var now = AsString(p, "now");
+        var targetIds = AsStrings(p.GetValueOrDefault("targetIds"));
+
+        // C9 temporal replace (mirrors the batched Neo4j query): close open edges of this type whose
+        // target is no longer declared (instead of deleting them), re-open declared ones (keeping the
+        // first-seen validFrom), and stamp validFrom on newly created edges.
+        foreach (var edge in _edges)
         {
-            if (!_edges.Any(e => e.Source == sourceId && e.Rel == relType && e.Target == targetId))
-                _edges.Add(new Edge(sourceId, relType, targetId));
+            if (edge.Source == sourceId && edge.Rel == relType
+                && edge.ValidUntil is null && !targetIds.Contains(edge.Target))
+            {
+                edge.ValidUntil = now;
+            }
+        }
+
+        foreach (var targetId in targetIds)
+        {
+            var existing = _edges.FirstOrDefault(
+                e => e.Source == sourceId && e.Rel == relType && e.Target == targetId);
+            if (existing is null)
+                _edges.Add(new Edge(sourceId, relType, targetId) { ValidFrom = now });
+            else
+                existing.ValidUntil = null; // re-open; ValidFrom keeps the first-seen timestamp
         }
     }
 
@@ -325,6 +342,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     private void InvalidateSuperseded(IReadOnlyDictionary<string, object?> p)
     {
         var now = p.GetValueOrDefault("now");
+        var nowStr = AsString(p, "now");
         // Snapshot to avoid mutating while enumerating.
         foreach (var newer in _rules.Values.ToList())
         {
@@ -340,20 +358,41 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
                 if (AsString(older, "id") == newerId) continue;
                 older["validUntil"] = now;
                 older["invalidatedBy"] = newerId;
+                CloseEdgesOf(olderId, nowStr);
             }
+        }
+    }
+
+    /// <summary>
+    /// C9: closes all open edges touching the invalidated rule — a superseded fact's relationships end
+    /// with it — except the incoming SUPERSEDES edge, which documents the supersession and stays open.
+    /// </summary>
+    /// <param name="ruleId">Id of the invalidated rule.</param>
+    /// <param name="now">Timestamp (ISO-8601) the edges are closed at.</param>
+    private void CloseEdgesOf(string ruleId, string? now)
+    {
+        foreach (var edge in _edges)
+        {
+            if (edge.ValidUntil is not null) continue;
+            if (edge.Source != ruleId && edge.Target != ruleId) continue;
+            if (edge.Rel == "SUPERSEDES" && edge.Target == ruleId) continue; // incoming SUPERSEDES stays open
+            edge.ValidUntil = now;
         }
     }
 
     // ── Stage 2: context compilation, WorldKnowledge, domains, validation ────────
 
-    /// <summary>GraphExpander Phase 3: 1-hop neighbors (any direction) of the frontier rule set, in scope.</summary>
+    /// <summary>GraphExpander Phase 3: 1-hop neighbors (any direction) of the frontier rule set, in scope.
+    /// C9: only temporally open edges carry activation (mirrors the Neo4j edge filter).</summary>
     private List<IReadOnlyDictionary<string, object?>> Expand(IReadOnlyDictionary<string, object?> p)
     {
         var frontier = AsStrings(p.GetValueOrDefault("frontier")).ToHashSet(StringComparer.Ordinal);
         var userId = AsString(p, "userId");
+        var now = AsString(p, "now");
         var neighborIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var e in _edges)
         {
+            if (!IsEdgeOpen(e, now)) continue;
             if (frontier.Contains(e.Source)) neighborIds.Add(e.Target);
             if (frontier.Contains(e.Target)) neighborIds.Add(e.Source);
         }
@@ -798,5 +837,35 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         return to < 0 ? null : source[from..to];
     }
 
-    private readonly record struct Edge(string Source, string Rel, string Target);
+    /// <summary>
+    /// C9: whether an edge is temporally valid at <paramref name="now"/> — open (no validUntil) or
+    /// closing in the future. ISO-8601 "O" strings compare correctly with ordinal comparison.
+    /// </summary>
+    /// <param name="edge">The edge to check.</param>
+    /// <param name="now">The reference timestamp (ISO-8601), or null to accept only open edges.</param>
+    /// <returns>True when the edge should be traversed.</returns>
+    private static bool IsEdgeOpen(Edge edge, string? now)
+        => edge.ValidUntil is null || (now is not null && string.CompareOrdinal(edge.ValidUntil, now) > 0);
+
+    /// <summary>A directed relationship edge with its temporal validity (C9).</summary>
+    /// <param name="source">Source rule id.</param>
+    /// <param name="rel">Relationship type (e.g. IMPLIES).</param>
+    /// <param name="target">Target rule id.</param>
+    private sealed class Edge(string source, string rel, string target)
+    {
+        /// <summary>Source rule id.</summary>
+        public string Source { get; } = source;
+
+        /// <summary>Relationship type (e.g. IMPLIES).</summary>
+        public string Rel { get; } = rel;
+
+        /// <summary>Target rule id.</summary>
+        public string Target { get; } = target;
+
+        /// <summary>First-seen timestamp (ISO-8601), stamped when the edge is created.</summary>
+        public string? ValidFrom { get; set; }
+
+        /// <summary>Set when the edge is temporally closed; null = currently valid.</summary>
+        public string? ValidUntil { get; set; }
+    }
 }

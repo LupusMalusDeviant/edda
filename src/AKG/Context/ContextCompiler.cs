@@ -94,7 +94,7 @@ internal sealed class ContextCompiler : IContextCompiler
             cypher,
             loggerFactory.CreateLogger<SemanticBooster>(),
             _retrievalOptions);
-        _graphExpander = new GraphExpander(cypher);
+        _graphExpander = new GraphExpander(cypher, timeProvider);
         _worldFetcher = new WorldKnowledgeFetcher(cypher);
         _toolboxResolver = new ToolboxResolver();
         _domainResolver = new DomainActivationResolver(cypher, timeProvider);

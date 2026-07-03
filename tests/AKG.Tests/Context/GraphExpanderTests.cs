@@ -42,7 +42,7 @@ public class GraphExpanderTests
         var responses = new Queue<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(perLevel);
         var cypher = new FakeCypherExecutor();
         cypher.AddQueryHandler(_ => responses.Count > 0 ? responses.Dequeue() : cypher.DefaultResult);
-        return new GraphExpander(cypher);
+        return new GraphExpander(cypher, TimeProvider.System);
     }
 
     [Fact]

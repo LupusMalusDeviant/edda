@@ -315,21 +315,27 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
 
     private async Task UpsertEdgesAsync(string sourceId, string relType, string[] targetIds, CancellationToken ct)
     {
-        if (targetIds.Length == 0) return;
-
-        // Replace all edges of this relation type from the source in a single round-trip: delete the
-        // existing ones, then MERGE an edge to each target via UNWIND. Previously this issued one MERGE
-        // query per target (N+1 round-trips: 100 relations = 100 queries). relType is a fixed internal
-        // constant (never user input), so interpolating it into the query is safe.
+        // C9: temporal replace instead of delete+recreate, still in a single round-trip. Open edges of
+        // this type whose target is no longer declared are closed (validUntil = now) so the graph keeps
+        // the relationship history; declared targets are merged with a first-seen validFrom (ON CREATE)
+        // and re-opened when they were closed before (SET validUntil = null removes the property).
+        // An empty target list still closes all remaining open edges (UNWIND over an empty list yields
+        // no rows), and SET on a NULL entity (no stale match) is a Cypher no-op — like the previous
+        // OPTIONAL MATCH + DELETE. relType is a fixed internal constant (never user input), so
+        // interpolating it into the query is safe.
+        var now = _timeProvider.GetUtcNow().ToString("O");
         await _cypher.ExecuteAsync(
             "MATCH (s:Rule {id: $sourceId}) " +
-            $"OPTIONAL MATCH (s)-[e:{relType}]->() " +
-            "DELETE e " +
+            $"OPTIONAL MATCH (s)-[stale:{relType}]->(t0:Rule) " +
+            "WHERE stale.validUntil IS NULL AND NOT t0.id IN $targetIds " +
+            "SET stale.validUntil = $now " +
             "WITH DISTINCT s " +
             "UNWIND $targetIds AS targetId " +
             "MATCH (t:Rule {id: targetId}) " +
-            $"MERGE (s)-[:{relType}]->(t)",
-            new { sourceId, targetIds },
+            $"MERGE (s)-[e:{relType}]->(t) " +
+            "ON CREATE SET e.validFrom = $now " +
+            "SET e.validUntil = null",
+            new { sourceId, targetIds, now },
             ct).ConfigureAwait(false);
     }
 
@@ -510,6 +516,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <inheritdoc/>
     public async Task InvalidateSupersededRulesAsync(CancellationToken cancellationToken = default)
     {
+        // C9: a superseded fact's relationships end with it — close all of its open edges too, except
+        // the incoming SUPERSEDES edge, which documents the supersession and stays valid from now on.
         var now = _timeProvider.GetUtcNow().ToString("O");
         await _cypher.ExecuteAsync(
             """
@@ -519,6 +527,11 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
             MATCH (older:Rule {id: olderId})
             WHERE older.validUntil IS NULL AND older.id <> newer.id
             SET older.validUntil = $now, older.invalidatedBy = newer.id
+            WITH DISTINCT older
+            OPTIONAL MATCH (older)-[e]-(other:Rule)
+            WHERE e.validUntil IS NULL
+              AND NOT (type(e) = 'SUPERSEDES' AND endNode(e) = older)
+            SET e.validUntil = $now
             """,
             new { now },
             cancellationToken).ConfigureAwait(false);

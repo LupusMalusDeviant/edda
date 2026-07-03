@@ -27,6 +27,7 @@ public sealed class WorldKnowledgeSeedHostedServiceTests
         var ruleLoader = new RuleLoader(
             _fileSystem,
             _cypher,
+            TimeProvider.System,
             NullLogger<RuleLoader>.Instance);
 
         _graphMock.Setup(g => g.RebuildEmbeddingsAsync(It.IsAny<CancellationToken>()))

@@ -51,3 +51,22 @@ LLM-basierte Wissens-Extraktion.
 Neo4j nutzt den nativen Vektorindex (`db.index.vector.queryNodes`); fehlt er (z. B. Memgraph),
 fällt `SemanticBooster` automatisch auf App-seitige Cosine-Ähnlichkeit zurück — beide Provider
 funktionieren.
+
+### Temporale Kanten
+
+Relationen zwischen Regeln (IMPLIES, CONFLICTS_WITH, EXCEPTION_FOR, REQUIRES, SUPERSEDES, RELATED)
+tragen einen Gültigkeitszeitraum — analog zu `validFrom`/`validUntil` auf den Regel-Knoten:
+
+- **`validFrom`** wird beim Erzeugen der Kante gestempelt (first-seen, `ON CREATE`);
+- **`validUntil`** wird gesetzt, wenn die Beziehung endet — statt die Kante zu löschen. Das
+  passiert beim Kanten-Upsert (eine nicht mehr deklarierte Relation wird geschlossen) und beim
+  Superseden eines Fakts (`InvalidateSupersededRulesAsync` schließt alle offenen Kanten des
+  abgelösten Knotens, außer der eingehenden SUPERSEDES-Kante, die die Ablösung dokumentiert);
+- wird eine geschlossene Beziehung erneut deklariert, wird sie **wieder geöffnet** (`validUntil`
+  entfällt, `validFrom` bleibt der ursprüngliche first-seen-Zeitpunkt). Eine Unterbrechungs-
+  Historie („galt, galt nicht, gilt wieder") wird bewusst nicht modelliert — es gibt genau eine
+  Kante je (Quelle, Typ, Ziel), kein Multigraph.
+
+Nur der **Retrieval-Pfad** filtert geschlossene Kanten (die Graph-Expansion der Kontext-
+Kompilierung traversiert ausschließlich gültige Beziehungen, konsistent zum Knoten-Filter).
+Anzeige und Diagnose (Nachbarn, Statistiken, Graph-UI, Validator) zeigen die Historie ungefiltert.

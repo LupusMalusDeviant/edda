@@ -254,30 +254,103 @@ public sealed class InMemoryCypherExecutorTests
     }
 
     [Fact]
-    public async Task BatchedEdgeUpsert_CreatesAllTargetsAndReplacesExistingEdges()
+    public async Task BatchedEdgeUpsert_ClosesDroppedEdges_AndCreatesTargets()
     {
         await Upsert("a");
         await Upsert("b");
         await Upsert("c");
         await Upsert("x");
-        await MergeEdge("a", "IMPLIES", "x"); // pre-existing IMPLIES edge the batch must replace
+        await BatchReplaceEdges("a", "IMPLIES", ["x"], T1); // pre-existing edge the batch must drop
 
-        // The batched shape now issued by Neo4jKnowledgeGraph.UpsertEdgesAsync (issue D1).
-        await _sut.ExecuteAsync(
+        await BatchReplaceEdges("a", "IMPLIES", ["b", "c"], T2);
+
+        // C9: the retrieval expansion only traverses open edges — x was temporally closed at T2 …
+        var expanded = await GetRuleIds(ExpandQuery, new { frontier = new[] { "a" }, userId = (string?)null, now = T3 }, column: "n");
+        expanded.Should().BeEquivalentTo(["b", "c"]);
+
+        // … but the (unfiltered) neighbor view still shows the closed edge as history.
+        var neighbors = await GetRuleIds(NeighborsQuery, new { ruleId = "a", userId = (string?)null }, column: "n");
+        neighbors.Should().BeEquivalentTo(["b", "c", "x"]);
+    }
+
+    [Fact]
+    public async Task BatchedEdgeUpsert_EmptyTargetList_ClosesAllOpenEdges()
+    {
+        await Upsert("a");
+        await Upsert("b");
+        await BatchReplaceEdges("a", "IMPLIES", ["b"], T1);
+
+        await BatchReplaceEdges("a", "IMPLIES", [], T2);
+
+        var expanded = await GetRuleIds(ExpandQuery, new { frontier = new[] { "a" }, userId = (string?)null, now = T3 }, column: "n");
+        expanded.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task BatchedEdgeUpsert_RedeclaredTarget_ReopensClosedEdge()
+    {
+        await Upsert("a");
+        await Upsert("b");
+        await BatchReplaceEdges("a", "IMPLIES", ["b"], T1);
+        await BatchReplaceEdges("a", "IMPLIES", [], T2);   // closed …
+
+        await BatchReplaceEdges("a", "IMPLIES", ["b"], T3); // … and re-declared → re-opened
+
+        var expanded = await GetRuleIds(ExpandQuery, new { frontier = new[] { "a" }, userId = (string?)null, now = T3 }, column: "n");
+        expanded.Should().BeEquivalentTo(["b"]);
+    }
+
+    [Fact]
+    public async Task InvalidateSuperseded_ClosesEdgesOfInvalidatedRule_KeepsIncomingSupersedes()
+    {
+        // old --RELATED--> other; new --SUPERSEDES--> old, new.supersedes = [old].
+        await Upsert("old");
+        await Upsert("other");
+        await BatchReplaceEdges("old", "RELATED", ["other"], T1);
+        await Upsert("new", supersedes: ["old"]);
+        await BatchReplaceEdges("new", "SUPERSEDES", ["old"], T1);
+
+        await _sut.ExecuteAsync(InvalidateQuery, new { now = T2 });
+
+        // The invalidated fact's RELATED edge is closed → 'other' no longer expands to 'old' …
+        var fromOther = await GetRuleIds(ExpandQuery, new { frontier = new[] { "other" }, userId = (string?)null, now = T3 }, column: "n");
+        fromOther.Should().BeEmpty();
+
+        // … while the incoming SUPERSEDES edge stays open (it documents the supersession) …
+        var fromOld = await GetRuleIds(ExpandQuery, new { frontier = new[] { "old" }, userId = (string?)null, now = T3 }, column: "n");
+        fromOld.Should().BeEquivalentTo(["new"]);
+
+        // … and the unfiltered neighbor view keeps the full history.
+        var neighbors = await GetRuleIds(NeighborsQuery, new { ruleId = "old", userId = (string?)null }, column: "n");
+        neighbors.Should().BeEquivalentTo(["new", "other"]);
+    }
+
+    private const string T1 = "2026-01-01T00:00:00.0000000+00:00";
+    private const string T2 = "2026-02-01T00:00:00.0000000+00:00";
+    private const string T3 = "2026-03-01T00:00:00.0000000+00:00";
+
+    /// <summary>C9 GraphExpander shape: only temporally open edges are traversed.</summary>
+    private const string ExpandQuery = """
+        MATCH (r:Rule)-[e]-(n:Rule)
+        WHERE r.id IN $frontier AND (n.ownerId IS NULL OR n.ownerId = $userId)
+          AND (e.validUntil IS NULL OR e.validUntil > $now)
+        RETURN DISTINCT n
+        """;
+
+    /// <summary>The C9 temporal replace shape issued by both edge writers.</summary>
+    private Task BatchReplaceEdges(string source, string rel, string[] targets, string now)
+        => _sut.ExecuteAsync(
             "MATCH (s:Rule {id: $sourceId}) " +
-            "OPTIONAL MATCH (s)-[e:IMPLIES]->() " +
-            "DELETE e " +
+            $"OPTIONAL MATCH (s)-[stale:{rel}]->(t0:Rule) " +
+            "WHERE stale.validUntil IS NULL AND NOT t0.id IN $targetIds " +
+            "SET stale.validUntil = $now " +
             "WITH DISTINCT s " +
             "UNWIND $targetIds AS targetId " +
             "MATCH (t:Rule {id: targetId}) " +
-            "MERGE (s)-[:IMPLIES]->(t)",
-            new { sourceId = "a", targetIds = new[] { "b", "c" } });
-
-        var rows = await _sut.QueryAsync(NeighborsQuery, new { ruleId = "a", userId = (string?)null });
-        var ids = rows.Select(r => ((IReadOnlyDictionary<string, object?>)r["n"]!)["id"] as string).ToList();
-
-        ids.Should().BeEquivalentTo(["b", "c"]); // x replaced away; b and c added in one query
-    }
+            $"MERGE (s)-[e:{rel}]->(t) " +
+            "ON CREATE SET e.validFrom = $now " +
+            "SET e.validUntil = null",
+            new { sourceId = source, targetIds = targets, now });
 
     private Task MergeEdge(string source, string rel, string target)
         => _sut.ExecuteAsync(

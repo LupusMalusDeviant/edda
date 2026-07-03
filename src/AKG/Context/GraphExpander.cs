@@ -18,12 +18,18 @@ internal sealed class GraphExpander
     private const int MaxNeighbors = 30;
 
     private readonly ICypherExecutor _cypher;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>
     /// Initializes a new instance of <see cref="GraphExpander"/>.
     /// </summary>
     /// <param name="cypher">Cypher executor for graph traversal queries.</param>
-    internal GraphExpander(ICypherExecutor cypher) => _cypher = cypher;
+    /// <param name="timeProvider">Time source for filtering temporally closed edges (C9).</param>
+    internal GraphExpander(ICypherExecutor cypher, TimeProvider timeProvider)
+    {
+        _cypher = cypher;
+        _timeProvider = timeProvider;
+    }
 
     /// <summary>
     /// Returns the seed rules plus their up-to-<paramref name="maxDepth"/>-hop neighbours,
@@ -44,16 +50,20 @@ internal sealed class GraphExpander
         var seen = seedRules.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
         var neighbors = new List<KnowledgeRule>();
         var frontier = seedRules.Select(r => r.Id).ToList();
+        // C9: a temporally closed relationship must not carry activation — traverse only edges that
+        // are still open (or close in the future), consistent with the node-level validUntil filter.
+        var now = _timeProvider.GetUtcNow().ToString("O");
 
         for (var depth = 0; depth < maxDepth && frontier.Count > 0 && neighbors.Count < MaxNeighbors; depth++)
         {
             var rows = await _cypher.QueryAsync(
                 """
-                MATCH (r:Rule)-[]-(n:Rule)
+                MATCH (r:Rule)-[e]-(n:Rule)
                 WHERE r.id IN $frontier AND (n.ownerId IS NULL OR n.ownerId = $userId)
+                  AND (e.validUntil IS NULL OR e.validUntil > $now)
                 RETURN DISTINCT n
                 """,
-                new { frontier, userId },
+                new { frontier, userId, now },
                 ct).ConfigureAwait(false);
 
             var nextFrontier = new List<string>();
