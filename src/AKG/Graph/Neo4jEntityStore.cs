@@ -13,6 +13,7 @@ public sealed class Neo4jEntityStore : IEntityStore
 {
     private readonly ICypherExecutor _cypher;
     private readonly TimeProvider _timeProvider;
+    private readonly IIdentityContext? _identity;
     private readonly ILogger<Neo4jEntityStore> _logger;
     private bool _schemaEnsured;
 
@@ -20,13 +21,22 @@ public sealed class Neo4jEntityStore : IEntityStore
     /// <param name="cypher">Cypher executor for graph reads/writes.</param>
     /// <param name="timeProvider">Time source for created/updated timestamps (Regel 4).</param>
     /// <param name="logger">Logger.</param>
+    /// <param name="identity">
+    /// C1: ambient identity providing the tenant of the current context (null = default tenant). Entities are
+    /// isolated per tenant in addition to the per-user (<c>ownerId</c>) scoping.
+    /// </param>
     public Neo4jEntityStore(
-        ICypherExecutor cypher, TimeProvider timeProvider, ILogger<Neo4jEntityStore> logger)
+        ICypherExecutor cypher, TimeProvider timeProvider, ILogger<Neo4jEntityStore> logger,
+        IIdentityContext? identity = null)
     {
         _cypher = cypher;
         _timeProvider = timeProvider;
+        _identity = identity;
         _logger = logger;
     }
+
+    /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
+    private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
 
     /// <inheritdoc/>
     public async Task<EntityIngestionResult> IngestAsync(
@@ -68,7 +78,7 @@ public sealed class Neo4jEntityStore : IEntityStore
             await _cypher.ExecuteAsync(
                 """
                 UNWIND $entities AS ent
-                MERGE (e:Entity {ownerId: $ownerId, normalizedName: ent.normalizedName})
+                MERGE (e:Entity {ownerId: $ownerId, tenantId: $tenantId, normalizedName: ent.normalizedName})
                 ON CREATE SET e.id = ent.id, e.name = ent.name, e.type = ent.type,
                     e.description = ent.description, e.sourceType = $sourceType,
                     e.mentions = 1, e.createdAt = $now, e.updatedAt = $now
@@ -76,7 +86,7 @@ public sealed class Neo4jEntityStore : IEntityStore
                     e.description = CASE WHEN size(ent.description) > size(coalesce(e.description, ''))
                         THEN ent.description ELSE e.description END
                 """,
-                new { entities = entityRows, ownerId = userId, sourceType, now },
+                new { entities = entityRows, ownerId = userId, tenantId = Tenant, sourceType, now },
                 cancellationToken).ConfigureAwait(false);
             entitiesIngested = entityRows.Count;
         }
@@ -99,14 +109,14 @@ public sealed class Neo4jEntityStore : IEntityStore
             await _cypher.ExecuteAsync(
                 """
                 UNWIND $relations AS rel
-                MATCH (s:Entity {ownerId: $ownerId, normalizedName: rel.sourceNorm})
-                MATCH (t:Entity {ownerId: $ownerId, normalizedName: rel.targetNorm})
+                MATCH (s:Entity {ownerId: $ownerId, tenantId: $tenantId, normalizedName: rel.sourceNorm})
+                MATCH (t:Entity {ownerId: $ownerId, tenantId: $tenantId, normalizedName: rel.targetNorm})
                 MERGE (s)-[r:RELATES_TO]->(t)
                 ON CREATE SET r.description = rel.description, r.keywords = rel.keywords,
                     r.weight = 1, r.createdAt = $now, r.updatedAt = $now
                 ON MATCH SET r.weight = coalesce(r.weight, 0) + 1, r.updatedAt = $now
                 """,
-                new { relations = relationRows, ownerId = userId, now },
+                new { relations = relationRows, ownerId = userId, tenantId = Tenant, now },
                 cancellationToken).ConfigureAwait(false);
             relationsIngested = relationRows.Count;
         }
@@ -142,12 +152,13 @@ public sealed class Neo4jEntityStore : IEntityStore
             """
             UNWIND $terms AS term
             MATCH (e:Entity)
-            WHERE ($userId IS NULL OR e.ownerId = $userId) AND toLower(e.name) CONTAINS term
+            WHERE ($userId IS NULL OR e.ownerId = $userId)
+              AND coalesce(e.tenantId, 'default') = $tenantId AND toLower(e.name) CONTAINS term
             RETURN DISTINCT e.name AS name, e.type AS type, e.description AS description,
                 coalesce(e.mentions, 0) AS mentions
             LIMIT $limit
             """,
-            new { terms = normTerms, userId, limit },
+            new { terms = normTerms, userId, tenantId = Tenant, limit },
             cancellationToken).ConfigureAwait(false);
 
         return MapEntities(rows);
@@ -167,11 +178,12 @@ public sealed class Neo4jEntityStore : IEntityStore
             """
             MATCH (e:Entity {normalizedName: $nname})-[:RELATES_TO]-(other:Entity)
             WHERE ($userId IS NULL OR e.ownerId = $userId)
+              AND coalesce(e.tenantId, 'default') = $tenantId
             RETURN DISTINCT other.name AS name, other.type AS type, other.description AS description,
                 coalesce(other.mentions, 0) AS mentions
             LIMIT $limit
             """,
-            new { nname = Normalize(entityName), userId, limit },
+            new { nname = Normalize(entityName), userId, tenantId = Tenant, limit },
             cancellationToken).ConfigureAwait(false);
 
         return MapEntities(rows);
@@ -212,9 +224,14 @@ public sealed class Neo4jEntityStore : IEntityStore
 
         try
         {
+            // C1: the old (ownerId, normalizedName) uniqueness would block tenant isolation (two tenants,
+            // same owner + name) — replace it with a tenant-inclusive key.
             await _cypher.ExecuteAsync(
-                "CREATE CONSTRAINT entity_owner_name_unique IF NOT EXISTS " +
-                "FOR (e:Entity) REQUIRE (e.ownerId, e.normalizedName) IS UNIQUE",
+                "DROP CONSTRAINT entity_owner_name_unique IF EXISTS",
+                null, cancellationToken).ConfigureAwait(false);
+            await _cypher.ExecuteAsync(
+                "CREATE CONSTRAINT entity_owner_tenant_name_unique IF NOT EXISTS " +
+                "FOR (e:Entity) REQUIRE (e.ownerId, e.tenantId, e.normalizedName) IS UNIQUE",
                 null, cancellationToken).ConfigureAwait(false);
             await _cypher.ExecuteAsync(
                 "CREATE INDEX entity_name_index IF NOT EXISTS FOR (e:Entity) ON (e.name)",

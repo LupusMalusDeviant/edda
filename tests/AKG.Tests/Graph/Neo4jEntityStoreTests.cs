@@ -1,8 +1,10 @@
 using Edda.AKG.Graph;
 using Edda.AKG.Tests.TestUtilities;
+using Edda.Core.Abstractions;
 using Edda.Core.Models;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 
 namespace Edda.AKG.Tests.Graph;
 
@@ -131,5 +133,55 @@ public class Neo4jEntityStoreTests
         result[0].Name.Should().Be("Cypher");
         _cypher.ExecutedQueries.Should().Contain(q =>
             q.Contains("RELATES_TO") && q.Contains("e.ownerId = $userId"));
+    }
+
+    private static IIdentityContext Identity(string tenant)
+    {
+        var identity = new Mock<IIdentityContext>();
+        identity.SetupGet(i => i.TenantId).Returns(tenant);
+        return identity.Object;
+    }
+
+    [Fact]
+    public async Task IngestAsync_StampsAmbientTenantOnEntityMerge()
+    {
+        var store = new Neo4jEntityStore(
+            _cypher, TimeProvider.System, NullLogger<Neo4jEntityStore>.Instance, Identity("acme"));
+
+        await store.IngestAsync(
+            new EntityExtractionResult { Entities = [new ExtractedEntity { Name = "Neo4j" }] }, "user-1", "chat");
+
+        var mergeIndex = _cypher.ExecutedWriteQueries.FindIndex(q => q.Contains("MERGE (e:Entity"));
+        mergeIndex.Should().BeGreaterThanOrEqualTo(0);
+        _cypher.ExecutedWriteQueries[mergeIndex].Should().Contain("tenantId: $tenantId");
+        var mergeParams = _cypher.ExecutedWriteParameters[mergeIndex]!;
+        mergeParams.GetType().GetProperty("tenantId")!.GetValue(mergeParams).Should().Be("acme");
+    }
+
+    [Fact]
+    public async Task IngestAsync_NoIdentity_StampsDefaultTenant()
+    {
+        await _sut.IngestAsync(
+            new EntityExtractionResult { Entities = [new ExtractedEntity { Name = "Neo4j" }] }, "user-1", "chat");
+
+        var mergeIndex = _cypher.ExecutedWriteQueries.FindIndex(q => q.Contains("MERGE (e:Entity"));
+        var mergeParams = _cypher.ExecutedWriteParameters[mergeIndex]!;
+        mergeParams.GetType().GetProperty("tenantId")!.GetValue(mergeParams).Should().Be("default");
+    }
+
+    [Fact]
+    public async Task FindEntitiesAsync_FiltersByTenant()
+    {
+        await _sut.FindEntitiesAsync(["neo"], "user-1");
+
+        _cypher.ExecutedQueries.Should().Contain(q => q.Contains("coalesce(e.tenantId, 'default') = $tenantId"));
+    }
+
+    [Fact]
+    public async Task GetRelatedAsync_FiltersByTenant()
+    {
+        await _sut.GetRelatedAsync("Neo4j", "user-1");
+
+        _cypher.ExecutedQueries.Should().Contain(q => q.Contains("coalesce(e.tenantId, 'default') = $tenantId"));
     }
 }

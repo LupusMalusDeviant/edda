@@ -12,6 +12,12 @@ internal sealed class FakeCypherExecutor : ICypherExecutor
     public List<string> ExecutedQueries { get; } = [];
     public List<string> ExecutedWriteQueries { get; } = [];
 
+    /// <summary>Parameter objects passed to each read query, parallel to <see cref="ExecutedQueries"/>.</summary>
+    public List<object?> ExecutedParameters { get; } = [];
+
+    /// <summary>Parameter objects passed to each write, parallel to <see cref="ExecutedWriteQueries"/>.</summary>
+    public List<object?> ExecutedWriteParameters { get; } = [];
+
     public IReadOnlyList<IReadOnlyDictionary<string, object?>> DefaultResult { get; set; }
         = Array.Empty<IReadOnlyDictionary<string, object?>>();
 
@@ -25,6 +31,7 @@ internal sealed class FakeCypherExecutor : ICypherExecutor
         CancellationToken ct = default)
     {
         ExecutedQueries.Add(cypher);
+        ExecutedParameters.Add(parameters);
         foreach (var handler in _queryHandlers)
         {
             var result = handler(cypher);
@@ -41,6 +48,7 @@ internal sealed class FakeCypherExecutor : ICypherExecutor
         CancellationToken ct = default)
     {
         ExecutedWriteQueries.Add(cypher);
+        ExecutedWriteParameters.Add(parameters);
         return Task.CompletedTask;
     }
 }

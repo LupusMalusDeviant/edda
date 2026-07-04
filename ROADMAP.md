@@ -169,6 +169,14 @@ getestet (Default = unverändert; ein Keyword- bzw. Semantik-Gewicht kippt die F
 Verhaltensneutral (Defaults unverändert), aber jetzt tunebar + messbar. Ein Cross-Encoder/LLM-Reranker (Option
 A) bleibt als spätere opt-in dritte Stufe offen.
 
+**Große Wette — Mandantenfähigkeit vervollständigen, Scheibe A (Entity-Store, 2026-07-04, Nutzer-Entscheidung
+„A1: Tenant im MERGE-Key"):** der von C1 vertagte `Neo4jEntityStore` ist jetzt tenant-isoliert — ambient
+`IIdentityContext`, `tenantId` im MERGE-Key `(:Entity {ownerId, tenantId, normalizedName})` + Relation-Match,
+Read-Filter `coalesce(e.tenantId,'default')=$tenantId`, Constraint tenant-inklusiv (alter gedroppt).
+Single-Tenant/Default verhaltensneutral. Getestet via `FakeCypherExecutor` (um Param-Capture erweitert):
+Ambient-Tenant gestempelt, Reads gefiltert. **Offen (Folge-Scheiben):** In-Memory-Executor-Entity-Handler
+(Dev-Mode-e2e-Isolation, analog `TenantIsolationTests`), Feedback-Store-Filter, Dataset-Permissions, Admin-API.
+
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |

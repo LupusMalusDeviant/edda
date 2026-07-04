@@ -175,7 +175,9 @@ public static class AkgServiceExtensions
         services.AddSingleton<IEntityStore>(sp => new Neo4jEntityStore(
             sp.GetRequiredService<ICypherExecutor>(),
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<ILogger<Neo4jEntityStore>>()));
+            sp.GetRequiredService<ILogger<Neo4jEntityStore>>(),
+            // C1: ambient tenant source — null falls back to the default tenant.
+            sp.GetService<IIdentityContext>()));
 
         // Domain manager
         services.AddSingleton<IDomainManager>(sp => new DomainManager(
