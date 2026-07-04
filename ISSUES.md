@@ -76,8 +76,11 @@ Jedes Issue: **ID · Titel** | Schweregrad (Kritisch/Hoch/Mittel/Niedrig) | Aufw
 > `RemoteBindGuard.IsInsecureRemoteBind` + `StartupGuardTests`; A5 `TrustedProxyParser` + opt-in `ForwardedHeaders`
 > (`EDDA_TRUSTED_PROXIES`); A9 gesalzene, versionierte Token-Hashes in `FileMcpTokenStore`; A10
 > `SecretRedactingExceptionMiddleware`. **A6** jetzt gefixt: `AuthTokenExtractor` (pur, 7 Tests) + Deprecation-Warnung
-> im `LocalAuthenticationHandler` (Query-Token kompatibel-aber-deprecated), `docs/mcp.md` angepasst. **Noch offen:** A3/A7/A8
-> (Infra: Neo4j-Auth/compose, Wasm-Ressourcenlimits, Non-root-Container — außenwirksam, brauchen Rückfrage), A11 (HTTPS/Proxy-Doku).
+> im `LocalAuthenticationHandler` (Query-Token kompatibel-aber-deprecated), `docs/mcp.md` angepasst. **A3/A7/A8/A11 ebenfalls
+> verifiziert erledigt:** A3 `install.sh`/`install.ps1` erzeugen ein Neo4j-Zufallspasswort (+ `.env.example`-Warnung,
+> `NEO4J_AUTH_MODE`); A7 `WasmProcessLimits`/`DefaultWasmScriptRunner` (Wall-Clock-Kill, `ProcessPriorityClass.BelowNormal`,
+> Output-Cap, Linux-`ulimit`); A8 `Dockerfile` `USER edda` (non-root) + kein `docker.sock`-Mount im Standard; A11 `docs/betrieb.md`
+> „Remote-Betrieb hinter Reverse-Proxy (Caddy/nginx, TLS)". **➜ Der gesamte Security-A-Block (A1–A11) ist erledigt.**
 
 ### A1 · Auth-Token-Vergleich ist nicht timing-safe
 **Kritisch (bei Remote-Exposure) · S · ✅**
