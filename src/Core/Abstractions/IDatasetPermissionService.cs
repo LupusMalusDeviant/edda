@@ -15,6 +15,7 @@ public interface IDatasetPermissionService
     /// Resolves the datasets the ambient caller may read. Returns <see cref="DatasetVisibility.Unrestricted"/>
     /// when no dataset-level restriction applies (the behaviour-neutral default).
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The caller's dataset read visibility.</returns>
-    DatasetVisibility ResolveVisibility();
+    Task<DatasetVisibility> ResolveVisibilityAsync(CancellationToken cancellationToken = default);
 }

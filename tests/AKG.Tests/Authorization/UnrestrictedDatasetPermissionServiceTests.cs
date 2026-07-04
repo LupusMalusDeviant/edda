@@ -9,10 +9,10 @@ namespace Edda.AKG.Tests.Authorization;
 public class UnrestrictedDatasetPermissionServiceTests
 {
     [Fact]
-    public void ResolveVisibility_AlwaysUnrestricted()
+    public async Task ResolveVisibilityAsync_AlwaysUnrestricted()
     {
         var service = new UnrestrictedDatasetPermissionService();
 
-        service.ResolveVisibility().IsUnrestricted.Should().BeTrue();
+        (await service.ResolveVisibilityAsync()).IsUnrestricted.Should().BeTrue();
     }
 }

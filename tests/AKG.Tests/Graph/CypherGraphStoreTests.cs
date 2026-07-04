@@ -259,7 +259,7 @@ public class CypherGraphStoreTests
     private CypherGraphStore StoreWithVisibility(DatasetVisibility visibility)
     {
         var permissions = new Mock<IDatasetPermissionService>();
-        permissions.Setup(p => p.ResolveVisibility()).Returns(visibility);
+        permissions.Setup(p => p.ResolveVisibilityAsync(It.IsAny<CancellationToken>())).ReturnsAsync(visibility);
         return new CypherGraphStore(_cypher.Object, _identity.Object, timeProvider: null, permissions.Object);
     }
 

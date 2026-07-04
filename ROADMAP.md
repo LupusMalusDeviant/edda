@@ -198,9 +198,19 @@ null) + `DatasetVisibilityFilter` (Unrestricted → Pass-through). Alle sechs re
 `CypherGraphStore` laufen durch den Filter — **im Default identisch** (kein Cypher geändert, Filter ist die
 Identität), daher deckt der eine Store beide Backends (Neo4j **und** In-Memory-Dev) ab; der
 `InMemoryCypherExecutor` brauchte keine Änderung. 100% Unit-Coverage der neuen Klassen; Gesamtsuite grün
-(1593, +32), Build 0/0. **Nächste Scheibe (2):** echtes Sharing — Grant-Persistenz + Owner-Aktion „share" +
-Write-Check in `RuleAuthorizer` (Design-Rückfrage zu Grant-Ablage & Auflösungspunkt). **Offen:** Admin-API
-(Tenant-/User-/Rollen-Verwaltung).
+(1593, +32), Build 0/0.
+
+**Dataset-Permissions — Scheibe 2a umgesetzt (2026-07-04, Grants + Resolution + Sharing; Nutzer-Entscheidung
+„SQLite / AKG pro Request / Read-Seite zuerst"):** SQLite-Grant-Store `IDatasetGrantStore`/`DatasetGrantStore`
+(Tabelle `DatasetGrants(TenantId,DatasetId,UserId,Role)`, analog `RuleFeedbackStore`); `IDatasetPermissionService`
+auf **async** umgestellt (`ResolveVisibilityAsync`); `GrantBackedDatasetPermissionService` liest Store + ambient
+Identity → `Restricted(granted)`, Admin/kein-User = Unrestricted; Owner-gated `IDatasetSharingService`/
+`DatasetSharingService` (Admin oder Dataset-Owner darf grant/revoke; frische Quelle hat keinen Owner → Admin
+bootstrappt). **Opt-in:** nur bei `Datasets:Enabled`/`DATASETS_ENABLED` ersetzt der Grant-Resolver den permissiven
+Default — sonst byte-identisch (ein leerer Store würde sonst alle Datasets verbergen). 100% Unit-Coverage der neuen
+Klassen (Store über Temp-SQLite, Resolver + Sharing mit Mocks); Gesamtsuite grün (1608, +15), Build 0/0. **Nächste
+Scheibe 2b:** Write-Check — `RuleAuthorizer` dataset-aware (Editor der Quelle darf deren Regeln ändern) + dünner
+share-Transport (REST/MCP). **Offen:** Admin-API (Tenant-/User-/Rollen-Verwaltung).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

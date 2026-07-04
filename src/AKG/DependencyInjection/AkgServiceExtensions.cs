@@ -116,9 +116,27 @@ public static class AkgServiceExtensions
         services.AddSingleton<IRuleAuthorizer>(sp =>
             new Authorization.RuleAuthorizer(sp.GetService<IIdentityContext>()));
 
-        // ADR-0014: dataset read visibility. The permissive default grants every dataset, so rule reads stay
-        // behaviour-neutral until a grant-backed service replaces it (a later slice).
-        services.AddSingleton<IDatasetPermissionService, Authorization.UnrestrictedDatasetPermissionService>();
+        // ADR-0014 Slice 2: dataset grant store (SQLite side-store, analogous to feedback) + Owner-gated sharing.
+        var datasetsDbPath = configuration?["Datasets:DbPath"]
+            ?? Environment.GetEnvironmentVariable("DATASETS_DB_PATH")
+            ?? "data/datasets.db";
+        services.AddSingleton<IDatasetGrantStore>(_ => new Datasets.DatasetGrantStore(datasetsDbPath));
+        services.AddSingleton<IDatasetSharingService>(sp => new Datasets.DatasetSharingService(
+            sp.GetRequiredService<IDatasetGrantStore>(),
+            sp.GetService<IIdentityContext>()));
+
+        // Dataset read enforcement is opt-in: only when explicitly enabled does the grant-backed resolver
+        // replace the permissive default. An empty grant store would otherwise hide every ingested dataset —
+        // the opposite of behaviour-neutral — so the default build keeps the unrestricted resolver.
+        var datasetsEnabled = bool.TryParse(
+            configuration?["Datasets:Enabled"] ?? Environment.GetEnvironmentVariable("DATASETS_ENABLED"),
+            out var enabled) && enabled;
+        if (datasetsEnabled)
+            services.AddSingleton<IDatasetPermissionService>(sp => new Datasets.GrantBackedDatasetPermissionService(
+                sp.GetRequiredService<IDatasetGrantStore>(),
+                sp.GetService<IIdentityContext>()));
+        else
+            services.AddSingleton<IDatasetPermissionService, Authorization.UnrestrictedDatasetPermissionService>();
 
         // ADR-0013: pluggable vector store (semantic ANN search + chunk embeddings) for the semantic phase.
         services.AddSingleton<IVectorStore>(sp => new CypherVectorStore(

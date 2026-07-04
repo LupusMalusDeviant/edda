@@ -43,9 +43,15 @@ internal sealed class CypherGraphStore : IGraphStore
     /// (ADR-0014). Under the permissive default the input list is returned unchanged (behaviour-neutral).
     /// </summary>
     /// <param name="rules">The mapped rules to scope.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The rules visible to the caller.</returns>
-    private IReadOnlyList<KnowledgeRule> VisibleOnly(IReadOnlyList<KnowledgeRule> rules)
-        => DatasetVisibilityFilter.Apply(_datasetPermissions.ResolveVisibility(), rules);
+    private async Task<IReadOnlyList<KnowledgeRule>> VisibleOnlyAsync(
+        IReadOnlyList<KnowledgeRule> rules, CancellationToken cancellationToken)
+    {
+        var visibility = await _datasetPermissions
+            .ResolveVisibilityAsync(cancellationToken).ConfigureAwait(false);
+        return DatasetVisibilityFilter.Apply(visibility, rules);
+    }
 
     /// <summary>The ambient tenant of the current context (read per call, never cached).</summary>
     private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
@@ -67,7 +73,8 @@ internal sealed class CypherGraphStore : IGraphStore
 
         var mapped = NodeMapper.MapRowObject(rows[0].TryGetValue("r", out var r) ? r : null);
         if (mapped.Id == "unknown") return null;
-        return DatasetVisibilityFilter.IsVisible(_datasetPermissions.ResolveVisibility(), mapped.Id) ? mapped : null;
+        var visibility = await _datasetPermissions.ResolveVisibilityAsync(cancellationToken).ConfigureAwait(false);
+        return DatasetVisibilityFilter.IsVisible(visibility, mapped.Id) ? mapped : null;
     }
 
     /// <inheritdoc />
@@ -84,10 +91,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { domain, type, tag, userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return VisibleOnly(rows
+        return await VisibleOnlyAsync(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
             .Where(r => r.Id != "unknown")
-            .ToList());
+            .ToList(), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -109,10 +116,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return VisibleOnly(rows
+        return await VisibleOnlyAsync(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
             .Where(r => r.Id != "unknown")
-            .ToList());
+            .ToList(), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -127,10 +134,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { ruleId, userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return VisibleOnly(rows
+        return await VisibleOnlyAsync(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("n", out var n) ? n : null))
             .Where(r => r.Id != "unknown")
-            .ToList());
+            .ToList(), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -321,10 +328,10 @@ internal sealed class CypherGraphStore : IGraphStore
             },
             cancellationToken).ConfigureAwait(false);
 
-        return VisibleOnly(rows
+        return await VisibleOnlyAsync(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
             .Where(r => r.Id != "unknown")
-            .ToList());
+            .ToList(), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -346,10 +353,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { frontier, userId, now = _timeProvider.GetUtcNow().ToString("O"), tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return VisibleOnly(rows
+        return await VisibleOnlyAsync(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("n", out var n) ? n : null))
             .Where(r => r.Id != "unknown")
-            .ToList());
+            .ToList(), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

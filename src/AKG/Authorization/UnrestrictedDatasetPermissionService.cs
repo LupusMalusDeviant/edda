@@ -11,5 +11,6 @@ namespace Edda.AKG.Authorization;
 internal sealed class UnrestrictedDatasetPermissionService : IDatasetPermissionService
 {
     /// <inheritdoc />
-    public DatasetVisibility ResolveVisibility() => DatasetVisibility.Unrestricted;
+    public Task<DatasetVisibility> ResolveVisibilityAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(DatasetVisibility.Unrestricted);
 }
