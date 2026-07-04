@@ -229,9 +229,15 @@ ergänzt (konsistent mit AKG/Core), da die lokale Auth immer Admin ist und der 4
 prüfbar ist. 100% Coverage der beiden Handler (204/400/401/403, beide Endpunkte). Gesamtsuite grün (1627, +8), Build 0/0.
 
 **➜ Dataset-Permissions ist damit funktional vollständig** (Read-Enforcement, Grant-Store, Resolution, Owner-gated Sharing,
-dataset-bewusster Write-Check, REST-Transport) — alles OPT-IN via `Datasets:Enabled`, Default byte-identisch. **Offen (kleine
-Folge-Scheiben):** Auto-Grant-Owner-on-Ingest (berührt AKG.Ingestion — Design-Rückfrage), optional GET zum Auflisten der Grants
-(braucht `IDatasetGrantStore.ListGrants`). **Danach:** Admin-API (Tenant-/User-/Rollen-Verwaltung + tenant-scoped GetAllStats).
+dataset-bewusster Write-Check, REST-Transport) — alles OPT-IN via `Datasets:Enabled`, Default byte-identisch.
+
+**Auto-Grant-Owner-on-Ingest — Audit-Entscheidung „überspringen" (2026-07-04):** Ingest ist doppelt gated (Route `AdminOnly`
++ `EnsureCanAdminister` verlangt Owner), und die Pipeline kennt gar keine Ingester-`userId`. Ein Admin umgeht ohnehin alle
+Gates → ihm Owner zu granten wäre eine redundante Zeile (grenzt an toten Code). Echten Nutzen gäbe es erst, wenn Nicht-Admins
+ingesten dürften (größere Auth-/SSRF-Frage, eigener Slice). **Nutzer-Entscheidung: nicht bauen, weiter zur Admin-API** —
+Auto-Grant erst wieder aufgreifen, falls Ingest je für Nicht-Admin-Editoren geöffnet wird. **Offen (optional):** GET zum
+Auflisten der Grants eines Datasets (braucht `IDatasetGrantStore.ListGrants`). **Danach:** Admin-API (Tenant-/User-/Rollen-
+Verwaltung + tenant-scoped GetAllStats).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
