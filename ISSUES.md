@@ -153,6 +153,14 @@ Kein `UseHttpsRedirection`, kein TLS — für lokal ok, für Remote fehlt die An
 
 ## B — Retrieval-Qualität
 
+> **Status-Update 2026-07-05 (Code-Audit):** Der **gesamte B-Block ist erledigt** — am Code verifiziert: B1
+> `KeywordScorer.Tokenize` (Ganz-Token-Match) + Sättigung `Math.Log(1+matchCount)`; B2 Embedding-Fingerprint
+> (`provider:model:dimension`) pro Chunk in `Neo4jEmbeddingCache` (Re-Embed + Index-Neuaufbau bei Wechsel); B3
+> `RetrievalOptions` (Env-konfigurierbar); B4 `OpenAiEmbeddingService.EmbedBatchAsync` (`input`-Array, `MaxBatchSize`,
+> `OrderByIndex`); B6 `SemanticBooster`-Fallback nur über die Keyword-Kandidaten (Cosine gedeckelt); B7
+> `ExponentialBackoff` + Jitter + injizierter `TimeProvider`; B8 Chunk-Overlap an Text-Block-Kanten im
+> `AdaptiveDocumentChunker`; B9 Head-Centroid-Dirty-Flag. **Wie beim A-Block war das Ledger (2026-07-02) komplett veraltet.**
+
 ### B1 · Keyword-Phase: Substring-Matching ohne Tokenisierung/IDF
 **Hoch · M · ⚠️**
 `src/AKG/Context/KeywordScorer.cs:~65-95`: `string.Contains` statt Token-Match; häufige Tags wiegen wie seltene; additive Scores ohne Sättigung. Markt-Standard ist BM25 bzw. mindestens TF-IDF.
