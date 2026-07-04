@@ -247,7 +247,17 @@ claim-getriebenen Modell widerspricht → verworfen. Die einzige echte Lücke wa
 Marker erhalten → In-Memory-Dispatch unverändert; `InMemoryCypherExecutor` filtert `StatsMain`/`GroupBy`/`EdgeCount` jetzt per
 `$tenantId` (neuer `InTenant`-Helfer). Verhaltensneutral für den Default-Tenant. e2e-Test über den echten In-Memory-Executor
 (Tenant-A sieht nur A-Zahlen/-Domains). Gesamtsuite grün (1630, +3), Build 0/0. **➜ Admin-API damit abgeschlossen** (mehr passt
-nicht zum Modell). **Danach:** Auffüller (Config-Connectoren ADR-0005/0006, MCP-Client-Ingestion, Bundle Export/Import ADR-0007).
+nicht zum Modell).
+
+**Auffüller — Audit-Befund „bereits gebaut" (2026-07-05):** alle drei Ökosystem-Kandidaten existieren schon. (1) Config-Connectoren
+(ADR-0005/0006): `IConnectorRegistry` + Git/Jira/Awork/MCP/HTTP-Connectoren + REST-CRUD (`ConnectorEndpoints`) + `Sources.razor`.
+(2) MCP-Client-Ingestion: `McpKnowledgeSource`/`McpKnowledgeConnector` (Wissen) + `McpToolSource`/`McpToolImporter` (Tools, inkl. n8n).
+(3) Bundle Export/Import (ADR-0007): `GET /api/knowledge/export` → `KnowledgeBundle`-JSON, `KnowledgeImporter.ImportBundleAsync`
+mit lokalem Re-Embedding + F17-Validator-Strip, `Import.razor`. **Nutzer-Entscheidung: Bestehendes härten statt neu bauen.**
+**Härtung umgesetzt:** die einzige Coverage-Lücke war der Export-Pfad (Importer + Bundle-Serialisierung waren getestet, der
+Export-Endpoint nicht). Zwei Hosting-Integrationstests ergänzt: Export liefert ein Bündel mit der Regel; das exportierte Bündel
+re-importiert verlustfrei durch den echten Importer (End-to-End-Round-Trip für ADR-0007). Gesamtsuite grün (1632, +2), Build 0/0.
+Einzige namentliche Connector-Lücke bleibt Confluence/Slack (Jira/Awork decken den analogen Raum ab) — offen, falls gewünscht.
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
