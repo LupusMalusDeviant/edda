@@ -288,81 +288,23 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <inheritdoc/>
     public async Task<GraphStats> GetStatsAsync(CancellationToken cancellationToken = default)
     {
-        var statsRows = await _cypher.QueryAsync(
-            """
-            MATCH (r:Rule)
-            RETURN
-                count(r) AS total,
-                sum(CASE WHEN r.ownerId IS NULL THEN 1 ELSE 0 END) AS globalRules,
-                sum(CASE WHEN r.ownerId IS NOT NULL THEN 1 ELSE 0 END) AS userRules,
-                sum(CASE WHEN r.validatorScript IS NOT NULL THEN 1 ELSE 0 END) AS withValidator
-            """,
-            ct: cancellationToken).ConfigureAwait(false);
-
-        var edgeRows = await _cypher.QueryAsync(
-            "MATCH ()-[e]->() WHERE type(e) <> 'HAS_CHUNK' RETURN count(e) AS edges",
-            ct: cancellationToken).ConfigureAwait(false);
-
-        // Documents with at least one embedded chunk (chunks are hidden; count their distinct parents).
-        var embeddedRows = await _cypher.QueryAsync(
-            "MATCH (c:RuleChunk) RETURN count(DISTINCT c.parentId) AS withEmbedding",
-            ct: cancellationToken).ConfigureAwait(false);
-
-        var domainRows = await _cypher.QueryAsync(
-            "MATCH (r:Rule) RETURN r.domain AS domain, count(r) AS cnt",
-            ct: cancellationToken).ConfigureAwait(false);
-
-        var typeRows = await _cypher.QueryAsync(
-            "MATCH (r:Rule) RETURN r.type AS type, count(r) AS cnt",
-            ct: cancellationToken).ConfigureAwait(false);
-
-        var total = 0;
-        var global = 0;
-        var user = 0;
-        var withValidator = 0;
-        var withEmbedding = 0;
-
-        if (statsRows.Count > 0)
-        {
-            var r = statsRows[0];
-            total = ToInt(r.TryGetValue("total", out var t) ? t : null);
-            global = ToInt(r.TryGetValue("globalRules", out var g) ? g : null);
-            user = ToInt(r.TryGetValue("userRules", out var u) ? u : null);
-            withValidator = ToInt(r.TryGetValue("withValidator", out var wv) ? wv : null);
-        }
-
-        var edges = 0;
-        if (edgeRows.Count > 0)
-            edges = ToInt(edgeRows[0].TryGetValue("edges", out var e) ? e : null);
-
-        if (embeddedRows.Count > 0)
-            withEmbedding = ToInt(embeddedRows[0].TryGetValue("withEmbedding", out var we) ? we : null);
-
-        var byDomain = domainRows
-            .Where(r => r.ContainsKey("domain") && r["domain"] != null)
-            .ToDictionary(
-                r => r["domain"]!.ToString()!,
-                r => ToInt(r.TryGetValue("cnt", out var c) ? c : null));
-
-        var byType = typeRows
-            .Where(r => r.ContainsKey("type") && r["type"] != null)
-            .ToDictionary(
-                r => r["type"]!.ToString()!,
-                r => ToInt(r.TryGetValue("cnt", out var c) ? c : null));
+        // ADR-0013: graph-derived counts come from the store; embedding/head-vector coverage and rebuild
+        // progress are composed on top here (the embedding layer moves behind IVectorStore in a later slice).
+        var s = await _graphStore.GetRuleStatisticsAsync(cancellationToken).ConfigureAwait(false);
 
         var coverage = await _embeddingCache.GetCoverageAsync(cancellationToken).ConfigureAwait(false);
         var headCoverage = await _headVectorStore.GetCoverageAsync(cancellationToken).ConfigureAwait(false);
 
         return new GraphStats
         {
-            TotalRules = total,
-            GlobalRules = global,
-            UserRules = user,
-            RulesByDomain = byDomain,
-            RulesByType = byType,
-            TotalEdges = edges,
-            RulesWithValidators = withValidator,
-            RulesWithEmbeddings = withEmbedding,
+            TotalRules = s.TotalRules,
+            GlobalRules = s.GlobalRules,
+            UserRules = s.UserRules,
+            RulesByDomain = s.RulesByDomain,
+            RulesByType = s.RulesByType,
+            TotalEdges = s.TotalEdges,
+            RulesWithValidators = s.RulesWithValidators,
+            RulesWithEmbeddings = s.RulesWithEmbeddings,
             PendingEmbeddingCount = coverage.Pending,
             FailedEmbeddingCount = coverage.Failed,
             HeadsWithVectors = headCoverage.HeadsWithVectors,
@@ -408,5 +350,4 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <inheritdoc/>
     public void CancelEmbeddingRebuild() => _embeddingCache.CancelRebuild();
 
-    private static int ToInt(object? value) => Convert.ToInt32(value ?? 0);
 }

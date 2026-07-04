@@ -222,4 +222,35 @@ public class CypherGraphStoreTests
 
         found.Select(r => r.Id).Should().BeEquivalentTo("n1", "n2");
     }
+
+    [Fact]
+    public async Task GetRuleStatisticsAsync_AggregatesCounts()
+    {
+        void SetupFor(string marker, params IReadOnlyDictionary<string, object?>[] rows)
+            => _cypher.Setup(c => c.QueryAsync(
+                    It.Is<string>(q => q.Contains(marker)), It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(rows);
+
+        SetupFor("AS total", new Dictionary<string, object?>
+        {
+            ["total"] = 10, ["globalRules"] = 6, ["userRules"] = 4, ["withValidator"] = 2,
+        });
+        SetupFor("AS edges", new Dictionary<string, object?> { ["edges"] = 7 });
+        SetupFor("withEmbedding", new Dictionary<string, object?> { ["withEmbedding"] = 3 });
+        SetupFor("AS domain",
+            new Dictionary<string, object?> { ["domain"] = "csharp", ["cnt"] = 5 },
+            new Dictionary<string, object?> { ["domain"] = "security", ["cnt"] = 4 });
+        SetupFor("AS type", new Dictionary<string, object?> { ["type"] = "Rule", ["cnt"] = 9 });
+
+        var stats = await _sut.GetRuleStatisticsAsync();
+
+        stats.TotalRules.Should().Be(10);
+        stats.GlobalRules.Should().Be(6);
+        stats.UserRules.Should().Be(4);
+        stats.RulesWithValidators.Should().Be(2);
+        stats.TotalEdges.Should().Be(7);
+        stats.RulesWithEmbeddings.Should().Be(3);
+        stats.RulesByDomain.Should().BeEquivalentTo(new Dictionary<string, int> { ["csharp"] = 5, ["security"] = 4 });
+        stats.RulesByType.Should().BeEquivalentTo(new Dictionary<string, int> { ["Rule"] = 9 });
+    }
 }

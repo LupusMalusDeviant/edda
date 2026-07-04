@@ -134,4 +134,13 @@ public interface IGraphStore
         IReadOnlyList<string> frontier,
         string? userId = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns graph-derived rule statistics (counts by scope/domain/type, edge count, embedded-rule count).
+    /// Embedding/vector coverage is composed on top by the caller.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The aggregate rule statistics.</returns>
+    Task<GraphRuleStats> GetRuleStatisticsAsync(
+        CancellationToken cancellationToken = default);
 }

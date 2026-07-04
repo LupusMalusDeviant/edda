@@ -127,8 +127,14 @@ Orchestrator — ein nicht-Cypher-Backend muss so nur Cypher-Äquivalente liefer
 jetzt hinter `IGraphStore` (`GetCompilationRulesAsync`/`FindOpenNeighborsAsync`); `ContextCompiler` und
 `GraphExpander` behalten Toolbox-Resolution, BFS-Schleife und Scoring/MMR. DI registriert
 `IGraphStore→CypherGraphStore`. Cypher byte-identisch verschoben → alle Bestandstests grün, +16
-Store-Unit-Tests. **Offen:** Scheibe 3 (Entity/Stats/Domains/Seeding), Scheibe 4 (`IVectorStore` —
-Embeddings/Semantic-Search/Head-Vektoren; deckt zugleich SemanticBooster + WorldKnowledge/Domain-Reads).
+Store-Unit-Tests. **Scheibe 3 (Entity/Stats/Domains/Seeding):** Audit —
+Entity/Domains/Seeding/Validation/RecycleBin haben bereits eigene Interfaces (`IEntityStore`, `IDomainManager`,
+`IWorldKnowledgeSeeder`, `IGraphValidator`, `IRuleRecycleBin`) → schon austauschbar, kein Neubau. Der einzige
+inline verbliebene Graph-Read `GetStats` liegt jetzt hinter `IGraphStore.GetRuleStatisticsAsync` (neuer
+`GraphRuleStats`-Record; die Embedding/Head-Coverage-Komposition bleibt im Orchestrator) — `Neo4jKnowledgeGraph`
+hat jetzt **null** direkte Graph-Reads. **Offen:** Scheibe 4 (`IVectorStore` — die eigentliche zweite Naht:
+Neo4j-proprietäres `db.index.vector.queryNodes` im SemanticBooster + Chunk-Embedding-Reads + Head-Vektoren
+entkoppeln).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

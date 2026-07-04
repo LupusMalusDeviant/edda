@@ -331,6 +331,66 @@ internal sealed class CypherGraphStore : IGraphStore
             .ToList();
     }
 
+    /// <inheritdoc />
+    public async Task<GraphRuleStats> GetRuleStatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        var statsRows = await _cypher.QueryAsync(
+            """
+            MATCH (r:Rule)
+            RETURN
+                count(r) AS total,
+                sum(CASE WHEN r.ownerId IS NULL THEN 1 ELSE 0 END) AS globalRules,
+                sum(CASE WHEN r.ownerId IS NOT NULL THEN 1 ELSE 0 END) AS userRules,
+                sum(CASE WHEN r.validatorScript IS NOT NULL THEN 1 ELSE 0 END) AS withValidator
+            """,
+            ct: cancellationToken).ConfigureAwait(false);
+
+        var edgeRows = await _cypher.QueryAsync(
+            "MATCH ()-[e]->() WHERE type(e) <> 'HAS_CHUNK' RETURN count(e) AS edges",
+            ct: cancellationToken).ConfigureAwait(false);
+
+        // Documents with at least one embedded chunk (chunks are hidden; count their distinct parents).
+        var embeddedRows = await _cypher.QueryAsync(
+            "MATCH (c:RuleChunk) RETURN count(DISTINCT c.parentId) AS withEmbedding",
+            ct: cancellationToken).ConfigureAwait(false);
+
+        var domainRows = await _cypher.QueryAsync(
+            "MATCH (r:Rule) RETURN r.domain AS domain, count(r) AS cnt",
+            ct: cancellationToken).ConfigureAwait(false);
+
+        var typeRows = await _cypher.QueryAsync(
+            "MATCH (r:Rule) RETURN r.type AS type, count(r) AS cnt",
+            ct: cancellationToken).ConfigureAwait(false);
+
+        var total = 0;
+        var global = 0;
+        var user = 0;
+        var withValidator = 0;
+        if (statsRows.Count > 0)
+        {
+            var r = statsRows[0];
+            total = ToInt(r.TryGetValue("total", out var t) ? t : null);
+            global = ToInt(r.TryGetValue("globalRules", out var g) ? g : null);
+            user = ToInt(r.TryGetValue("userRules", out var u) ? u : null);
+            withValidator = ToInt(r.TryGetValue("withValidator", out var wv) ? wv : null);
+        }
+
+        var edges = edgeRows.Count > 0 ? ToInt(edgeRows[0].TryGetValue("edges", out var e) ? e : null) : 0;
+        var withEmbedding = embeddedRows.Count > 0
+            ? ToInt(embeddedRows[0].TryGetValue("withEmbedding", out var we) ? we : null)
+            : 0;
+
+        var byDomain = domainRows
+            .Where(r => r.ContainsKey("domain") && r["domain"] != null)
+            .ToDictionary(r => r["domain"]!.ToString()!, r => ToInt(r.TryGetValue("cnt", out var c) ? c : null));
+
+        var byType = typeRows
+            .Where(r => r.ContainsKey("type") && r["type"] != null)
+            .ToDictionary(r => r["type"]!.ToString()!, r => ToInt(r.TryGetValue("cnt", out var c) ? c : null));
+
+        return new GraphRuleStats(total, global, user, withValidator, edges, withEmbedding, byDomain, byType);
+    }
+
     private static string BuildGetRulesQuery(string? domain, string? type, string? tag)
     {
         var conditions = new List<string>
