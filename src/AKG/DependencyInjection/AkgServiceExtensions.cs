@@ -130,6 +130,13 @@ public static class AkgServiceExtensions
             // C1: ambient tenant source (user decision) — null falls back to the default tenant.
             sp.GetService<IIdentityContext>()));
 
+        // ADR-0013: pluggable persistence seam — graph read operations behind IGraphStore. The
+        // Cypher-backed default works over the provider-selected executor (Neo4j/Memgraph or the
+        // in-memory dev executor) and reads the ambient tenant (C1).
+        services.AddSingleton<IGraphStore>(sp => new CypherGraphStore(
+            sp.GetRequiredService<ICypherExecutor>(),
+            sp.GetService<IIdentityContext>()));
+
         // Knowledge graph (main public API)
         services.AddSingleton<IKnowledgeGraph>(sp => new Neo4jKnowledgeGraph(
             sp.GetRequiredService<ICypherExecutor>(),
@@ -145,7 +152,9 @@ public static class AkgServiceExtensions
             // C1: ambient tenant source (user decision) — null falls back to the default tenant.
             sp.GetService<IIdentityContext>(),
             // C2: central role matrix for delete/subtree mutations.
-            sp.GetRequiredService<IRuleAuthorizer>()));
+            sp.GetRequiredService<IRuleAuthorizer>(),
+            // ADR-0013: the pluggable graph read store.
+            sp.GetRequiredService<IGraphStore>()));
 
         // F48 — retrieval benchmark runner (measures CompileContextAsync quality)
         services.AddSingleton<IBenchmarkRunner>(sp => new AkgBenchmarkRunner(

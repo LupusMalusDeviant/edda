@@ -55,6 +55,11 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <see cref="RuleAuthorizer"/> over <paramref name="identity"/> — without an identity that is
     /// the legacy owner/admin check.
     /// </param>
+    /// <param name="graphStore">
+    /// ADR-0013: pluggable graph read store. Null falls back to an internal
+    /// <see cref="CypherGraphStore"/> over <paramref name="cypher"/> and <paramref name="identity"/>
+    /// — the Cypher-backed default that works for Neo4j and the in-memory dev executor alike.
+    /// </param>
     internal Neo4jKnowledgeGraph(
         ICypherExecutor cypher,
         IContextCompiler contextCompiler,
@@ -67,7 +72,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         IBackgroundWorkQueue backgroundWorkQueue,
         ILogger<Neo4jKnowledgeGraph> logger,
         IIdentityContext? identity = null,
-        IRuleAuthorizer? authorizer = null)
+        IRuleAuthorizer? authorizer = null,
+        IGraphStore? graphStore = null)
     {
         _cypher = cypher;
         _contextCompiler = contextCompiler;
@@ -81,10 +87,12 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         _logger = logger;
         _identity = identity;
         _authorizer = authorizer ?? new RuleAuthorizer(identity);
+        _graphStore = graphStore ?? new CypherGraphStore(cypher, identity);
     }
 
     private readonly IIdentityContext? _identity;
     private readonly IRuleAuthorizer _authorizer;
+    private readonly IGraphStore _graphStore;
 
     /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
     private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
@@ -98,105 +106,39 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     }
 
     /// <inheritdoc/>
-    public async Task<KnowledgeRule?> GetRuleAsync(
+    public Task<KnowledgeRule?> GetRuleAsync(
         string ruleId,
         string? userId = null,
         CancellationToken cancellationToken = default)
-    {
-        // E10: soft-deleted rules are invisible to the regular API (recycle bin only).
-        // C1: tenant isolation — a missing tenantId property counts as the default tenant.
-        var rows = await _cypher.QueryAsync(
-            "MATCH (r:Rule {id: $ruleId}) WHERE (r.ownerId IS NULL OR r.ownerId = $userId) " +
-            "AND r.deletedAt IS NULL AND coalesce(r.tenantId, 'default') = $tenantId RETURN r",
-            new { ruleId, userId, tenantId = Tenant },
-            cancellationToken).ConfigureAwait(false);
-
-        if (rows.Count == 0) return null;
-
-        var mapped = NodeMapper.MapRowObject(rows[0].TryGetValue("r", out var r) ? r : null);
-        return mapped.Id == "unknown" ? null : mapped;
-    }
+        => _graphStore.GetRuleAsync(ruleId, userId, cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<KnowledgeRule>> GetRulesAsync(
+    public Task<IReadOnlyList<KnowledgeRule>> GetRulesAsync(
         string? domain = null,
         string? type = null,
         string? tag = null,
         string? userId = null,
         CancellationToken cancellationToken = default)
-    {
-        var query = BuildGetRulesQuery(domain, type, tag);
-        var rows = await _cypher.QueryAsync(
-            query,
-            new { domain, type, tag, userId, tenantId = Tenant },
-            cancellationToken).ConfigureAwait(false);
-
-        return rows
-            .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
-            .Where(r => r.Id != "unknown")
-            .ToList();
-    }
+        => _graphStore.GetRulesAsync(domain, type, tag, userId, cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<KnowledgeRule>> GetRuleHeadsAsync(
+    public Task<IReadOnlyList<KnowledgeRule>> GetRuleHeadsAsync(
         string? userId = null,
         CancellationToken cancellationToken = default)
-    {
-        // Exclude file-level leaves (git:<repo>:<path> / upload:<source>:<file>) so the graph renders the
-        // structural hierarchy + standalone rules instead of every ingested file. The leaves are loaded
-        // lazily per head, keeping a large knowledge base (tens of thousands of files) responsive.
-        var rows = await _cypher.QueryAsync(
-            """
-            MATCH (r:Rule)
-            WHERE (r.ownerId IS NULL OR r.ownerId = $userId)
-              AND r.deletedAt IS NULL
-              AND coalesce(r.tenantId, 'default') = $tenantId
-              AND NOT ((r.id STARTS WITH 'git:' OR r.id STARTS WITH 'upload:') AND size(split(r.id, ':')) >= 3)
-            RETURN r
-            """,
-            new { userId, tenantId = Tenant },
-            cancellationToken).ConfigureAwait(false);
-
-        return rows
-            .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
-            .Where(r => r.Id != "unknown")
-            .ToList();
-    }
+        => _graphStore.GetRuleHeadsAsync(userId, cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<KnowledgeRule>> FindNeighborsAsync(
+    public Task<IReadOnlyList<KnowledgeRule>> FindNeighborsAsync(
         string ruleId,
         string? userId = null,
         CancellationToken cancellationToken = default)
-    {
-        var rows = await _cypher.QueryAsync(
-            "MATCH (r:Rule {id: $ruleId})-[]-(n:Rule) WHERE (n.ownerId IS NULL OR n.ownerId = $userId) " +
-            "AND coalesce(n.tenantId, 'default') = $tenantId RETURN n",
-            new { ruleId, userId, tenantId = Tenant },
-            cancellationToken).ConfigureAwait(false);
-
-        return rows
-            .Select(row => NodeMapper.MapRowObject(row.TryGetValue("n", out var n) ? n : null))
-            .Where(r => r.Id != "unknown")
-            .ToList();
-    }
+        => _graphStore.FindNeighborsAsync(ruleId, userId, cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<string>> ListOwnersAsync(
+    public Task<IReadOnlyList<string>> ListOwnersAsync(
         string type,
         CancellationToken cancellationToken = default)
-    {
-        var rows = await _cypher.QueryAsync(
-            "MATCH (r:Rule) WHERE r.type = $type AND r.ownerId IS NOT NULL RETURN DISTINCT r.ownerId AS ownerId",
-            new { type },
-            cancellationToken).ConfigureAwait(false);
-
-        return rows
-            .Select(row => row.TryGetValue("ownerId", out var o) ? o?.ToString() : null)
-            .Where(o => !string.IsNullOrEmpty(o))
-            .Select(o => o!)
-            .ToList();
-    }
+        => _graphStore.ListOwnersAsync(type, cancellationToken);
 
     /// <inheritdoc/>
     public Task<ContextResult> CompileContextAsync(
@@ -600,24 +542,6 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
 
     /// <inheritdoc/>
     public void CancelEmbeddingRebuild() => _embeddingCache.CancelRebuild();
-
-    private static string BuildGetRulesQuery(string? domain, string? type, string? tag)
-    {
-        var conditions = new List<string>
-        {
-            "(r.ownerId IS NULL OR r.ownerId = $userId)",
-            // E10: active listings never show soft-deleted rules.
-            "r.deletedAt IS NULL",
-            // C1: tenant isolation (missing property = default tenant).
-            "coalesce(r.tenantId, 'default') = $tenantId",
-        };
-
-        if (domain != null) conditions.Add("r.domain = $domain");
-        if (type != null) conditions.Add("r.type = $type");
-        if (tag != null) conditions.Add("$tag IN r.tags");
-
-        return $"MATCH (r:Rule) WHERE {string.Join(" AND ", conditions)} RETURN r";
-    }
 
     private static int ToInt(object? value) => Convert.ToInt32(value ?? 0);
 }

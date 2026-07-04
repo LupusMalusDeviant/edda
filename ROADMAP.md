@@ -112,6 +112,17 @@ Rückfrage zum Threading-Ansatz).
 | 4.1 | **Eingebetteter Graph** (Kuzu-.NET oder SQLite-Graph) als Default-Option | hoch | M | Graph-Provider-Abstraktion (deckt zugleich 0.1) | Neo4j wird optional |
 | 4.2 | **Vektor-Store entkoppeln** (Provider-Interface) | mittel | M | Embeddings/AKG | Backend per Config wechselbar |
 
+**Backend-Flexibilität — Fortschritt (2026-07-04):** Nutzer-Ziel: Edda als modulares, provider-steckbares
+Framework (SAP-Spirit). **ADR-0013 akzeptiert** — semantische Persistenz-Naht `IGraphStore` (Intent statt
+Cypher-Strings) + `IVectorStore` (Embedding-Entkopplung), damit nicht-Cypher-Backends (SQLite/Kuzu/Postgres,
+Track 4.1) und austauschbare Vektor-Stores (4.2) andocken. **Umsetzung in kleinen, verhaltensneutralen
+Scheiben:** *Scheibe 1a (READ) umgesetzt* — `IGraphStore` (5 Lese-Ops) + `CypherGraphStore` (baut das bisherige
+Cypher, führt es über `ICypherExecutor` aus → deckt Neo4j/Memgraph **und** den In-Memory-Dev-Executor ab;
+Tenant ambient via `IIdentityContext`, C1). `Neo4jKnowledgeGraph` delegiert die Reads, DI registriert
+`IGraphStore→CypherGraphStore`. Cypher byte-identisch verschoben → alle Bestandstests grün, +9 Store-Unit-Tests.
+**Offen:** Scheibe 1b (Writes — mit Auth/Embedding/Soft-Delete verwoben → Rückfrage vor Trennung), dann
+Scheiben 2–4 (Context-Compile, Entity/Stats/Seeding, `IVectorStore`).
+
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
