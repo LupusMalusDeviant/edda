@@ -35,6 +35,15 @@ public sealed record RetrievalOptions
     /// <summary>Default score weight of an expanded-term match relative to a direct match (B5).</summary>
     public const double DefaultQueryExpansionWeight = 0.5;
 
+    /// <summary>Default RRF dampening constant (standard value 60): higher flattens each rank's contribution.</summary>
+    public const int DefaultRrfK = 60;
+
+    /// <summary>Default RRF weight of the keyword ranking (1.0 = neutral, equal to the semantic weight).</summary>
+    public const double DefaultRrfKeywordWeight = 1.0;
+
+    /// <summary>Default RRF weight of the semantic ranking (1.0 = neutral, equal to the keyword weight).</summary>
+    public const double DefaultRrfSemanticWeight = 1.0;
+
     /// <summary>Minimum cosine similarity for a rule to be considered a semantic match.</summary>
     public double SimilarityThreshold { get; init; } = DefaultSimilarityThreshold;
 
@@ -65,4 +74,13 @@ public sealed record RetrievalOptions
 
     /// <summary>Score weight of an expanded-term match relative to a direct match (B5).</summary>
     public double QueryExpansionWeight { get; init; } = DefaultQueryExpansionWeight;
+
+    /// <summary>Reciprocal Rank Fusion dampening constant — higher flattens the per-rank contribution.</summary>
+    public int RrfK { get; init; } = DefaultRrfK;
+
+    /// <summary>RRF weight applied to the keyword ranking's contribution (1.0 = neutral).</summary>
+    public double RrfKeywordWeight { get; init; } = DefaultRrfKeywordWeight;
+
+    /// <summary>RRF weight applied to the semantic ranking's contribution (1.0 = neutral).</summary>
+    public double RrfSemanticWeight { get; init; } = DefaultRrfSemanticWeight;
 }

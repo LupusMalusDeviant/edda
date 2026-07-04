@@ -20,9 +20,6 @@ namespace Edda.AKG.Context;
 /// </summary>
 internal sealed class SemanticBooster
 {
-    /// <summary>RRF dampening constant (standard value 60).</summary>
-    private const int RrfK = 60;
-
     private readonly RetrievalOptions _options;
     private readonly IEmbeddingService _embeddings;
     private readonly IVectorStore _vectorStore;
@@ -109,7 +106,8 @@ internal sealed class SemanticBooster
             return scoredRules;
 
         // Fuse keyword and semantic rankings via RRF (rank-based, scale-robust).
-        var fused = RrfFuse(scoredRules, semanticScores);
+        var fused = RrfFuse(
+            scoredRules, semanticScores, _options.RrfK, _options.RrfKeywordWeight, _options.RrfSemanticWeight);
 
         // Diversify the top candidates via MMR over their embeddings.
         var topIds = fused.Take(_options.MmrTopN).Select(r => r.Rule.Id).ToList();
@@ -128,12 +126,16 @@ internal sealed class SemanticBooster
 
     /// <summary>
     /// Fuses the keyword ranking (input order, by score) with the semantic ranking (by cosine) using
-    /// Reciprocal Rank Fusion with tie-aware (dense) ranks. Rewrites each rule's score to its RRF
-    /// value and returns the list re-sorted by descending RRF score.
+    /// weighted Reciprocal Rank Fusion (dampening constant <c>rrfK</c>, per-source weights) with tie-aware
+    /// (dense) ranks. Rewrites each rule's score to its RRF value and returns the list re-sorted by
+    /// descending RRF score. Internal for direct unit testing.
     /// </summary>
-    private static IReadOnlyList<ScoredRule> RrfFuse(
+    internal static IReadOnlyList<ScoredRule> RrfFuse(
         IReadOnlyList<ScoredRule> keywordRanked,
-        IReadOnlyDictionary<string, double> semanticScores)
+        IReadOnlyDictionary<string, double> semanticScores,
+        int rrfK,
+        double keywordWeight,
+        double semanticWeight)
     {
         var keywordRanks = DenseRanks(keywordRanked.Select(r => r.Score).ToList());
         var keywordRankById = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -149,9 +151,9 @@ internal sealed class SemanticBooster
         var fused = keywordRanked.ToList();
         foreach (var scoredRule in fused)
         {
-            var rrf = 1.0 / (RrfK + keywordRankById[scoredRule.Rule.Id]);
+            var rrf = keywordWeight * (1.0 / (rrfK + keywordRankById[scoredRule.Rule.Id]));
             if (semanticRankById.TryGetValue(scoredRule.Rule.Id, out var semanticRank))
-                rrf += 1.0 / (RrfK + semanticRank);
+                rrf += semanticWeight * (1.0 / (rrfK + semanticRank));
             scoredRule.Score = rrf;
         }
 

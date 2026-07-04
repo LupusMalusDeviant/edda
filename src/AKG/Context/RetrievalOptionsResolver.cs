@@ -37,10 +37,21 @@ internal static class RetrievalOptionsResolver
             configuration?["RETRIEVAL_QUERY_EXPANSION_TERMS"], RetrievalOptions.DefaultQueryExpansionTerms),
         QueryExpansionWeight = ParseDouble(
             configuration?["RETRIEVAL_QUERY_EXPANSION_WEIGHT"], RetrievalOptions.DefaultQueryExpansionWeight),
+        RrfK = ParsePositiveInt(
+            configuration?["RETRIEVAL_RRF_K"], RetrievalOptions.DefaultRrfK),
+        RrfKeywordWeight = ParseNonNegativeDouble(
+            configuration?["RETRIEVAL_RRF_KEYWORD_WEIGHT"], RetrievalOptions.DefaultRrfKeywordWeight),
+        RrfSemanticWeight = ParseNonNegativeDouble(
+            configuration?["RETRIEVAL_RRF_SEMANTIC_WEIGHT"], RetrievalOptions.DefaultRrfSemanticWeight),
     };
 
     private static double ParseDouble(string? raw, double fallback)
         => double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : fallback;
+
+    private static double ParseNonNegativeDouble(string? raw, double fallback)
+        => double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) && value >= 0.0
             ? value
             : fallback;
 

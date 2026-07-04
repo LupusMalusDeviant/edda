@@ -110,4 +110,29 @@ public sealed class RetrievalOptionsResolverTests
 
         options.SimilarityThreshold.Should().Be(0.42);
     }
+
+    [Fact]
+    public void Resolve_RrfKeys_ParsesValues()
+    {
+        var options = RetrievalOptionsResolver.Resolve(Config(new Dictionary<string, string?>
+        {
+            ["RETRIEVAL_RRF_K"] = "40",
+            ["RETRIEVAL_RRF_KEYWORD_WEIGHT"] = "2.0",
+            ["RETRIEVAL_RRF_SEMANTIC_WEIGHT"] = "0.5",
+        }));
+
+        options.RrfK.Should().Be(40);
+        options.RrfKeywordWeight.Should().Be(2.0);
+        options.RrfSemanticWeight.Should().Be(0.5);
+    }
+
+    [Fact]
+    public void Resolve_RrfKeysUnset_UsesNeutralDefaults()
+    {
+        var options = RetrievalOptionsResolver.Resolve(null);
+
+        options.RrfK.Should().Be(RetrievalOptions.DefaultRrfK);
+        options.RrfKeywordWeight.Should().Be(1.0);
+        options.RrfSemanticWeight.Should().Be(1.0);
+    }
 }

@@ -184,6 +184,46 @@ public class SemanticBoosterTests
             e.Level == LogLevel.Warning && e.Message.Contains("App-side cosine fallback active"));
     }
 
+    [Fact]
+    public void RrfFuse_NeutralWeights_SymmetricRanksScoreEqually()
+    {
+        // a: keyword rank 1 / semantic rank 2; b: keyword rank 2 / semantic rank 1 → symmetric.
+        var keywordRanked = new[] { Scored("a", 10), Scored("b", 5) };
+        var semantic = new Dictionary<string, double> { ["b"] = 0.9, ["a"] = 0.8 };
+
+        var fused = SemanticBooster.RrfFuse(
+            keywordRanked, semantic, rrfK: 60,
+            keywordWeight: RetrievalOptions.DefaultRrfKeywordWeight,
+            semanticWeight: RetrievalOptions.DefaultRrfSemanticWeight);
+
+        fused.Should().HaveCount(2);
+        fused[0].Score.Should().BeApproximately(fused[1].Score, 1e-12);
+    }
+
+    [Fact]
+    public void RrfFuse_KeywordHeavyWeight_PrefersKeywordWinner()
+    {
+        var keywordRanked = new[] { Scored("a", 10), Scored("b", 5) };          // a = keyword rank 1
+        var semantic = new Dictionary<string, double> { ["b"] = 0.9, ["a"] = 0.8 }; // b = semantic rank 1
+
+        var fused = SemanticBooster.RrfFuse(
+            keywordRanked, semantic, rrfK: 60, keywordWeight: 3.0, semanticWeight: 1.0);
+
+        fused[0].Rule.Id.Should().Be("a");
+    }
+
+    [Fact]
+    public void RrfFuse_SemanticHeavyWeight_PrefersSemanticWinner()
+    {
+        var keywordRanked = new[] { Scored("a", 10), Scored("b", 5) };
+        var semantic = new Dictionary<string, double> { ["b"] = 0.9, ["a"] = 0.8 };
+
+        var fused = SemanticBooster.RrfFuse(
+            keywordRanked, semantic, rrfK: 60, keywordWeight: 1.0, semanticWeight: 3.0);
+
+        fused[0].Rule.Id.Should().Be("b");
+    }
+
     /// <summary>Minimal <see cref="ILogger{T}"/> that records emitted level + formatted message.</summary>
     private sealed class CapturingLogger<T> : ILogger<T>
     {

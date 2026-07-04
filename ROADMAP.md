@@ -161,6 +161,14 @@ automatisiert abgedeckt (`McpExposurePolicy*Tests`, `McpToolRegistryTests`, `Mcp
 In-Memory-Boot via `HostingTestFactory`); ein stdio-Prozess-Level-e2e braucht Prozess-Start → als manuelle
 Checkliste im Guide statt als flaky Test.
 
+**Große Wette — Reranker-Härtung (2026-07-04, Nutzer-Entscheidung „B: Tuning-Hebel"):** die RRF-Parameter sind
+aus der Hartcodierung in `RetrievalOptions` gezogen — `RrfK` (Default 60) + gewichtetes RRF
+(`RrfKeywordWeight`/`RrfSemanticWeight`, Default 1.0 = neutral), bindbar über
+`RETRIEVAL_RRF_K`/`RETRIEVAL_RRF_KEYWORD_WEIGHT`/`RETRIEVAL_RRF_SEMANTIC_WEIGHT`. `RrfFuse` ist internal + direkt
+getestet (Default = unverändert; ein Keyword- bzw. Semantik-Gewicht kippt die Fusion nachweisbar).
+Verhaltensneutral (Defaults unverändert), aber jetzt tunebar + messbar. Ein Cross-Encoder/LLM-Reranker (Option
+A) bleibt als spätere opt-in dritte Stufe offen.
+
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
