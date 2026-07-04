@@ -259,6 +259,14 @@ Export-Endpoint nicht). Zwei Hosting-Integrationstests ergänzt: Export liefert 
 re-importiert verlustfrei durch den echten Importer (End-to-End-Round-Trip für ADR-0007). Gesamtsuite grün (1632, +2), Build 0/0.
 Einzige namentliche Connector-Lücke bleibt Confluence/Slack (Jira/Awork decken den analogen Raum ab) — offen, falls gewünscht.
 
+**Härtung 2 (2026-07-05): Connector-REST-Endpoints getestet.** `ConnectorEndpoints` (`/api/connectors`, `/api/sources`) war die
+einzige Endpoint-Gruppe ohne Hosting-Integrationstest (Rules/Batch/Auth/Health/MCP-Gate/Export haben welche; die Connector-*Logik*
+war über die Connector-/Registry-Unit-Tests bereits voll abgedeckt). Fünf Endpoint-Tests ergänzt: Registry-Liste (200), unbekannter
+Typ → 400, leerer Name → 400, Update/Delete auf nicht-existierende Quelle → 404 — allesamt Pre-Persist-Zweige (kein Settings-Write →
+keine `data/settings.json`-Verunreinigung). Gesamtsuite grün (1637, +5), Build 0/0. **➜ Coverage solide** (jede Connector-/Source-/
+MCP-Klasse hat einen Test, Export-Round-Trip + Connector-Endpoints abgedeckt); Loop hier gestoppt, Nutzer steuert neu. Offen (optional,
+falls gewünscht): Confluence/Slack-Connector, Secrets-write-only-Endpoint-Test (braucht isolierten Settings-Store im Test-Harness).
+
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
