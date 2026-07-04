@@ -146,6 +146,13 @@ Track 4.1/4.2 fundamental freigeschaltet (SQLite/Kuzu-Graph bzw. austauschbarer 
 synthetischer Ground-Truth) — sub-sekündlich, ohne Neo4j. Ehrliche Grenzen (In-Memory ≠ Neo4j, Semantik aus)
 + Neo4j-/Semantik-Messung als Folgeschritt: `docs/benchmarks/akg-skalierung.md`.
 
+**Quick Win — Extraktions-Eval-Harness (2026-07-04):** `IExtractionEvaluator`/`ExtractionEvaluator` +
+kuratiertes Golden-Set (`CuratedExtractionEvalSet`) scoren die LLM-Extraktion (Entitäten per Name, Relationen
+per `(Source, Target)`-Paar; P/R/F1, Macro-Average). Getestet mit gemocktem Extractor **und** echtem
+`LlmEntityExtractor` + gemocktem `ILlmChatClient` (kanned JSON) → End-to-End-Pfad deterministisch abgesichert.
+**⚠️ Echte Extraktionsqualität NICHT verifiziert** (kein lokales LLM hier) — die Ollama-Messung ist ein offener,
+nutzerseitiger Schritt: `docs/benchmarks/extraktions-eval.md`.
+
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
