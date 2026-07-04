@@ -116,6 +116,10 @@ public static class AkgServiceExtensions
         services.AddSingleton<IRuleAuthorizer>(sp =>
             new Authorization.RuleAuthorizer(sp.GetService<IIdentityContext>()));
 
+        // ADR-0014: dataset read visibility. The permissive default grants every dataset, so rule reads stay
+        // behaviour-neutral until a grant-backed service replaces it (a later slice).
+        services.AddSingleton<IDatasetPermissionService, Authorization.UnrestrictedDatasetPermissionService>();
+
         // ADR-0013: pluggable vector store (semantic ANN search + chunk embeddings) for the semantic phase.
         services.AddSingleton<IVectorStore>(sp => new CypherVectorStore(
             sp.GetRequiredService<ICypherExecutor>()));
@@ -144,7 +148,9 @@ public static class AkgServiceExtensions
         services.AddSingleton<IGraphStore>(sp => new CypherGraphStore(
             sp.GetRequiredService<ICypherExecutor>(),
             sp.GetService<IIdentityContext>(),
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetRequiredService<TimeProvider>(),
+            // ADR-0014: dataset read visibility (permissive default until grant-backed sharing lands).
+            sp.GetRequiredService<IDatasetPermissionService>()));
 
         // Knowledge graph (main public API)
         services.AddSingleton<IKnowledgeGraph>(sp => new Neo4jKnowledgeGraph(

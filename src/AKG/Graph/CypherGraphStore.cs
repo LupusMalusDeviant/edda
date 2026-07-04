@@ -1,3 +1,4 @@
+using Edda.AKG.Authorization;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
 
@@ -15,17 +16,36 @@ internal sealed class CypherGraphStore : IGraphStore
     private readonly ICypherExecutor _cypher;
     private readonly IIdentityContext? _identity;
     private readonly TimeProvider _timeProvider;
+    private readonly IDatasetPermissionService _datasetPermissions;
 
     /// <summary>Initializes a new instance of the <see cref="CypherGraphStore"/> class.</summary>
     /// <param name="cypher">Executor for the generated Cypher (any Cypher backend or the in-memory dev executor).</param>
     /// <param name="identity">Ambient identity supplying the current tenant (C1); null falls back to the default tenant.</param>
     /// <param name="timeProvider">Time source for temporal-validity timestamps (validFrom/validUntil/deletedAt); null uses the system clock.</param>
-    public CypherGraphStore(ICypherExecutor cypher, IIdentityContext? identity = null, TimeProvider? timeProvider = null)
+    /// <param name="datasetPermissions">
+    /// Dataset read visibility (ADR-0014); null falls back to the permissive default, so rule reads behave
+    /// exactly as before until a grant-backed service is supplied.
+    /// </param>
+    public CypherGraphStore(
+        ICypherExecutor cypher,
+        IIdentityContext? identity = null,
+        TimeProvider? timeProvider = null,
+        IDatasetPermissionService? datasetPermissions = null)
     {
         _cypher = cypher;
         _identity = identity;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _datasetPermissions = datasetPermissions ?? new UnrestrictedDatasetPermissionService();
     }
+
+    /// <summary>
+    /// Filters mapped rules to those the current caller may read under the dataset-permission model
+    /// (ADR-0014). Under the permissive default the input list is returned unchanged (behaviour-neutral).
+    /// </summary>
+    /// <param name="rules">The mapped rules to scope.</param>
+    /// <returns>The rules visible to the caller.</returns>
+    private IReadOnlyList<KnowledgeRule> VisibleOnly(IReadOnlyList<KnowledgeRule> rules)
+        => DatasetVisibilityFilter.Apply(_datasetPermissions.ResolveVisibility(), rules);
 
     /// <summary>The ambient tenant of the current context (read per call, never cached).</summary>
     private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
@@ -46,7 +66,8 @@ internal sealed class CypherGraphStore : IGraphStore
         if (rows.Count == 0) return null;
 
         var mapped = NodeMapper.MapRowObject(rows[0].TryGetValue("r", out var r) ? r : null);
-        return mapped.Id == "unknown" ? null : mapped;
+        if (mapped.Id == "unknown") return null;
+        return DatasetVisibilityFilter.IsVisible(_datasetPermissions.ResolveVisibility(), mapped.Id) ? mapped : null;
     }
 
     /// <inheritdoc />
@@ -63,10 +84,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { domain, type, tag, userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return rows
+        return VisibleOnly(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
             .Where(r => r.Id != "unknown")
-            .ToList();
+            .ToList());
     }
 
     /// <inheritdoc />
@@ -88,10 +109,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return rows
+        return VisibleOnly(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
             .Where(r => r.Id != "unknown")
-            .ToList();
+            .ToList());
     }
 
     /// <inheritdoc />
@@ -106,10 +127,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { ruleId, userId, tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return rows
+        return VisibleOnly(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("n", out var n) ? n : null))
             .Where(r => r.Id != "unknown")
-            .ToList();
+            .ToList());
     }
 
     /// <inheritdoc />
@@ -300,10 +321,10 @@ internal sealed class CypherGraphStore : IGraphStore
             },
             cancellationToken).ConfigureAwait(false);
 
-        return rows
+        return VisibleOnly(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
             .Where(r => r.Id != "unknown")
-            .ToList();
+            .ToList());
     }
 
     /// <inheritdoc />
@@ -325,10 +346,10 @@ internal sealed class CypherGraphStore : IGraphStore
             new { frontier, userId, now = _timeProvider.GetUtcNow().ToString("O"), tenantId = Tenant },
             cancellationToken).ConfigureAwait(false);
 
-        return rows
+        return VisibleOnly(rows
             .Select(row => NodeMapper.MapRowObject(row.TryGetValue("n", out var n) ? n : null))
             .Where(r => r.Id != "unknown")
-            .ToList();
+            .ToList());
     }
 
     /// <inheritdoc />

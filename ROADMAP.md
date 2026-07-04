@@ -187,8 +187,20 @@ zum Teilen einer benannten Teilmenge mit einer Nutzer-Teilmenge. **Nutzer-Entsch
 **Provenance-Gruppe** (Dataset == Quelle `git:<repo>`/`upload:<source>`, ACL am Kopfknoten; kein neuer
 Knotentyp), Permissions = **Per-Dataset-Rolle V/E/O** (C2-Triade wiederverwendet). Enforcement über die zwei
 bestehenden Nähte (Read-Prädikat in `CypherGraphStore`+`InMemoryCypherExecutor`, Write via `RuleAuthorizer`);
-verhaltensneutral, solange ein Dataset keine ACL trägt. **Nächste Scheibe:** verhaltensneutrales
-Read-Enforcement mit leerer/abwesender Dataset-ACL. **Offen:** Admin-API (Tenant-/User-/Rollen-Verwaltung).
+verhaltensneutral, solange ein Dataset keine ACL trägt.
+
+**Dataset-Permissions — Scheibe 1 umgesetzt (2026-07-04, Read-Enforcement-Gerüst, verhaltensneutral):**
+Core-Vertrag `IDatasetPermissionService` + Wertobjekt `DatasetVisibility` (Unrestricted / Restricted(set));
+permissiver Default `UnrestrictedDatasetPermissionService` (Null-Objekt) als optionale Ctor-Abhängigkeit von
+`CypherGraphStore` (Fallback wie beim IGraphStore-Refactor → alle Konstruktionsstellen unverändert). Reiner
+Ableitungs-Helfer `DatasetMembership` (Dataset-Id = zwei-Segment-Kopf `git:<repo>`/`upload:<source>`, sonst
+null) + `DatasetVisibilityFilter` (Unrestricted → Pass-through). Alle sechs regel-liefernden Reads im
+`CypherGraphStore` laufen durch den Filter — **im Default identisch** (kein Cypher geändert, Filter ist die
+Identität), daher deckt der eine Store beide Backends (Neo4j **und** In-Memory-Dev) ab; der
+`InMemoryCypherExecutor` brauchte keine Änderung. 100% Unit-Coverage der neuen Klassen; Gesamtsuite grün
+(1593, +32), Build 0/0. **Nächste Scheibe (2):** echtes Sharing — Grant-Persistenz + Owner-Aktion „share" +
+Write-Check in `RuleAuthorizer` (Design-Rückfrage zu Grant-Ablage & Auflösungspunkt). **Offen:** Admin-API
+(Tenant-/User-/Rollen-Verwaltung).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

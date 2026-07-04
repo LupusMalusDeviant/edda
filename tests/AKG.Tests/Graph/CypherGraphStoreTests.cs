@@ -253,4 +253,52 @@ public class CypherGraphStoreTests
         stats.RulesByDomain.Should().BeEquivalentTo(new Dictionary<string, int> { ["csharp"] = 5, ["security"] = 4 });
         stats.RulesByType.Should().BeEquivalentTo(new Dictionary<string, int> { ["Rule"] = 9 });
     }
+
+    // ---- Dataset read visibility (ADR-0014) ----
+
+    private CypherGraphStore StoreWithVisibility(DatasetVisibility visibility)
+    {
+        var permissions = new Mock<IDatasetPermissionService>();
+        permissions.Setup(p => p.ResolveVisibility()).Returns(visibility);
+        return new CypherGraphStore(_cypher.Object, _identity.Object, timeProvider: null, permissions.Object);
+    }
+
+    [Fact]
+    public async Task GetRulesAsync_RestrictedVisibility_HidesRulesOutsideVisibleDatasets()
+    {
+        SetupQuery(NodeRows("r", "git:repo:a", "git:other:b", "hand-authored"));
+        var sut = StoreWithVisibility(DatasetVisibility.Restricted(["git:repo"]));
+
+        var rules = await sut.GetRulesAsync();
+
+        // The visible dataset and the ungrouped rule survive; the hidden dataset's rule is filtered out.
+        rules.Select(r => r.Id).Should().BeEquivalentTo("git:repo:a", "hand-authored");
+    }
+
+    [Fact]
+    public async Task GetRuleAsync_RestrictedVisibility_HidesRuleOutsideVisibleDataset()
+    {
+        SetupQuery(NodeRows("r", "git:other:x"));
+        var sut = StoreWithVisibility(DatasetVisibility.Restricted(["git:repo"]));
+
+        (await sut.GetRuleAsync("git:other:x")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetRuleAsync_RestrictedVisibility_ReturnsRuleInVisibleDataset()
+    {
+        SetupQuery(NodeRows("r", "git:repo:x"));
+        var sut = StoreWithVisibility(DatasetVisibility.Restricted(["git:repo"]));
+
+        (await sut.GetRuleAsync("git:repo:x"))!.Id.Should().Be("git:repo:x");
+    }
+
+    [Fact]
+    public async Task GetRulesAsync_DefaultService_DoesNotFilterByDataset()
+    {
+        // The permissive default keeps the read behaviour-neutral even for provenance-prefixed rules.
+        SetupQuery(NodeRows("r", "git:repo:a", "git:other:b"));
+
+        (await _sut.GetRulesAsync()).Select(r => r.Id).Should().BeEquivalentTo("git:repo:a", "git:other:b");
+    }
 }
