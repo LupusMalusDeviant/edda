@@ -42,6 +42,9 @@ bevor sie das Dateisystem durchsuchen.
   Header gültig — der frühere `?token=`-Query-Parameter wird aus Sicherheitsgründen
   nicht mehr akzeptiert (Query-Strings landen in Logs, Browser-History und Referrern).
   Wird er dennoch mitgeschickt, ignoriert der Server ihn und protokolliert eine Warnung.
+- **Allgemeiner `/api/*`-/UI-Zugriff (A6):** aus Kompatibilität wird ein `?token=` hier noch akzeptiert, ist
+  aber ebenfalls **deprecated** — bei Nutzung protokolliert der Server eine Warnung. Nutze auch hier den
+  `Authorization: Bearer`-Header; der Query-Parameter kann in einer späteren Version entfallen.
 
 Der MCP-Nutzerkontext (`ToolExecutionContext.UserId`) kommt aus dem `sub`-Claim
 (HTTP) bzw. ist im stdio-Host `null` (Tools tolerieren das → `anonymous`/`local`).

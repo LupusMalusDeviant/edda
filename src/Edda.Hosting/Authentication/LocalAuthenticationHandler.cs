@@ -63,11 +63,18 @@ public sealed class LocalAuthenticationHandler : AuthenticationHandler<Authentic
 
     private string? ExtractToken()
     {
-        var auth = Request.Headers.Authorization.ToString();
-        if (auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            return auth["Bearer ".Length..].Trim();
+        var (token, fromQuery) = AuthTokenExtractor.Extract(
+            Request.Headers.Authorization.ToString(),
+            Request.Query.TryGetValue("token", out var q) ? q.ToString() : null);
 
-        return Request.Query.TryGetValue("token", out var q) ? q.ToString() : null;
+        // A6: the query-parameter path stays for backward compatibility but is deprecated — a token in the URL
+        // leaks into logs, browser history and Referer headers. Prefer the Authorization: Bearer header.
+        if (fromQuery)
+            Logger.LogWarning(
+                "Authentication token supplied via the ?token= query parameter is deprecated: query strings leak " +
+                "into logs, browser history and Referer headers. Use the 'Authorization: Bearer' header instead.");
+
+        return token;
     }
 }
 

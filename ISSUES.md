@@ -70,6 +70,15 @@ Jedes Issue: **ID · Titel** | Schweregrad (Kritisch/Hoch/Mittel/Niedrig) | Aufw
 
 ## A — Sicherheit
 
+> **Status-Update 2026-07-05 (Code-Audit + A6-Fix):** Der Security-**Code**-Block ist erledigt. Eine Härtungs-Runde
+> nach dem Audit-Datum hatte bereits **A1, A2, A4, A5, A9, A10** umgesetzt (am Code verifiziert): A1 `ConstantTimeComparer`;
+> A2 `RateLimitOptions` + `AddRateLimiter`/`UseRateLimiter` (`EDDA_RATE_LIMIT_PER_MINUTE`); A4
+> `RemoteBindGuard.IsInsecureRemoteBind` + `StartupGuardTests`; A5 `TrustedProxyParser` + opt-in `ForwardedHeaders`
+> (`EDDA_TRUSTED_PROXIES`); A9 gesalzene, versionierte Token-Hashes in `FileMcpTokenStore`; A10
+> `SecretRedactingExceptionMiddleware`. **A6** jetzt gefixt: `AuthTokenExtractor` (pur, 7 Tests) + Deprecation-Warnung
+> im `LocalAuthenticationHandler` (Query-Token kompatibel-aber-deprecated), `docs/mcp.md` angepasst. **Noch offen:** A3/A7/A8
+> (Infra: Neo4j-Auth/compose, Wasm-Ressourcenlimits, Non-root-Container — außenwirksam, brauchen Rückfrage), A11 (HTTPS/Proxy-Doku).
+
 ### A1 · Auth-Token-Vergleich ist nicht timing-safe
 **Kritisch (bei Remote-Exposure) · S · ✅**
 `src/Edda.Hosting/Authentication/LocalAuthenticationHandler.cs:~48` vergleicht den Bearer-Token mit
@@ -101,8 +110,8 @@ Es gibt keine `ForwardedHeadersMiddleware`-Konfiguration. Hinter einem Proxy ist
 - **Fix:** `ForwardedHeaders` opt-in via `EDDA_TRUSTED_PROXIES` (kommagetrennte IPs → `KnownProxies`); ohne Konfiguration bleiben Forwarded-Header **ignoriert** (sicherer Default).
 - **Akzeptanz:** Doku in `docs/betrieb.md` (nginx/Caddy-Beispiel); Tests für das Options-Parsing.
 
-### A6 · MCP-Token wird auch als Query-Parameter akzeptiert
-**Mittel · S · ✅**
+### A6 · MCP-Token wird auch als Query-Parameter akzeptiert — ✅ ERLEDIGT (2026-07-05)
+**Mittel · S · ✅** — Query-Token bleibt kompatibel, wird aber **deprecated + protokolliert eine Warnung**; die reine Parsing-Logik (Header vs. Query) liegt jetzt im getesteten `AuthTokenExtractor`, `docs/mcp.md` angepasst.
 `src/Web/Program.cs:~58` akzeptiert `?token=` — Tokens landen in Logs, Browser-History, Referrern.
 - **Fix:** Query-Parameter-Pfad entfernen; nur `Authorization: Bearer`. Falls stdio-/Legacy-Clients ihn brauchen: Deprecation-Warnung loggen statt sofort entfernen (Entscheidung im PR dokumentieren).
 - **Akzeptanz:** Header-Auth ✓, Query-Auth 401 (oder Warnung); README/`docs/mcp.md` angepasst.
