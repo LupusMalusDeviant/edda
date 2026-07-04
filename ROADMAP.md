@@ -132,9 +132,13 @@ Entity/Domains/Seeding/Validation/RecycleBin haben bereits eigene Interfaces (`I
 `IWorldKnowledgeSeeder`, `IGraphValidator`, `IRuleRecycleBin`) → schon austauschbar, kein Neubau. Der einzige
 inline verbliebene Graph-Read `GetStats` liegt jetzt hinter `IGraphStore.GetRuleStatisticsAsync` (neuer
 `GraphRuleStats`-Record; die Embedding/Head-Coverage-Komposition bleibt im Orchestrator) — `Neo4jKnowledgeGraph`
-hat jetzt **null** direkte Graph-Reads. **Offen:** Scheibe 4 (`IVectorStore` — die eigentliche zweite Naht:
-Neo4j-proprietäres `db.index.vector.queryNodes` im SemanticBooster + Chunk-Embedding-Reads + Head-Vektoren
-entkoppeln).
+hat jetzt **null** direkte Graph-Reads. **Scheibe 4 (IVectorStore) umgesetzt:** die letzte harte
+Neo4j-Kopplung — die Vektor-ANN (`db.index.vector.queryNodes`) + die Chunk-Embedding-Reads im `SemanticBooster`
+— liegt jetzt hinter `IVectorStore`/`CypherVectorStore`; RRF/MMR/App-Cosine-Fallback bleiben im Booster
+(Retrieval-Logik), `IHeadVectorStore` war schon ein eigenes Interface. DI registriert
+`IVectorStore→CypherVectorStore`. Cypher byte-identisch, alle Bestandstests grün, +5 Store-Tests. **→ Beide
+ADR-0013-Nähte stehen: Graph-Backend (`IGraphStore`) UND Vektor-Backend (`IVectorStore`) sind steckbar** —
+Track 4.1/4.2 fundamental freigeschaltet (SQLite/Kuzu-Graph bzw. austauschbarer Vektor-Store docken jetzt an).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

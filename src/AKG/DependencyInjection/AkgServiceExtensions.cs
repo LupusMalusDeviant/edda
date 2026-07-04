@@ -116,6 +116,10 @@ public static class AkgServiceExtensions
         services.AddSingleton<IRuleAuthorizer>(sp =>
             new Authorization.RuleAuthorizer(sp.GetService<IIdentityContext>()));
 
+        // ADR-0013: pluggable vector store (semantic ANN search + chunk embeddings) for the semantic phase.
+        services.AddSingleton<IVectorStore>(sp => new CypherVectorStore(
+            sp.GetRequiredService<ICypherExecutor>()));
+
         // Context compiler (orchestrates all 4 phases + F32 feedback multiplier)
         services.AddSingleton<IContextCompiler>(sp => new ContextCompiler(
             sp.GetRequiredService<ICypherExecutor>(),
@@ -130,7 +134,9 @@ public static class AkgServiceExtensions
             // C1: ambient tenant source (user decision) — null falls back to the default tenant.
             sp.GetService<IIdentityContext>(),
             // ADR-0013: the pluggable graph read store (candidate load + neighbour expansion).
-            sp.GetRequiredService<IGraphStore>()));
+            sp.GetRequiredService<IGraphStore>(),
+            // ADR-0013: the pluggable vector store for the semantic phase.
+            sp.GetRequiredService<IVectorStore>()));
 
         // ADR-0013: pluggable persistence seam — graph read operations behind IGraphStore. The
         // Cypher-backed default works over the provider-selected executor (Neo4j/Memgraph or the

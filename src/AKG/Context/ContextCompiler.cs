@@ -79,6 +79,10 @@ internal sealed class ContextCompiler : IContextCompiler
     /// ADR-0013: the graph read store for candidate loading and neighbour expansion. Null falls back to a
     /// <see cref="CypherGraphStore"/> over <paramref name="cypher"/> — the same Cypher as before.
     /// </param>
+    /// <param name="vectorStore">
+    /// ADR-0013: the vector store for the semantic phase (ANN search + chunk embeddings). Null falls back to a
+    /// <see cref="CypherVectorStore"/> over <paramref name="cypher"/> — the same Neo4j vector index as before.
+    /// </param>
     public ContextCompiler(
         ICypherExecutor cypher,
         IEmbeddingService embeddingService,
@@ -90,7 +94,8 @@ internal sealed class ContextCompiler : IContextCompiler
         IHeadVectorStore? headVectorStore = null,
         RetrievalOptions? options = null,
         IIdentityContext? identity = null,
-        IGraphStore? graphStore = null)
+        IGraphStore? graphStore = null,
+        IVectorStore? vectorStore = null)
     {
         _embeddings = embeddingService;
         _headVectorStore = headVectorStore;
@@ -104,7 +109,8 @@ internal sealed class ContextCompiler : IContextCompiler
             embeddingService,
             cypher,
             loggerFactory.CreateLogger<SemanticBooster>(),
-            _retrievalOptions);
+            _retrievalOptions,
+            vectorStore);
         _graphExpander = new GraphExpander(cypher, timeProvider, identity, _graphStore);
         _worldFetcher = new WorldKnowledgeFetcher(cypher);
         _toolboxResolver = new ToolboxResolver();

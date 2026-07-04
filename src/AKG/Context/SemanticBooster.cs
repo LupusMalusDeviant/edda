@@ -20,37 +20,39 @@ namespace Edda.AKG.Context;
 /// </summary>
 internal sealed class SemanticBooster
 {
-    /// <summary>Name of the Neo4j vector index over <c>(:RuleChunk).embedding</c>.</summary>
-    private const string VectorIndexName = "chunk_embeddings";
-
     /// <summary>RRF dampening constant (standard value 60).</summary>
     private const int RrfK = 60;
 
     private readonly RetrievalOptions _options;
     private readonly IEmbeddingService _embeddings;
-    private readonly ICypherExecutor _cypher;
+    private readonly IVectorStore _vectorStore;
     private readonly ILogger<SemanticBooster> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="SemanticBooster"/>.
     /// </summary>
     /// <param name="embeddings">Embedding service for generating query vectors.</param>
-    /// <param name="cypher">Cypher executor for the vector index query and embedding retrieval.</param>
+    /// <param name="cypher">Cypher executor used to build the default vector store when none is supplied.</param>
     /// <param name="logger">Logger for diagnostics.</param>
     /// <param name="options">
     /// Tunable retrieval thresholds/limits (similarity threshold, vector top-K, MMR top-N and lambda).
     /// Null uses the defaults, which preserve the historical hard-coded behaviour.
     /// </param>
+    /// <param name="vectorStore">
+    /// ADR-0013: the vector store for ANN search and chunk-embedding retrieval. Null falls back to a
+    /// <see cref="CypherVectorStore"/> over <paramref name="cypher"/> — the same Neo4j vector index as before.
+    /// </param>
     internal SemanticBooster(
         IEmbeddingService embeddings,
         ICypherExecutor cypher,
         ILogger<SemanticBooster> logger,
-        RetrievalOptions? options = null)
+        RetrievalOptions? options = null,
+        IVectorStore? vectorStore = null)
     {
         _embeddings = embeddings;
-        _cypher = cypher;
         _logger = logger;
         _options = options ?? new RetrievalOptions();
+        _vectorStore = vectorStore ?? new CypherVectorStore(cypher);
     }
 
     /// <summary>
@@ -187,35 +189,16 @@ internal sealed class SemanticBooster
         var candidateSet = candidateIds.ToHashSet(StringComparer.Ordinal);
         try
         {
-            var rows = await _cypher.QueryAsync(
-                """
-                CALL db.index.vector.queryNodes($index, $topK, $vector)
-                YIELD node, score
-                WHERE score > $threshold
-                  AND (node.ownerId IS NULL OR node.ownerId = $userId)
-                RETURN node.parentId AS id, max(score) AS score
-                """,
-                new
-                {
-                    index = VectorIndexName,
-                    topK = _options.VectorTopK,
-                    vector = queryEmbedding,
-                    threshold = _options.SimilarityThreshold,
-                    userId,
-                },
-                ct).ConfigureAwait(false);
+            // ADR-0013: the ANN search lives in the vector store; the candidate intersection + RRF/MMR stay here.
+            var matches = await _vectorStore.SearchByVectorAsync(
+                queryEmbedding, _options.VectorTopK, _options.SimilarityThreshold, userId, ct).ConfigureAwait(false);
 
-            // Index query succeeded — trust its result (empty = nothing above threshold).
+            // Index query succeeded — keep only matches that are keyword candidates (empty = nothing above threshold).
             var scores = new Dictionary<string, double>(StringComparer.Ordinal);
-            foreach (var row in rows)
+            foreach (var (id, value) in matches)
             {
-                var id = row.TryGetValue("id", out var i) ? i?.ToString() : null;
-                if (id is null || !candidateSet.Contains(id)) continue;
-                if (row.TryGetValue("score", out var sc) && sc is not null)
-                {
-                    var value = Convert.ToDouble(sc);
-                    scores[id] = scores.TryGetValue(id, out var existing) ? Math.Max(existing, value) : value;
-                }
+                if (!candidateSet.Contains(id)) continue;
+                scores[id] = scores.TryGetValue(id, out var existing) ? Math.Max(existing, value) : value;
             }
 
             return scores;
@@ -224,8 +207,7 @@ internal sealed class SemanticBooster
         {
             // Index missing or unsupported (e.g. Memgraph) → app-side cosine fallback.
             _logger.LogDebug(ex,
-                "Vector index '{Index}' unavailable; using app-side cosine fallback | {Component}",
-                VectorIndexName, "AKG");
+                "Vector index unavailable; using app-side cosine fallback | {Component}", "AKG");
             // Bound the O(N) fallback: score only the top keyword-ranked candidates.
             var fallbackCandidates = SelectFallbackCandidates(candidateIds, _options.FallbackMaxCandidates);
             return await ComputeAppSideScoresAsync(queryEmbedding, fallbackCandidates, candidateIds.Count, ct)
@@ -279,103 +261,38 @@ internal sealed class SemanticBooster
 
     /// <summary>
     /// Loads one representative chunk embedding (lowest ordinal) per rule, used by MMR to diversify the
-    /// top candidates at the document level.
+    /// top candidates at the document level. Returns empty when the store read fails (best-effort).
     /// </summary>
     private async Task<IReadOnlyDictionary<string, float[]>> FetchRepresentativeEmbeddingsAsync(
         IEnumerable<string> ruleIds, CancellationToken ct)
     {
-        var ids = ruleIds.ToList();
-        if (ids.Count == 0)
-            return new Dictionary<string, float[]>();
-
-        IReadOnlyList<IReadOnlyDictionary<string, object?>> rows;
         try
         {
-            rows = await _cypher.QueryAsync(
-                """
-                MATCH (r:Rule)-[:HAS_CHUNK]->(c:RuleChunk)
-                WHERE r.id IN $ids
-                WITH r, c ORDER BY c.ord
-                RETURN r.id AS id, collect(c.embedding)[0] AS emb
-                """,
-                new { ids },
-                ct).ConfigureAwait(false);
+            return await _vectorStore.GetRepresentativeEmbeddingsAsync(ruleIds.ToList(), ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to retrieve representative chunk embeddings | {Component}", "AKG");
             return new Dictionary<string, float[]>();
         }
-
-        var result = new Dictionary<string, float[]>(StringComparer.Ordinal);
-        foreach (var row in rows)
-        {
-            if (!row.ContainsKey("id") || row["id"] is null) continue;
-            var id = row["id"]!.ToString()!;
-            var embedding = ToFloatArray(row.TryGetValue("emb", out var e) ? e : null);
-            if (embedding.Length > 0)
-                result[id] = embedding;
-        }
-
-        return result;
     }
 
-    /// <summary>Loads all chunk embeddings grouped by parent rule id (for the app-side cosine fallback).</summary>
-    private async Task<IReadOnlyDictionary<string, List<float[]>>> FetchChunkEmbeddingsAsync(
+    /// <summary>
+    /// Loads all chunk embeddings grouped by parent rule id (for the app-side cosine fallback). Returns
+    /// empty when the store read fails (best-effort).
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<float[]>>> FetchChunkEmbeddingsAsync(
         IEnumerable<string> ruleIds, CancellationToken ct)
     {
-        var ids = ruleIds.ToList();
-        if (ids.Count == 0)
-            return new Dictionary<string, List<float[]>>();
-
-        IReadOnlyList<IReadOnlyDictionary<string, object?>> rows;
         try
         {
-            rows = await _cypher.QueryAsync(
-                """
-                MATCH (r:Rule)-[:HAS_CHUNK]->(c:RuleChunk)
-                WHERE r.id IN $ids
-                RETURN r.id AS id, collect(c.embedding) AS embs
-                """,
-                new { ids },
-                ct).ConfigureAwait(false);
+            return await _vectorStore.GetChunkEmbeddingsAsync(ruleIds.ToList(), ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to retrieve chunk embeddings | {Component}", "AKG");
-            return new Dictionary<string, List<float[]>>();
+            return new Dictionary<string, IReadOnlyList<float[]>>();
         }
-
-        var result = new Dictionary<string, List<float[]>>(StringComparer.Ordinal);
-        foreach (var row in rows)
-        {
-            if (!row.ContainsKey("id") || row["id"] is null) continue;
-            var id = row["id"]!.ToString()!;
-            var list = ToFloatArrayList(row.TryGetValue("embs", out var e) ? e : null);
-            if (list.Count > 0)
-                result[id] = list;
-        }
-
-        return result;
-    }
-
-    private static float[] ToFloatArray(object? value)
-        => value is IEnumerable<object> list ? list.Select(Convert.ToSingle).ToArray() : [];
-
-    private static List<float[]> ToFloatArrayList(object? value)
-    {
-        var result = new List<float[]>();
-        if (value is IEnumerable<object> outer)
-        {
-            foreach (var item in outer)
-            {
-                var array = ToFloatArray(item);
-                if (array.Length > 0)
-                    result.Add(array);
-            }
-        }
-
-        return result;
     }
 
     private static double CosineSimilarity(float[] a, float[] b)
