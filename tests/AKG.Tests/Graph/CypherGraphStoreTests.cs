@@ -202,4 +202,24 @@ public class CypherGraphStoreTests
         _cypher.Verify(c => c.ExecuteAsync(It.Is<string>(q => q.Contains("invalidatedBy = newer.id")),
             It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task GetCompilationRulesAsync_MapsScopedCandidates()
+    {
+        SetupQuery(NodeRows("r", "r1", "r2"));
+
+        var rules = await _sut.GetCompilationRulesAsync("u1", new[] { "tools.git" }, []);
+
+        rules.Select(r => r.Id).Should().BeEquivalentTo("r1", "r2");
+    }
+
+    [Fact]
+    public async Task FindOpenNeighborsAsync_MapsFrontierNeighbors()
+    {
+        SetupQuery(NodeRows("n", "n1", "n2"));
+
+        var found = await _sut.FindOpenNeighborsAsync(new[] { "r0" }, "u1");
+
+        found.Select(r => r.Id).Should().BeEquivalentTo("n1", "n2");
+    }
 }

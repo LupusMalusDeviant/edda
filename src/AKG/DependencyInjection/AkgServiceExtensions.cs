@@ -128,7 +128,9 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<IHeadVectorStore>(),
             RetrievalOptionsResolver.Resolve(configuration),
             // C1: ambient tenant source (user decision) — null falls back to the default tenant.
-            sp.GetService<IIdentityContext>()));
+            sp.GetService<IIdentityContext>(),
+            // ADR-0013: the pluggable graph read store (candidate load + neighbour expansion).
+            sp.GetRequiredService<IGraphStore>()));
 
         // ADR-0013: pluggable persistence seam — graph read operations behind IGraphStore. The
         // Cypher-backed default works over the provider-selected executor (Neo4j/Memgraph or the

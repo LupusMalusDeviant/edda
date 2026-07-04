@@ -17,21 +17,25 @@ internal sealed class GraphExpander
     /// <summary>Upper bound on newly discovered neighbours, to prevent fan-out blow-up.</summary>
     private const int MaxNeighbors = 30;
 
-    private readonly ICypherExecutor _cypher;
-    private readonly TimeProvider _timeProvider;
-    private readonly IIdentityContext? _identity;
+    private readonly IGraphStore _graphStore;
 
     /// <summary>
     /// Initializes a new instance of <see cref="GraphExpander"/>.
     /// </summary>
-    /// <param name="cypher">Cypher executor for graph traversal queries.</param>
-    /// <param name="timeProvider">Time source for filtering temporally closed edges (C9).</param>
+    /// <param name="cypher">Cypher executor used to build the default graph store when none is supplied.</param>
+    /// <param name="timeProvider">Time source for the default store's temporal-validity timestamps (C9).</param>
     /// <param name="identity">C1: ambient tenant source; null = default tenant.</param>
-    internal GraphExpander(ICypherExecutor cypher, TimeProvider timeProvider, IIdentityContext? identity = null)
+    /// <param name="graphStore">
+    /// ADR-0013: the graph read store used for neighbour traversal. Null falls back to a
+    /// <see cref="CypherGraphStore"/> over <paramref name="cypher"/> — the same Cypher as before.
+    /// </param>
+    internal GraphExpander(
+        ICypherExecutor cypher,
+        TimeProvider timeProvider,
+        IIdentityContext? identity = null,
+        IGraphStore? graphStore = null)
     {
-        _cypher = cypher;
-        _timeProvider = timeProvider;
-        _identity = identity;
+        _graphStore = graphStore ?? new CypherGraphStore(cypher, identity, timeProvider);
     }
 
     /// <summary>
@@ -53,28 +57,17 @@ internal sealed class GraphExpander
         var seen = seedRules.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
         var neighbors = new List<KnowledgeRule>();
         var frontier = seedRules.Select(r => r.Id).ToList();
-        // C9: a temporally closed relationship must not carry activation — traverse only edges that
-        // are still open (or close in the future), consistent with the node-level validUntil filter.
-        var now = _timeProvider.GetUtcNow().ToString("O");
 
+        // C9: the store returns only neighbours reached via still-open edges (validUntil null or in the
+        // future), consistent with the node-level validUntil filter.
         for (var depth = 0; depth < maxDepth && frontier.Count > 0 && neighbors.Count < MaxNeighbors; depth++)
         {
-            var rows = await _cypher.QueryAsync(
-                """
-                MATCH (r:Rule)-[e]-(n:Rule)
-                WHERE r.id IN $frontier AND (n.ownerId IS NULL OR n.ownerId = $userId)
-                  AND coalesce(n.tenantId, 'default') = $tenantId
-                  AND (e.validUntil IS NULL OR e.validUntil > $now)
-                RETURN DISTINCT n
-                """,
-                new { frontier, userId, now, tenantId = _identity?.TenantId ?? Tenants.DefaultTenantId },
-                ct).ConfigureAwait(false);
+            var found = await _graphStore.FindOpenNeighborsAsync(frontier, userId, ct).ConfigureAwait(false);
 
             var nextFrontier = new List<string>();
-            foreach (var row in rows)
+            foreach (var neighbor in found)
             {
-                var neighbor = NodeMapper.MapRowObject(row.TryGetValue("n", out var n) ? n : null);
-                if (neighbor.Id == "unknown" || !seen.Add(neighbor.Id))
+                if (!seen.Add(neighbor.Id))
                     continue;
 
                 neighbors.Add(neighbor);

@@ -122,9 +122,13 @@ ab; Tenant ambient via `IIdentityContext`, C1). **1b (WRITE, Nutzer-Entscheidung
 UpsertRuleGraph (MERGE + C9-Kanten), Soft-Delete (E10), Subtree-Delete und Supersede-Invalidierung als reine
 Cypher-Primitive im Store (`TimeProvider` injiziert); Auth-Gate (C2), Embedding und Bulk-Ingestion bleiben im
 Orchestrator — ein nicht-Cypher-Backend muss so nur Cypher-Äquivalente liefern, keine Policy/kein Embedding.
-`Neo4jKnowledgeGraph` delegiert Reads **und** Writes, DI registriert `IGraphStore→CypherGraphStore`. Cypher
-byte-identisch verschoben → alle Bestandstests grün, +14 Store-Unit-Tests. **Offen:** Scheiben 2–4
-(Context-Compile, Entity/Stats/Seeding, `IVectorStore`).
+`Neo4jKnowledgeGraph` delegiert Reads **und** Writes. **Scheibe 2 (Context-Compile):** der Kandidaten-Fetch
+(`LoadRules` — Scope/Tool-Gating/Prefix-Pruning/temporal) und die 1-Hop-Nachbar-Traversierung (`Expand`) liegen
+jetzt hinter `IGraphStore` (`GetCompilationRulesAsync`/`FindOpenNeighborsAsync`); `ContextCompiler` und
+`GraphExpander` behalten Toolbox-Resolution, BFS-Schleife und Scoring/MMR. DI registriert
+`IGraphStore→CypherGraphStore`. Cypher byte-identisch verschoben → alle Bestandstests grün, +16
+Store-Unit-Tests. **Offen:** Scheibe 3 (Entity/Stats/Domains/Seeding), Scheibe 4 (`IVectorStore` —
+Embeddings/Semantic-Search/Head-Vektoren; deckt zugleich SemanticBooster + WorldKnowledge/Domain-Reads).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

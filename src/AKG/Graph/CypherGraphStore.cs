@@ -268,6 +268,69 @@ internal sealed class CypherGraphStore : IGraphStore
             cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<KnowledgeRule>> GetCompilationRulesAsync(
+        string? userId,
+        IReadOnlyList<string> toolboxes,
+        IReadOnlyList<string> prefixes,
+        CancellationToken cancellationToken = default)
+    {
+        // Owner/tenant scope + tool-domain gating (tools.* only when the domain is a resolved toolbox) +
+        // temporal validity + optional leaf pre-pruning by id prefix. Byte-identical to the compiler's
+        // former inline query — the retrieval strategy (which toolboxes/prefixes) stays in the compiler.
+        var rows = await _cypher.QueryAsync(
+            """
+            MATCH (r:Rule)
+            WHERE (r.ownerId IS NULL OR r.ownerId = $userId)
+              AND coalesce(r.tenantId, 'default') = $tenantId
+              AND (NOT r.domain STARTS WITH 'tools.' OR r.domain IN $toolboxes)
+              AND (r.validUntil IS NULL OR r.validUntil > $now)
+              AND (size($prefixes) = 0
+                   OR NOT (r.id STARTS WITH 'git:' OR r.id STARTS WITH 'upload:')
+                   OR any(p IN $prefixes WHERE r.id STARTS WITH p))
+            RETURN r
+            """,
+            new
+            {
+                userId,
+                tenantId = Tenant,
+                toolboxes,
+                now = _timeProvider.GetUtcNow().ToString("O"),
+                prefixes,
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return rows
+            .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
+            .Where(r => r.Id != "unknown")
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<KnowledgeRule>> FindOpenNeighborsAsync(
+        IReadOnlyList<string> frontier,
+        string? userId = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Multi-source 1-hop neighbours reached via still-open edges (C9): validUntil null or in the
+        // future. The BFS loop, dedup and fan-out bounding stay in the caller (GraphExpander).
+        var rows = await _cypher.QueryAsync(
+            """
+            MATCH (r:Rule)-[e]-(n:Rule)
+            WHERE r.id IN $frontier AND (n.ownerId IS NULL OR n.ownerId = $userId)
+              AND coalesce(n.tenantId, 'default') = $tenantId
+              AND (e.validUntil IS NULL OR e.validUntil > $now)
+            RETURN DISTINCT n
+            """,
+            new { frontier, userId, now = _timeProvider.GetUtcNow().ToString("O"), tenantId = Tenant },
+            cancellationToken).ConfigureAwait(false);
+
+        return rows
+            .Select(row => NodeMapper.MapRowObject(row.TryGetValue("n", out var n) ? n : null))
+            .Where(r => r.Id != "unknown")
+            .ToList();
+    }
+
     private static string BuildGetRulesQuery(string? domain, string? type, string? tag)
     {
         var conditions = new List<string>

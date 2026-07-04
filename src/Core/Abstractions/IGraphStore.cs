@@ -104,4 +104,34 @@ public interface IGraphStore
     /// <param name="cancellationToken">Cancellation token.</param>
     Task InvalidateSupersededAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Loads the candidate rules for context compilation: in scope for the caller and ambient tenant, with
+    /// tool-domain gating (a <c>tools.*</c> rule is included only when its domain is a resolved toolbox),
+    /// temporal validity, and optional leaf pre-pruning to the given id prefixes. The retrieval strategy
+    /// (which toolboxes/prefixes) is decided by the caller.
+    /// </summary>
+    /// <param name="userId">User scope; null returns only global rules.</param>
+    /// <param name="toolboxes">Resolved <c>tools.*</c> domains to admit; other tool domains are gated out.</param>
+    /// <param name="prefixes">Id prefixes that git/upload leaves are restricted to; empty = no pre-pruning.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The in-scope, temporally valid candidate rules.</returns>
+    Task<IReadOnlyList<KnowledgeRule>> GetCompilationRulesAsync(
+        string? userId,
+        IReadOnlyList<string> toolboxes,
+        IReadOnlyList<string> prefixes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the distinct 1-hop neighbours of a frontier of rules reached via still-open edges (C9),
+    /// scoped to the caller and ambient tenant. Used for breadth-first activation expansion.
+    /// </summary>
+    /// <param name="frontier">The source rule ids to expand from.</param>
+    /// <param name="userId">User scope; null returns only global neighbours.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The neighbouring rules reachable via open edges.</returns>
+    Task<IReadOnlyList<KnowledgeRule>> FindOpenNeighborsAsync(
+        IReadOnlyList<string> frontier,
+        string? userId = null,
+        CancellationToken cancellationToken = default);
 }

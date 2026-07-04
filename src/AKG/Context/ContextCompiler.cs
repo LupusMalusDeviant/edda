@@ -31,8 +31,8 @@ internal sealed class ContextCompiler : IContextCompiler
     /// <summary>Number of repository/upload heads stage 1 pre-prunes to (ADR-0009).</summary>
     private const int TopKHeads = 3;
 
-    private readonly ICypherExecutor _cypher;
     private readonly IEmbeddingService _embeddings;
+    private readonly IGraphStore _graphStore;
     private readonly IHeadVectorStore? _headVectorStore;
     private readonly KeywordScorer _keywordScorer;
     private readonly SemanticBooster _semanticBooster;
@@ -75,6 +75,10 @@ internal sealed class ContextCompiler : IContextCompiler
     /// C1: ambient tenant source (user decision: ambient via <see cref="IIdentityContext"/>). Null
     /// falls back to the default tenant — the single-tenant standalone behavior.
     /// </param>
+    /// <param name="graphStore">
+    /// ADR-0013: the graph read store for candidate loading and neighbour expansion. Null falls back to a
+    /// <see cref="CypherGraphStore"/> over <paramref name="cypher"/> — the same Cypher as before.
+    /// </param>
     public ContextCompiler(
         ICypherExecutor cypher,
         IEmbeddingService embeddingService,
@@ -85,33 +89,29 @@ internal sealed class ContextCompiler : IContextCompiler
         IEntityStore? entityStore = null,
         IHeadVectorStore? headVectorStore = null,
         RetrievalOptions? options = null,
-        IIdentityContext? identity = null)
+        IIdentityContext? identity = null,
+        IGraphStore? graphStore = null)
     {
-        _cypher = cypher;
         _embeddings = embeddingService;
         _headVectorStore = headVectorStore;
         _timeProvider = timeProvider;
         _entityStore = entityStore;
         _retrievalOptions = options ?? new RetrievalOptions();
         _keywordScorer = new KeywordScorer();
+        // ADR-0013: the graph read store — default falls back to Cypher over the injected executor.
+        _graphStore = graphStore ?? new CypherGraphStore(cypher, identity, timeProvider);
         _semanticBooster = new SemanticBooster(
             embeddingService,
             cypher,
             loggerFactory.CreateLogger<SemanticBooster>(),
             _retrievalOptions);
-        _graphExpander = new GraphExpander(cypher, timeProvider, identity);
+        _graphExpander = new GraphExpander(cypher, timeProvider, identity, _graphStore);
         _worldFetcher = new WorldKnowledgeFetcher(cypher);
         _toolboxResolver = new ToolboxResolver();
         _domainResolver = new DomainActivationResolver(cypher, timeProvider);
         _feedbackService = feedbackService;
-        _identity = identity;
         _logger = logger;
     }
-
-    private readonly IIdentityContext? _identity;
-
-    /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
-    private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
 
     /// <summary>
     /// Compiles a full context result for the given task context.
@@ -398,32 +398,10 @@ internal sealed class ContextCompiler : IContextCompiler
     {
         var relevantToolboxes = _toolboxResolver.Resolve(context);
 
-        var rows = await _cypher.QueryAsync(
-            """
-            MATCH (r:Rule)
-            WHERE (r.ownerId IS NULL OR r.ownerId = $userId)
-              AND coalesce(r.tenantId, 'default') = $tenantId
-              AND (NOT r.domain STARTS WITH 'tools.' OR r.domain IN $toolboxes)
-              AND (r.validUntil IS NULL OR r.validUntil > $now)
-              AND (size($prefixes) = 0
-                   OR NOT (r.id STARTS WITH 'git:' OR r.id STARTS WITH 'upload:')
-                   OR any(p IN $prefixes WHERE r.id STARTS WITH p))
-            RETURN r
-            """,
-            new
-            {
-                userId = context.UserId,
-                tenantId = Tenant,
-                toolboxes = relevantToolboxes.ToList(),
-                now = _timeProvider.GetUtcNow().ToString("O"),
-                prefixes = headPrefixes.ToList(),
-            },
-            ct).ConfigureAwait(false);
-
-        var rules = rows
-            .Select(row => NodeMapper.MapRowObject(row.TryGetValue("r", out var r) ? r : null))
-            .Where(r => r.Id != "unknown")
-            .ToList();
+        // ADR-0013: the scoped candidate fetch (owner/tenant + tool-domain gating + leaf-prefix pruning +
+        // temporal validity) is a persistence op behind the store; toolbox resolution stays here.
+        var rules = await _graphStore.GetCompilationRulesAsync(
+            context.UserId, relevantToolboxes.ToList(), headPrefixes.ToList(), ct).ConfigureAwait(false);
 
         _logger.LogDebug(
             "Rules loaded: {Count} total, toolboxes={Toolboxes} | {Component}",
