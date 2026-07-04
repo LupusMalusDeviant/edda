@@ -116,12 +116,15 @@ Rückfrage zum Threading-Ansatz).
 Framework (SAP-Spirit). **ADR-0013 akzeptiert** — semantische Persistenz-Naht `IGraphStore` (Intent statt
 Cypher-Strings) + `IVectorStore` (Embedding-Entkopplung), damit nicht-Cypher-Backends (SQLite/Kuzu/Postgres,
 Track 4.1) und austauschbare Vektor-Stores (4.2) andocken. **Umsetzung in kleinen, verhaltensneutralen
-Scheiben:** *Scheibe 1a (READ) umgesetzt* — `IGraphStore` (5 Lese-Ops) + `CypherGraphStore` (baut das bisherige
-Cypher, führt es über `ICypherExecutor` aus → deckt Neo4j/Memgraph **und** den In-Memory-Dev-Executor ab;
-Tenant ambient via `IIdentityContext`, C1). `Neo4jKnowledgeGraph` delegiert die Reads, DI registriert
-`IGraphStore→CypherGraphStore`. Cypher byte-identisch verschoben → alle Bestandstests grün, +9 Store-Unit-Tests.
-**Offen:** Scheibe 1b (Writes — mit Auth/Embedding/Soft-Delete verwoben → Rückfrage vor Trennung), dann
-Scheiben 2–4 (Context-Compile, Entity/Stats/Seeding, `IVectorStore`).
+Scheiben:** *Scheiben 1a+1b umgesetzt.* **1a (READ):** `IGraphStore` (5 Lese-Ops) + `CypherGraphStore` (baut das
+bisherige Cypher, führt es über `ICypherExecutor` aus → deckt Neo4j/Memgraph **und** den In-Memory-Dev-Executor
+ab; Tenant ambient via `IIdentityContext`, C1). **1b (WRITE, Nutzer-Entscheidung „reine Graph-Writes"):**
+UpsertRuleGraph (MERGE + C9-Kanten), Soft-Delete (E10), Subtree-Delete und Supersede-Invalidierung als reine
+Cypher-Primitive im Store (`TimeProvider` injiziert); Auth-Gate (C2), Embedding und Bulk-Ingestion bleiben im
+Orchestrator — ein nicht-Cypher-Backend muss so nur Cypher-Äquivalente liefern, keine Policy/kein Embedding.
+`Neo4jKnowledgeGraph` delegiert Reads **und** Writes, DI registriert `IGraphStore→CypherGraphStore`. Cypher
+byte-identisch verschoben → alle Bestandstests grün, +14 Store-Unit-Tests. **Offen:** Scheiben 2–4
+(Context-Compile, Entity/Stats/Seeding, `IVectorStore`).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

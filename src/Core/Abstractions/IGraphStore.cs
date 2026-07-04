@@ -60,4 +60,48 @@ public interface IGraphStore
     Task<IReadOnlyList<string>> ListOwnersAsync(
         string type,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Persists a rule node and its relationship edges (the pure graph write): upserts the node, stamps the
+    /// ambient tenant and a first-seen <c>validFrom</c>, and temporally replaces the typed edges. Embedding
+    /// is a separate concern owned by the caller and is not performed here.
+    /// </summary>
+    /// <param name="rule">The rule to persist.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task UpsertRuleGraphAsync(
+        KnowledgeRule rule,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Soft-deletes a rule (E10): stamps <c>deletedAt</c>/<c>deletedBy</c> and closes its validity so it
+    /// drops out of context compilation but stays restorable. Authorization is the caller's responsibility.
+    /// </summary>
+    /// <param name="ruleId">The rule to soft-delete.</param>
+    /// <param name="userId">The acting user, recorded as <c>deletedBy</c>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task DeleteRuleGraphAsync(
+        string ruleId,
+        string userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hard-deletes a rule subtree — the root plus every rule whose id starts with one of the given prefixes —
+    /// together with their chunks. Authorization and prefix resolution are the caller's responsibility.
+    /// </summary>
+    /// <param name="rootId">The subtree root id.</param>
+    /// <param name="prefixes">Id prefixes that define the subtree membership.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of rules deleted.</returns>
+    Task<int> DeleteSubtreeGraphAsync(
+        string rootId,
+        IReadOnlyList<string> prefixes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Closes the validity of rules that a live rule supersedes (C9): marks them <c>validUntil</c>/
+    /// <c>invalidatedBy</c> and ends their open edges, except the documenting incoming SUPERSEDES edge.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task InvalidateSupersededAsync(
+        CancellationToken cancellationToken = default);
 }

@@ -87,7 +87,7 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         _logger = logger;
         _identity = identity;
         _authorizer = authorizer ?? new RuleAuthorizer(identity);
-        _graphStore = graphStore ?? new CypherGraphStore(cypher, identity);
+        _graphStore = graphStore ?? new CypherGraphStore(cypher, identity, _timeProvider);
     }
 
     private readonly IIdentityContext? _identity;
@@ -151,71 +151,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         KnowledgeRule rule,
         CancellationToken cancellationToken = default)
     {
-        var implies = rule.RelatesTo?.Implies.ToArray() ?? [];
-        var conflictsWith = rule.RelatesTo?.ConflictsWith.ToArray() ?? [];
-        var exceptionFor = rule.RelatesTo?.ExceptionFor.ToArray() ?? [];
-        var requires = rule.RelatesTo?.Requires.ToArray() ?? [];
-        var supersedes = rule.RelatesTo?.Supersedes.ToArray() ?? [];
-        var related = rule.RelatesTo?.Related.ToArray() ?? [];
-        // B5: persist the rule's trigger concepts so the keyword scorer's concept branch (and the
-        // co-occurrence query expansion) work on graph-loaded rules — previously this was lost here.
-        var concepts = rule.WhenRelevant?.DetectedConcepts.ToArray() ?? [];
-
-        await _cypher.ExecuteAsync(
-            """
-            MERGE (r:Rule {id: $id})
-            SET r.type = $type,
-                r.domain = $domain,
-                r.priority = $priority,
-                r.body = $body,
-                r.tags = $tags,
-                r.ownerId = $ownerId,
-                r.tenantId = $tenantId,
-                r.implies = $implies,
-                r.conflictsWith = $conflictsWith,
-                r.exceptionFor = $exceptionFor,
-                r.requires = $requires,
-                r.supersedes = $supersedes,
-                r.related = $related,
-                r.concepts = $concepts,
-                r.validatorType = $validatorType,
-                r.validatorPrompt = $validatorPrompt,
-                r.chunkStyle = $chunkStyle,
-                r.validFrom = coalesce(r.validFrom, $now)
-            """,
-            new
-            {
-                id = rule.Id,
-                type = rule.Type,
-                domain = rule.Domain,
-                priority = rule.Priority.ToString(),
-                body = rule.Body,
-                tags = rule.Tags.ToArray(),
-                ownerId = rule.OwnerId,
-                // C1: the ambient context stamps the tenant — never the model field (anti-spoofing,
-                // the rule-6 analogy: scoping comes from the context, not from arguments).
-                tenantId = Tenant,
-                implies,
-                conflictsWith,
-                exceptionFor,
-                requires,
-                supersedes,
-                related,
-                concepts,
-                validatorType = rule.ValidatorType,
-                validatorPrompt = rule.ValidatorPrompt,
-                chunkStyle = rule.ChunkStyle,
-                now = _timeProvider.GetUtcNow().ToString("O"),
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        // Create relationship edges for graph traversal
-        await UpsertEdgesAsync(rule.Id, "IMPLIES", implies, cancellationToken).ConfigureAwait(false);
-        await UpsertEdgesAsync(rule.Id, "CONFLICTS_WITH", conflictsWith, cancellationToken).ConfigureAwait(false);
-        await UpsertEdgesAsync(rule.Id, "EXCEPTION_FOR", exceptionFor, cancellationToken).ConfigureAwait(false);
-        await UpsertEdgesAsync(rule.Id, "REQUIRES", requires, cancellationToken).ConfigureAwait(false);
-        await UpsertEdgesAsync(rule.Id, "SUPERSEDES", supersedes, cancellationToken).ConfigureAwait(false);
-        await UpsertEdgesAsync(rule.Id, "RELATED", related, cancellationToken).ConfigureAwait(false);
+        // ADR-0013: the pure graph write (node + temporal edges) lives in the store; embedding stays here.
+        await _graphStore.UpsertRuleGraphAsync(rule, cancellationToken).ConfigureAwait(false);
 
         // Skip inline embedding while a full rebuild is running or during a bulk ingestion — otherwise an
         // upsert (e.g. an import) would block on the shared, possibly slow embedding provider. The rebuild
@@ -293,32 +230,6 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         }
     }
 
-    private async Task UpsertEdgesAsync(string sourceId, string relType, string[] targetIds, CancellationToken ct)
-    {
-        // C9: temporal replace instead of delete+recreate, still in a single round-trip. Open edges of
-        // this type whose target is no longer declared are closed (validUntil = now) so the graph keeps
-        // the relationship history; declared targets are merged with a first-seen validFrom (ON CREATE)
-        // and re-opened when they were closed before (SET validUntil = null removes the property).
-        // An empty target list still closes all remaining open edges (UNWIND over an empty list yields
-        // no rows), and SET on a NULL entity (no stale match) is a Cypher no-op — like the previous
-        // OPTIONAL MATCH + DELETE. relType is a fixed internal constant (never user input), so
-        // interpolating it into the query is safe.
-        var now = _timeProvider.GetUtcNow().ToString("O");
-        await _cypher.ExecuteAsync(
-            "MATCH (s:Rule {id: $sourceId}) " +
-            $"OPTIONAL MATCH (s)-[stale:{relType}]->(t0:Rule) " +
-            "WHERE stale.validUntil IS NULL AND NOT t0.id IN $targetIds " +
-            "SET stale.validUntil = $now " +
-            "WITH DISTINCT s " +
-            "UNWIND $targetIds AS targetId " +
-            "MATCH (t:Rule {id: targetId}) " +
-            $"MERGE (s)-[e:{relType}]->(t) " +
-            "ON CREATE SET e.validFrom = $now " +
-            "SET e.validUntil = null",
-            new { sourceId, targetIds, now },
-            ct).ConfigureAwait(false);
-    }
-
     /// <inheritdoc/>
     public async Task DeleteRuleAsync(
         string ruleId,
@@ -332,20 +243,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         // C2: central role matrix (Editor for own rules, Owner for foreign/global; admins override).
         _authorizer.EnsureCanMutate(rule, userId, isAdmin);
 
-        // E10 soft delete: mark the rule instead of removing it. validUntil (coalesced, so an earlier
-        // supersede timestamp survives) drops it from context compilation immediately; deletedAt hides
-        // it from the active views and lists it in the recycle bin, where it can be restored or purged.
-        // Chunks stay for a lossless restore and are removed on purge.
-        var now = _timeProvider.GetUtcNow().ToString("O");
-        await _cypher.ExecuteAsync(
-            """
-            MATCH (r:Rule {id: $ruleId})
-            SET r.deletedAt = $now,
-                r.deletedBy = $userId,
-                r.validUntil = coalesce(r.validUntil, $now)
-            """,
-            new { ruleId, userId, now },
-            cancellationToken).ConfigureAwait(false);
+        // ADR-0013: the soft-delete write (E10) lives in the store; the authorization gate stays here.
+        await _graphStore.DeleteRuleGraphAsync(ruleId, userId, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("Soft-deleted rule '{RuleId}' by user '{UserId}' | {Component}", ruleId, userId, "AKG");
     }
@@ -372,25 +271,9 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
             _ => new[] { rootId + ":" },
         };
 
-        var rows = await _cypher.QueryAsync(
-            """
-            MATCH (r:Rule)
-            WHERE r.id = $rootId OR ANY(p IN $prefixes WHERE r.id STARTS WITH p)
-            RETURN count(r) AS n
-            """,
-            new { rootId, prefixes },
-            cancellationToken).ConfigureAwait(false);
-        var deleted = rows.Count > 0 && rows[0].TryGetValue("n", out var n) ? ToInt(n) : 0;
-
-        await _cypher.ExecuteAsync(
-            """
-            MATCH (r:Rule)
-            WHERE r.id = $rootId OR ANY(p IN $prefixes WHERE r.id STARTS WITH p)
-            OPTIONAL MATCH (r)-[:HAS_CHUNK]->(c:RuleChunk)
-            DETACH DELETE r, c
-            """,
-            new { rootId, prefixes },
-            cancellationToken).ConfigureAwait(false);
+        // ADR-0013: the count + hard-delete write lives in the store; authorization and prefix resolution
+        // (domain policy about how the graph nests ids) stay here.
+        var deleted = await _graphStore.DeleteSubtreeGraphAsync(rootId, prefixes, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation(
             "Deleted subtree '{RootId}' ({Count} rules) by user '{UserId}' | {Component}",
@@ -500,28 +383,10 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <inheritdoc/>
     public async Task InvalidateSupersededRulesAsync(CancellationToken cancellationToken = default)
     {
-        // C9: a superseded fact's relationships end with it — close all of its open edges too, except
-        // the incoming SUPERSEDES edge, which documents the supersession and stays valid from now on.
-        var now = _timeProvider.GetUtcNow().ToString("O");
-        await _cypher.ExecuteAsync(
-            """
-            MATCH (newer:Rule)
-            WHERE newer.validUntil IS NULL AND newer.supersedes IS NOT NULL
-            UNWIND newer.supersedes AS olderId
-            MATCH (older:Rule {id: olderId})
-            WHERE older.validUntil IS NULL AND older.id <> newer.id
-            SET older.validUntil = $now, older.invalidatedBy = newer.id
-            WITH DISTINCT older
-            OPTIONAL MATCH (older)-[e]-(other:Rule)
-            WHERE e.validUntil IS NULL
-              AND NOT (type(e) = 'SUPERSEDES' AND endNode(e) = older)
-            SET e.validUntil = $now
-            """,
-            new { now },
-            cancellationToken).ConfigureAwait(false);
+        // ADR-0013: the supersede-invalidation write (C9) lives in the store.
+        await _graphStore.InvalidateSupersededAsync(cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation(
-            "Superseded rules invalidated (validUntil set as of {Now}) | {Component}", now, "AKG");
+        _logger.LogInformation("Superseded rules invalidated | {Component}", "AKG");
     }
 
     /// <inheritdoc/>

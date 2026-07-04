@@ -135,7 +135,8 @@ public static class AkgServiceExtensions
         // in-memory dev executor) and reads the ambient tenant (C1).
         services.AddSingleton<IGraphStore>(sp => new CypherGraphStore(
             sp.GetRequiredService<ICypherExecutor>(),
-            sp.GetService<IIdentityContext>()));
+            sp.GetService<IIdentityContext>(),
+            sp.GetRequiredService<TimeProvider>()));
 
         // Knowledge graph (main public API)
         services.AddSingleton<IKnowledgeGraph>(sp => new Neo4jKnowledgeGraph(

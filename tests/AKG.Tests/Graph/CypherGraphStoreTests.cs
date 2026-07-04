@@ -122,4 +122,84 @@ public class CypherGraphStoreTests
 
         captured!.GetType().GetProperty("tenantId")!.GetValue(captured).Should().Be("default");
     }
+
+    // ---- Write operations (Slice 1b) ----
+
+    private static KnowledgeRule Rule(string id = "r1")
+        => new() { Id = id, Type = "Memory", Domain = "general", Priority = RulePriority.Medium, Body = "b" };
+
+    private void SetupExecute()
+        => _cypher.Setup(c => c.ExecuteAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+                  .Returns(Task.CompletedTask);
+
+    [Fact]
+    public async Task UpsertRuleGraphAsync_WritesNodeAndSixEdges()
+    {
+        SetupExecute();
+
+        await _sut.UpsertRuleGraphAsync(Rule());
+
+        // One node MERGE plus six typed-edge writes = seven executes.
+        _cypher.Verify(c => c.ExecuteAsync(It.Is<string>(q => q.Contains("MERGE (r:Rule {id: $id})")),
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _cypher.Verify(c => c.ExecuteAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(7));
+    }
+
+    [Fact]
+    public async Task UpsertRuleGraphAsync_StampsAmbientTenant()
+    {
+        _identity.SetupGet(i => i.TenantId).Returns("acme");
+        object? captured = null;
+        _cypher.Setup(c => c.ExecuteAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+               .Callback<string, object?, CancellationToken>((q, p, _) =>
+               {
+                   if (q.Contains("MERGE (r:Rule {id: $id})")) captured = p;
+               })
+               .Returns(Task.CompletedTask);
+
+        await _sut.UpsertRuleGraphAsync(Rule());
+
+        captured!.GetType().GetProperty("tenantId")!.GetValue(captured).Should().Be("acme");
+    }
+
+    [Fact]
+    public async Task DeleteRuleGraphAsync_SoftDeletesWithActingUser()
+    {
+        object? captured = null;
+        _cypher.Setup(c => c.ExecuteAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+               .Callback<string, object?, CancellationToken>((_, p, _) => captured = p)
+               .Returns(Task.CompletedTask);
+
+        await _sut.DeleteRuleGraphAsync("r1", "alice");
+
+        _cypher.Verify(c => c.ExecuteAsync(It.Is<string>(q => q.Contains("r.deletedAt = $now")),
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+        captured!.GetType().GetProperty("userId")!.GetValue(captured).Should().Be("alice");
+    }
+
+    [Fact]
+    public async Task DeleteSubtreeGraphAsync_ReturnsCountAndHardDeletes()
+    {
+        _cypher.Setup(c => c.QueryAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync([new Dictionary<string, object?> { ["n"] = 3 }]);
+        SetupExecute();
+
+        var deleted = await _sut.DeleteSubtreeGraphAsync("root", new[] { "root:" });
+
+        deleted.Should().Be(3);
+        _cypher.Verify(c => c.ExecuteAsync(It.Is<string>(q => q.Contains("DETACH DELETE")),
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task InvalidateSupersededAsync_ClosesSupersededValidity()
+    {
+        SetupExecute();
+
+        await _sut.InvalidateSupersededAsync();
+
+        _cypher.Verify(c => c.ExecuteAsync(It.Is<string>(q => q.Contains("invalidatedBy = newer.id")),
+            It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
 }
