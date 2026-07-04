@@ -153,6 +153,14 @@ per `(Source, Target)`-Paar; P/R/F1, Macro-Average). Getestet mit gemocktem Extr
 **⚠️ Echte Extraktionsqualität NICHT verifiziert** (kein lokales LLM hier) — die Ollama-Messung ist ein offener,
 nutzerseitiger Schritt: `docs/benchmarks/extraktions-eval.md`.
 
+**Quick Win — MCP-Distributions-Guide (2026-07-04):** `docs/mcp-distribution.md` — praxisnaher Leitfaden zum
+Ausliefern (Zero-Infra-Start `GRAPH_PROVIDER=memory`/`EMBEDDING_PROVIDER=null`, Claude-Desktop-Anbindung dev +
+published Binary, Security-Empfehlungen zu default-deny/read-only/`MCP_ALLOW_WRITE_TOOLS`/`EDDA_AUTH_TOKEN`),
+ergänzt `docs/mcp.md` (keine Duplikation). **Smoke ehrlich:** die tool-listing/Exposure-Ebene ist bereits
+automatisiert abgedeckt (`McpExposurePolicy*Tests`, `McpToolRegistryTests`, `McpProtocolHandlersTests`,
+In-Memory-Boot via `HostingTestFactory`); ein stdio-Prozess-Level-e2e braucht Prozess-Start → als manuelle
+Checkliste im Guide statt als flaky Test.
+
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
