@@ -140,6 +140,12 @@ Neo4j-Kopplung — die Vektor-ANN (`db.index.vector.queryNodes`) + die Chunk-Emb
 ADR-0013-Nähte stehen: Graph-Backend (`IGraphStore`) UND Vektor-Backend (`IVectorStore`) sind steckbar** —
 Track 4.1/4.2 fundamental freigeschaltet (SQLite/Kuzu-Graph bzw. austauschbarer Vektor-Store docken jetzt an).
 
+**Quick Win — Scale-Benchmark (2026-07-04):** deterministischer `SyntheticBenchmarkGenerator` (`Core.Benchmark`)
++ reproduzierbarer In-Memory-Harness (`ScaleBenchmarkTests`, N über `EDDA_BENCH_RULES`). Messung: **100k Regeln
+→ CompileContext P50 ≈ 522 ms / P95 ≈ 576 ms** (In-Memory-Dev-Modus, keyword+graph, recall@10 = 1,0 auf
+synthetischer Ground-Truth) — sub-sekündlich, ohne Neo4j. Ehrliche Grenzen (In-Memory ≠ Neo4j, Semantik aus)
++ Neo4j-/Semantik-Messung als Folgeschritt: `docs/benchmarks/akg-skalierung.md`.
+
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
 | # | Vorhaben | Hebel | Aufwand | Andockpunkt | Definition of Done |
