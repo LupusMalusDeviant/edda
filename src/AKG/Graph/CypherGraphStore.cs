@@ -365,30 +365,39 @@ internal sealed class CypherGraphStore : IGraphStore
         var statsRows = await _cypher.QueryAsync(
             """
             MATCH (r:Rule)
+            WHERE coalesce(r.tenantId, 'default') = $tenantId
             RETURN
                 count(r) AS total,
                 sum(CASE WHEN r.ownerId IS NULL THEN 1 ELSE 0 END) AS globalRules,
                 sum(CASE WHEN r.ownerId IS NOT NULL THEN 1 ELSE 0 END) AS userRules,
                 sum(CASE WHEN r.validatorScript IS NOT NULL THEN 1 ELSE 0 END) AS withValidator
             """,
-            ct: cancellationToken).ConfigureAwait(false);
+            new { tenantId = Tenant },
+            cancellationToken).ConfigureAwait(false);
 
+        // C1: edges scoped by their source node's tenant (verhaltensneutral for the default tenant).
         var edgeRows = await _cypher.QueryAsync(
-            "MATCH ()-[e]->() WHERE type(e) <> 'HAS_CHUNK' RETURN count(e) AS edges",
-            ct: cancellationToken).ConfigureAwait(false);
+            "MATCH (a)-[e]->() WHERE type(e) <> 'HAS_CHUNK' AND coalesce(a.tenantId, 'default') = $tenantId " +
+            "RETURN count(e) AS edges",
+            new { tenantId = Tenant },
+            cancellationToken).ConfigureAwait(false);
 
         // Documents with at least one embedded chunk (chunks are hidden; count their distinct parents).
         var embeddedRows = await _cypher.QueryAsync(
-            "MATCH (c:RuleChunk) RETURN count(DISTINCT c.parentId) AS withEmbedding",
-            ct: cancellationToken).ConfigureAwait(false);
+            "MATCH (r:Rule)-[:HAS_CHUNK]->(c:RuleChunk) WHERE coalesce(r.tenantId, 'default') = $tenantId " +
+            "RETURN count(DISTINCT c.parentId) AS withEmbedding",
+            new { tenantId = Tenant },
+            cancellationToken).ConfigureAwait(false);
 
         var domainRows = await _cypher.QueryAsync(
-            "MATCH (r:Rule) RETURN r.domain AS domain, count(r) AS cnt",
-            ct: cancellationToken).ConfigureAwait(false);
+            "MATCH (r:Rule) WHERE coalesce(r.tenantId, 'default') = $tenantId RETURN r.domain AS domain, count(r) AS cnt",
+            new { tenantId = Tenant },
+            cancellationToken).ConfigureAwait(false);
 
         var typeRows = await _cypher.QueryAsync(
-            "MATCH (r:Rule) RETURN r.type AS type, count(r) AS cnt",
-            ct: cancellationToken).ConfigureAwait(false);
+            "MATCH (r:Rule) WHERE coalesce(r.tenantId, 'default') = $tenantId RETURN r.type AS type, count(r) AS cnt",
+            new { tenantId = Tenant },
+            cancellationToken).ConfigureAwait(false);
 
         var total = 0;
         var global = 0;

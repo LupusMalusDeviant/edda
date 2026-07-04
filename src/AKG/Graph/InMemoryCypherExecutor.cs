@@ -108,11 +108,11 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         // Knowledge-graph reads.
         if (q.Contains("-[]-(n:Rule)")) return FindNeighbors(p);
         if (q.Contains("RETURN count(r) AS n")) return SubtreeCount(p);
-        if (q.Contains("count(r) AS total")) return StatsMain();
-        if (q.Contains("count(e) AS edges")) return Single("edges", _edges.Count);
+        if (q.Contains("count(r) AS total")) return StatsMain(p);
+        if (q.Contains("count(e) AS edges")) return EdgeCount(p);
         if (q.Contains("count(DISTINCT c.parentId) AS withEmbedding")) return Single("withEmbedding", 0);
-        if (q.Contains("r.domain AS domain")) return GroupBy("domain", "domain");
-        if (q.Contains("r.type AS type")) return GroupBy("type", "type");
+        if (q.Contains("r.domain AS domain")) return GroupBy(p, "domain", "domain");
+        if (q.Contains("r.type AS type")) return GroupBy(p, "type", "type");
         if (q.Contains("size(split(r.id")) return RuleHeads(p);
         if (q.Contains("(r:Rule {id: $ruleId})") && q.Contains("RETURN r")) return GetRule(p);
         if (q.StartsWith("MATCH (r:Rule) WHERE", StringComparison.Ordinal) && q.EndsWith("RETURN r", StringComparison.Ordinal))
@@ -209,11 +209,13 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     private List<IReadOnlyDictionary<string, object?>> SubtreeCount(IReadOnlyDictionary<string, object?> p)
         => Single("n", MatchSubtree(p).Count);
 
-    private List<IReadOnlyDictionary<string, object?>> StatsMain()
+    private List<IReadOnlyDictionary<string, object?>> StatsMain(IReadOnlyDictionary<string, object?> p)
     {
-        var total = _rules.Count;
-        var global = _rules.Values.Count(r => AsString(r, "ownerId") is null);
-        var withValidator = _rules.Values.Count(r => r.GetValueOrDefault("validatorScript") is not null);
+        var tenantId = AsString(p, "tenantId");
+        var scoped = _rules.Values.Where(r => InTenant(r, tenantId)).ToList();
+        var total = scoped.Count;
+        var global = scoped.Count(r => AsString(r, "ownerId") is null);
+        var withValidator = scoped.Count(r => r.GetValueOrDefault("validatorScript") is not null);
         return
         [
             new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -226,8 +228,12 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         ];
     }
 
-    private List<IReadOnlyDictionary<string, object?>> GroupBy(string property, string columnName)
-        => _rules.Values
+    private List<IReadOnlyDictionary<string, object?>> GroupBy(
+        IReadOnlyDictionary<string, object?> p, string property, string columnName)
+    {
+        var tenantId = AsString(p, "tenantId");
+        return _rules.Values
+            .Where(r => InTenant(r, tenantId))
             .GroupBy(r => AsString(r, property) ?? string.Empty, StringComparer.Ordinal)
             .Select(g => (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?>(StringComparer.Ordinal)
             {
@@ -235,6 +241,19 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
                 ["cnt"] = g.Count(),
             })
             .ToList();
+    }
+
+    /// <summary>C1: counts edges whose source rule is in the queried tenant (a missing tenant param skips the filter).</summary>
+    private List<IReadOnlyDictionary<string, object?>> EdgeCount(IReadOnlyDictionary<string, object?> p)
+    {
+        var tenantId = AsString(p, "tenantId");
+        var count = _edges.Count(e => _rules.TryGetValue(e.Source, out var r) && InTenant(r, tenantId));
+        return Single("edges", count);
+    }
+
+    /// <summary>C1 tenant match: a missing tenantId property counts as the default tenant; a null param skips the check.</summary>
+    private static bool InTenant(IReadOnlyDictionary<string, object?> rule, string? tenantId)
+        => tenantId is null || (AsString(rule, "tenantId") ?? Tenants.DefaultTenantId) == tenantId;
 
     // ── Write dispatch ───────────────────────────────────────────────────────────
 

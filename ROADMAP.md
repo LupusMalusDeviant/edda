@@ -236,8 +236,18 @@ dataset-bewusster Write-Check, REST-Transport) — alles OPT-IN via `Datasets:En
 Gates → ihm Owner zu granten wäre eine redundante Zeile (grenzt an toten Code). Echten Nutzen gäbe es erst, wenn Nicht-Admins
 ingesten dürften (größere Auth-/SSRF-Frage, eigener Slice). **Nutzer-Entscheidung: nicht bauen, weiter zur Admin-API** —
 Auto-Grant erst wieder aufgreifen, falls Ingest je für Nicht-Admin-Editoren geöffnet wird. **Offen (optional):** GET zum
-Auflisten der Grants eines Datasets (braucht `IDatasetGrantStore.ListGrants`). **Danach:** Admin-API (Tenant-/User-/Rollen-
-Verwaltung + tenant-scoped GetAllStats).
+Auflisten der Grants eines Datasets (braucht `IDatasetGrantStore.ListGrants`).
+
+**Admin-API — Audit + Stats-Leak-Fix (2026-07-04, Nutzer-Entscheidung „nur Stats-Leak fixen"):** Audit zeigt: Edda ist
+claim-getrieben/local-first — `LocalIdentityContext` ist hartkodiert (single Admin, „no multi-tenancy in this build"), es gibt
+KEINEN Tenant-/User-/Rollen-Store. „Tenant-/User-/Rollen-Verwaltung" hieße ein neues Identity-Persistenz-Subsystem, das dem
+claim-getriebenen Modell widerspricht → verworfen. Die einzige echte Lücke war der **Cross-Tenant-Stats-Leak**:
+`GetRuleStatisticsAsync` zählte `MATCH (r:Rule)` ohne Tenant-Filter und `/api/akg/stats` gab das jedem authentifizierten Nutzer.
+**Fix:** alle fünf Stats-Queries tenant-gescopt (`coalesce(r.tenantId,'default')=$tenantId`, Kanten über den Quell-Knoten-Tenant),
+Marker erhalten → In-Memory-Dispatch unverändert; `InMemoryCypherExecutor` filtert `StatsMain`/`GroupBy`/`EdgeCount` jetzt per
+`$tenantId` (neuer `InTenant`-Helfer). Verhaltensneutral für den Default-Tenant. e2e-Test über den echten In-Memory-Executor
+(Tenant-A sieht nur A-Zahlen/-Domains). Gesamtsuite grün (1630, +3), Build 0/0. **➜ Admin-API damit abgeschlossen** (mehr passt
+nicht zum Modell). **Danach:** Auffüller (Config-Connectoren ADR-0005/0006, MCP-Client-Ingestion, Bundle Export/Import ADR-0007).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
