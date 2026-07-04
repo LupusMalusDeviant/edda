@@ -177,8 +177,18 @@ Single-Tenant/Default verhaltensneutral. Getestet via `FakeCypherExecutor` (um P
 Ambient-Tenant gestempelt, Reads gefiltert. **Scheibe A-e2e (Dev-Mode):** der `InMemoryCypherExecutor`-Entity-
 Handler keyt/filtert jetzt ebenfalls per Tenant (tenant-inklusiver Key mit NUL-Separatoren + Read-Filter +
 Schema-Dispatch für den neuen Constraint) → e2e-Isolation im Dev-Mode (`EntityTenantIsolationTests`, analog
-`TenantIsolationTests`; Stage3-Bestand grün). **Offen (Folge-Scheiben):** Feedback-Store-Filter (SQLite-Migration
-+ Composite-Key), Dataset-Permissions (neues Konzept, Design), Admin-API.
+`TenantIsolationTests`; Stage3-Bestand grün). **Feedback-Store (2026-07-04, Audit-Entscheidung „A: so lassen"):**
+bereits implizit tenant-isoliert — Feedback ist über die global-eindeutige `RuleId` gekeyt, Multiplikatoren
+werden nur für die bereits tenant-gefilterten Compilation-Rule-Ids abgefragt; kein redundanter SQLite-Umbau.
+
+**Dataset-Permissions — Design-Runde (2026-07-04, Zeile 3.2; ADR-0014 akzeptiert):** Audit zeigt die echte
+Lücke — pro Tenant nur zwei Buckets (tenant-global `ownerId IS NULL` vs. privat `ownerId=me`), kein Mittelweg
+zum Teilen einer benannten Teilmenge mit einer Nutzer-Teilmenge. **Nutzer-Entscheidung:** Datenmodell =
+**Provenance-Gruppe** (Dataset == Quelle `git:<repo>`/`upload:<source>`, ACL am Kopfknoten; kein neuer
+Knotentyp), Permissions = **Per-Dataset-Rolle V/E/O** (C2-Triade wiederverwendet). Enforcement über die zwei
+bestehenden Nähte (Read-Prädikat in `CypherGraphStore`+`InMemoryCypherExecutor`, Write via `RuleAuthorizer`);
+verhaltensneutral, solange ein Dataset keine ACL trägt. **Nächste Scheibe:** verhaltensneutrales
+Read-Enforcement mit leerer/abwesender Dataset-ACL. **Offen:** Admin-API (Tenant-/User-/Rollen-Verwaltung).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

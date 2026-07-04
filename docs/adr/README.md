@@ -30,6 +30,7 @@ Ein Architecture Decision Record dokumentiert eine einzelne, wichtige Architektu
 | [0011](./0011-episodisches-gedaechtnis-design.md) | Design des episodischen Agent-Gedächtnisses (M3) | Akzeptiert | 2026-07-01 | — |
 | [0012](./0012-mandanten-rollen-modell.md) | Mandanten- und Rollen-Modell (M3) | Akzeptiert | 2026-07-01 | — |
 | [0013](./0013-modulares-provider-framework-pluggable-persistenz.md) | Modulares Provider-Framework mit pluggable Persistenz (IGraphStore + IVectorStore) | Akzeptiert | 2026-07-04 | — |
+| [0014](./0014-dataset-permissions-provenance-gruppen-rollen.md) | Dataset-Permissions über Provenance-Gruppen mit Per-Dataset-Rollen | Akzeptiert | 2026-07-04 | — |
 
 *(Neue Einträge chronologisch sortiert auflisten — konsistent bleiben im Repo.)*
 

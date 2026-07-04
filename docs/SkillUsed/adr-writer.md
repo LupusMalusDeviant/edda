@@ -1,5 +1,25 @@
 # Skill-Log: adr-writer
 
+## 2026-07-04 22:08 — Run
+
+**Aufgabe:** ADR für Dataset-Permissions (M3-Folge) — Modell für teilbare Wissens-Teilmengen samt Berechtigungen, nachdem ADR-0012 „Dataset-/Domain-Berechtigungen" nur als Anforderung genannt, aber nicht konkretisiert hatte. Design-Runde + Nutzer-Entscheidung vorab getroffen.
+
+**Entscheidungen:**
+- Nummer: 0014
+- Supersede: nein (konkretisiert ADR-0012, verfeinert C1/C2; ersetzt nichts)
+- Datenmodell: Provenance-Gruppe (Dataset == Quelle, git:<repo>/upload:<source>) — Optionen eigener :Dataset-Knoten / Label-Tag / Status quo verworfen
+- Permissions: Per-Dataset-Rolle Viewer/Editor/Owner (C2-Triade wiederverwendet)
+- Status: Akzeptiert (Nutzer-Entscheidung via AskUserQuestion)
+- Index `docs/adr/README.md`: aktualisiert
+
+**Artefakte:**
+- docs/adr/0014-dataset-permissions-provenance-gruppen-rollen.md
+- docs/adr/README.md
+
+**Status:** abgeschlossen
+
+---
+
 ## 2026-07-01 15:40 — Run
 
 **Aufgabe:** ADRs für M3 — Design episodisches Gedächtnis + Mandanten-/Rollen-Modell, plan-first.
