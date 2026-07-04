@@ -242,6 +242,74 @@ internal static class AkgEndpointHandlers
         return Results.Ok(result);
     }
 
+    /// <summary>
+    /// Shares a dataset by granting a role to a user (ADR-0014). The Owner/admin gate is enforced inside
+    /// <see cref="IDatasetSharingService"/>; the tenant and acting user come from the authenticated identity.
+    /// </summary>
+    /// <param name="id">The dataset id (provenance head, e.g. <c>git:my-repo</c>).</param>
+    /// <param name="request">The grant to apply (target user + role name).</param>
+    /// <param name="identity">Authenticated caller identity.</param>
+    /// <param name="sharing">Owner-gated dataset sharing service.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>204 on success; 401 without a user; 400 for an empty user or unknown role; 403 when the caller may not share.</returns>
+    internal static async Task<IResult> ShareDatasetAsync(
+        string id,
+        DatasetShareRequest request,
+        IIdentityContext identity,
+        IDatasetSharingService sharing,
+        CancellationToken ct)
+    {
+        if (identity.UserId is null)
+            return Results.Unauthorized();
+        if (string.IsNullOrWhiteSpace(request.UserId))
+            return Results.Problem(detail: "userId must not be empty.", statusCode: StatusCodes.Status400BadRequest);
+        if (!Enum.TryParse<TenantRole>(request.Role, ignoreCase: true, out var role) || !Enum.IsDefined(role))
+            return Results.Problem(
+                detail: $"Unknown role '{request.Role}'. Valid roles: Viewer, Editor, Owner.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        try
+        {
+            await sharing.ShareAsync(id, request.UserId, role, ct);
+            return Results.NoContent();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.Forbid();
+        }
+    }
+
+    /// <summary>
+    /// Revokes a user's grant on a dataset (ADR-0014). The Owner/admin gate is enforced inside
+    /// <see cref="IDatasetSharingService"/>.
+    /// </summary>
+    /// <param name="id">The dataset id (provenance head).</param>
+    /// <param name="userId">The user whose grant is revoked.</param>
+    /// <param name="identity">Authenticated caller identity.</param>
+    /// <param name="sharing">Owner-gated dataset sharing service.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>204 on success; 401 without a user; 403 when the caller may not share.</returns>
+    internal static async Task<IResult> UnshareDatasetAsync(
+        string id,
+        string userId,
+        IIdentityContext identity,
+        IDatasetSharingService sharing,
+        CancellationToken ct)
+    {
+        if (identity.UserId is null)
+            return Results.Unauthorized();
+
+        try
+        {
+            await sharing.UnshareAsync(id, userId, ct);
+            return Results.NoContent();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.Forbid();
+        }
+    }
+
     /// <summary>Parses a batch request into a <see cref="BatchRuleOperation"/>, or null with an error message.</summary>
     /// <param name="request">The request to parse.</param>
     /// <param name="error">The validation error, or null on success.</param>

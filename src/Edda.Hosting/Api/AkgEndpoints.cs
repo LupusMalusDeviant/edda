@@ -150,6 +150,16 @@ public static class AkgEndpoints
            .WithName("AkgIngestEntities")
            .RequireAuthorization("AdminOnly");
 
+        // ADR-0014: dataset sharing (grant/revoke). Any authenticated user may call; the Owner/admin gate is
+        // enforced inside IDatasetSharingService (403 on failure). Inert unless dataset permissions are enabled.
+        app.MapPost("/api/akg/datasets/{id}/grants", AkgEndpointHandlers.ShareDatasetAsync)
+           .WithName("AkgShareDataset")
+           .RequireAuthorization();
+
+        app.MapDelete("/api/akg/datasets/{id}/grants/{userId}", AkgEndpointHandlers.UnshareDatasetAsync)
+           .WithName("AkgUnshareDataset")
+           .RequireAuthorization();
+
         return app;
     }
 }

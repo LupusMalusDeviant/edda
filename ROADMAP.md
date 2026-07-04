@@ -220,8 +220,18 @@ sonst delegiert er an den UNVERÄNDERTEN sync-`RuleAuthorizer` (OR-Semantik). `P
 laufen jetzt über `await …Async`. DI: opt-in wie der Resolver (nur bei `Datasets:Enabled` der echte Wrapper, sonst
 Pass-through). Viewer-Grant ist read-only (mutiert nicht). 100% Unit-Coverage der zwei Authorizer (Editor/Owner→erlaubt,
 Viewer/kein-Grant/Nicht-Dataset→delegiert, Exception-Propagation), beide Overloads. Gesamtsuite grün (1619, +11), Build 0/0.
-**Nächste Scheibe 2b-Transport:** dünner REST-Endpoint (POST/DELETE /api/akg/datasets/{id}/grants über den
-Owner-gated `IDatasetSharingService`). **Danach:** Auto-Grant-on-Ingest (separate Scheibe), Admin-API.
+
+**Dataset-Permissions — Scheibe 2b-Transport umgesetzt (2026-07-04): REST-Endpoints stehen.** `POST /api/akg/datasets/{id}/grants`
+(Body `DatasetShareRequest {userId, role}`) und `DELETE /api/akg/datasets/{id}/grants/{userId}` über den Owner-gated
+`IDatasetSharingService`; saubere HTTP-Codes (204 ok, 401 ohne User, 400 bei leerem User/unbekannter Rolle, 403 wenn der
+Service ablehnt — nie 500 für erwartbare Fälle). Handler im `AkgEndpointHandlers`-Stil. `InternalsVisibleTo Edda.Hosting.Tests`
+ergänzt (konsistent mit AKG/Core), da die lokale Auth immer Admin ist und der 403-/401-Zweig nur per direktem Handler-Unit-Test
+prüfbar ist. 100% Coverage der beiden Handler (204/400/401/403, beide Endpunkte). Gesamtsuite grün (1627, +8), Build 0/0.
+
+**➜ Dataset-Permissions ist damit funktional vollständig** (Read-Enforcement, Grant-Store, Resolution, Owner-gated Sharing,
+dataset-bewusster Write-Check, REST-Transport) — alles OPT-IN via `Datasets:Enabled`, Default byte-identisch. **Offen (kleine
+Folge-Scheiben):** Auto-Grant-Owner-on-Ingest (berührt AKG.Ingestion — Design-Rückfrage), optional GET zum Auflisten der Grants
+(braucht `IDatasetGrantStore.ListGrants`). **Danach:** Admin-API (Tenant-/User-/Rollen-Verwaltung + tenant-scoped GetAllStats).
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

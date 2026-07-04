@@ -11,6 +11,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Lets Hosting.Tests unit-test the internal endpoint handlers directly (consistent with AKG/Core). -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Edda.Hosting.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Core\Core.csproj" />
     <ProjectReference Include="..\AKG\AKG.csproj" />
