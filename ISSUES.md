@@ -8,6 +8,19 @@
 > **Basis-Befund:** Build grün, 1000+ Tests grün, 0 Warnings, CLAUDE.md-Regeln fast vollständig
 > eingehalten. Die Issues unten sind Lücken und Optimierungspotential, keine Brandherde.
 
+> **⚠️ AUDIT-UPDATE 2026-07-05: dieses Ledger ist weitgehend ABGEARBEITET/veraltet.** Ein Code-Audit hat gezeigt,
+> dass zwischen dem Audit-Datum (2026-07-02) und heute nahezu der gesamte Backlog umgesetzt wurde. **Am Code
+> verifiziert erledigt:** Block **A** (A1–A11, Security), Block **B** (B1–B9, Retrieval), Block **C** (C1–C11,
+> Memory/Ingestion — inkl. C3 aktiver Widerspruchs-Erkennung im `RememberTool`). **D:** D5 Pagination, D3
+> Hosting-Integrationstests, D4 RFC7807-Fehler (`SecretRedactingExceptionMiddleware`), D8 **CI-Pipeline**
+> (`.github/workflows/ci.yml`, build+test+Docker-Smoke), D1 gebündelte Edge-Upserts (`UNWIND`), D2
+> `IBackgroundWorkQueue`, Health-Checks (`GraphHealth`). **E:** E2 Feedback-Kanal (`RateMemoryTool`), E3
+> `docs/erste-schritte.md` + `docs/glossar.md`, plus UI-Seiten (Knowledge/Quality/Embeddings/Import/Sources/Tdk).
+> **Kein klar offenes Item mehr gefunden** — vermeintliche Lücken (z. B. D8) waren False-Positives. Verbleibende
+> optionale Politur (nicht „kaputt", nur evtl. ausbaubar): D7 Metriken/Tracing über Health-Checks hinaus,
+> E9 dedizierte Entity-UI. Der Härtungs-Loop wurde nach diesem Befund gestoppt. Neue Items bitte oben datiert
+> ergänzen und die Blöcke A/B/C sind erledigt.
+
 ---
 
 ## Inhalt
@@ -216,6 +229,15 @@ Query wird 1:1 embedded. Synonym-/Konzept-Expansion (z. B. über vorhandene `con
 ---
 
 ## C — Memory & Ingestion
+
+> **Status-Update 2026-07-05 (Code-Audit):** Auch der **C-Block ist erledigt** — am Code verifiziert: C1/C2
+> Tenant-Isolation + Rollen (ADR-0012, diese Session vervollständigt); C3 **aktive Widerspruchs-Erkennung** im
+> `RememberTool` (Token-Jaccard-Überlappung → `FindSupersededAsync` → `Supersedes`); C4 Merge/Supersede statt
+> blindem Append (Supersede-Kanten + Konsolidierung); C5 Incremental Sync (`ISyncStateStore`/`FileSyncStateStore`/
+> `IngestionSyncState`); C6/C7 Connectoren (Git/Jira/Awork/MCP/HTTP); C8 Entity-Dedup über den
+> `normalizedName`-MERGE-Key; C9 temporale Kanten (`validFrom`/`validUntil` auf Relationen); C10 Auto-Konsolidierung
+> (`MemoryConsolidationHostedService`); C11 Enricher-Retry (`CompleteWithRetryAsync` + `ExponentialBackoff`) +
+> JSON-Schema-Validierung + ein Repair-Versuch. **Wie A/B war das Ledger (2026-07-02) veraltet.**
 
 ### C1 · Tenant-Isolation ist modelliert, aber nicht durchgesetzt
 **Kritisch (sobald Multi-Tenant genutzt wird) · L · ⚠️ (nur mit Spec + Isolationstests)**
