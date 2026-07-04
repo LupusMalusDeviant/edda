@@ -208,9 +208,20 @@ Identity → `Restricted(granted)`, Admin/kein-User = Unrestricted; Owner-gated 
 `DatasetSharingService` (Admin oder Dataset-Owner darf grant/revoke; frische Quelle hat keinen Owner → Admin
 bootstrappt). **Opt-in:** nur bei `Datasets:Enabled`/`DATASETS_ENABLED` ersetzt der Grant-Resolver den permissiven
 Default — sonst byte-identisch (ein leerer Store würde sonst alle Datasets verbergen). 100% Unit-Coverage der neuen
-Klassen (Store über Temp-SQLite, Resolver + Sharing mit Mocks); Gesamtsuite grün (1608, +15), Build 0/0. **Nächste
-Scheibe 2b:** Write-Check — `RuleAuthorizer` dataset-aware (Editor der Quelle darf deren Regeln ändern) + dünner
-share-Transport (REST/MCP). **Offen:** Admin-API (Tenant-/User-/Rollen-Verwaltung).
+Klassen (Store über Temp-SQLite, Resolver + Sharing mit Mocks); Gesamtsuite grün (1608, +15), Build 0/0.
+
+**Dataset-Permissions — Scheibe 2b Write-Check umgesetzt (2026-07-04, Nutzer-Entscheidung „delegierender async
+Wrapper / REST / Auto-Grant separat"):** neuer async `IDatasetWriteAuthorizer` — `DatasetWriteAuthorizer` erlaubt
+Mutation, wenn der Aufrufer ≥Editor-Grant auf dem Dataset der Regel hält (via `IDatasetGrantStore.GetRoleAsync`),
+sonst delegiert er an den UNVERÄNDERTEN sync-`RuleAuthorizer` (OR-Semantik). `PassThroughDatasetWriteAuthorizer`
+= reines Delegat (Default bei Datasets AUS). Die drei Regel-Mutations-Komponenten (`Neo4jKnowledgeGraph`,
+`RuleRecycleBin`, `RuleBatchService`) bekommen den Wrapper als OPTIONALE Ctor-Abhängigkeit (Fallback = Pass-through
+über ihren vorhandenen Authorizer → bestehende Konstruktion + Tests unverändert); alle 5 `EnsureCanMutate`-Stellen
+laufen jetzt über `await …Async`. DI: opt-in wie der Resolver (nur bei `Datasets:Enabled` der echte Wrapper, sonst
+Pass-through). Viewer-Grant ist read-only (mutiert nicht). 100% Unit-Coverage der zwei Authorizer (Editor/Owner→erlaubt,
+Viewer/kein-Grant/Nicht-Dataset→delegiert, Exception-Propagation), beide Overloads. Gesamtsuite grün (1619, +11), Build 0/0.
+**Nächste Scheibe 2b-Transport:** dünner REST-Endpoint (POST/DELETE /api/akg/datasets/{id}/grants über den
+Owner-gated `IDatasetSharingService`). **Danach:** Auto-Grant-on-Ingest (separate Scheibe), Admin-API.
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 

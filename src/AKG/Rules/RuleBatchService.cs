@@ -17,6 +17,7 @@ internal sealed class RuleBatchService : IRuleBatchService
     private readonly IAuditLog _audit;
     private readonly ILogger<RuleBatchService> _logger;
     private readonly IRuleAuthorizer _authorizer;
+    private readonly IDatasetWriteAuthorizer _writeAuthorizer;
 
     /// <summary>Initializes a new <see cref="RuleBatchService"/>.</summary>
     /// <param name="graph">Graph the rules are read from and upserted into.</param>
@@ -26,14 +27,20 @@ internal sealed class RuleBatchService : IRuleBatchService
     /// C2: central role enforcement per rule. Null falls back to an identity-less
     /// <see cref="RuleAuthorizer"/> — the legacy owner/admin check.
     /// </param>
+    /// <param name="writeAuthorizer">
+    /// ADR-0014: dataset-aware write gate; null falls back to a pass-through over
+    /// <paramref name="authorizer"/>, keeping the pre-dataset C2 behaviour.
+    /// </param>
     public RuleBatchService(
         IKnowledgeGraph graph, IAuditLog audit, ILogger<RuleBatchService> logger,
-        IRuleAuthorizer? authorizer = null)
+        IRuleAuthorizer? authorizer = null, IDatasetWriteAuthorizer? writeAuthorizer = null)
     {
         _graph = graph;
         _audit = audit;
         _logger = logger;
         _authorizer = authorizer ?? new RuleAuthorizer();
+        // ADR-0014 Slice 2b: dataset-aware write gate; the pass-through keeps the pre-dataset C2 behaviour.
+        _writeAuthorizer = writeAuthorizer ?? new PassThroughDatasetWriteAuthorizer(_authorizer);
     }
 
     /// <inheritdoc />
@@ -63,9 +70,10 @@ internal sealed class RuleBatchService : IRuleBatchService
 
                 try
                 {
-                    // C2: central role matrix — a rule the caller may not modify is skipped, not failed,
-                    // preserving the pre-C2 accounting for non-owned rules.
-                    _authorizer.EnsureCanMutate(rule, userId, isAdmin);
+                    // C2 + ADR-0014: role matrix widened by dataset grants — a rule the caller may not modify
+                    // is skipped, not failed, preserving the pre-C2 accounting for non-owned rules.
+                    await _writeAuthorizer.EnsureCanMutateAsync(rule, userId, isAdmin, cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 catch (UnauthorizedAccessException)
                 {

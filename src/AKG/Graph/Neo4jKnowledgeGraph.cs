@@ -60,6 +60,10 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
     /// <see cref="CypherGraphStore"/> over <paramref name="cypher"/> and <paramref name="identity"/>
     /// — the Cypher-backed default that works for Neo4j and the in-memory dev executor alike.
     /// </param>
+    /// <param name="writeAuthorizer">
+    /// ADR-0014: dataset-aware write gate; null falls back to a pass-through over
+    /// <paramref name="authorizer"/>, keeping the pre-dataset C2 behaviour.
+    /// </param>
     internal Neo4jKnowledgeGraph(
         ICypherExecutor cypher,
         IContextCompiler contextCompiler,
@@ -73,7 +77,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         ILogger<Neo4jKnowledgeGraph> logger,
         IIdentityContext? identity = null,
         IRuleAuthorizer? authorizer = null,
-        IGraphStore? graphStore = null)
+        IGraphStore? graphStore = null,
+        IDatasetWriteAuthorizer? writeAuthorizer = null)
     {
         _cypher = cypher;
         _contextCompiler = contextCompiler;
@@ -88,11 +93,14 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         _identity = identity;
         _authorizer = authorizer ?? new RuleAuthorizer(identity);
         _graphStore = graphStore ?? new CypherGraphStore(cypher, identity, _timeProvider);
+        // ADR-0014 Slice 2b: dataset-aware write gate; the pass-through keeps the pre-dataset C2 behaviour.
+        _writeAuthorizer = writeAuthorizer ?? new PassThroughDatasetWriteAuthorizer(_authorizer);
     }
 
     private readonly IIdentityContext? _identity;
     private readonly IRuleAuthorizer _authorizer;
     private readonly IGraphStore _graphStore;
+    private readonly IDatasetWriteAuthorizer _writeAuthorizer;
 
     /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
     private string Tenant => _identity?.TenantId ?? Tenants.DefaultTenantId;
@@ -240,8 +248,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         var rule = await GetRuleAsync(ruleId, userId, cancellationToken).ConfigureAwait(false);
         if (rule is null) return;
 
-        // C2: central role matrix (Editor for own rules, Owner for foreign/global; admins override).
-        _authorizer.EnsureCanMutate(rule, userId, isAdmin);
+        // C2 + ADR-0014: role matrix widened by dataset grants (an Editor of the rule's dataset may mutate it).
+        await _writeAuthorizer.EnsureCanMutateAsync(rule, userId, isAdmin, cancellationToken).ConfigureAwait(false);
 
         // ADR-0013: the soft-delete write (E10) lives in the store; the authorization gate stays here.
         await _graphStore.DeleteRuleGraphAsync(ruleId, userId, cancellationToken).ConfigureAwait(false);
@@ -259,8 +267,8 @@ public sealed class Neo4jKnowledgeGraph : IKnowledgeGraph
         var root = await GetRuleAsync(rootId, userId, cancellationToken).ConfigureAwait(false);
         if (root is null) return 0;
 
-        // C2: central role matrix (Editor for own rules, Owner for foreign/global; admins override).
-        _authorizer.EnsureCanMutate(root, userId, isAdmin);
+        // C2 + ADR-0014: role matrix widened by dataset grants (an Editor of the rule's dataset may mutate it).
+        await _writeAuthorizer.EnsureCanMutateAsync(root, userId, isAdmin, cancellationToken).ConfigureAwait(false);
 
         // Most heads nest their descendants by id prefix (repo -> its files). The two ingested branch
         // roots aggregate nodes that don't share their prefix, so they map to the whole branch.

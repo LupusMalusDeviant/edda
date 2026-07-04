@@ -138,6 +138,17 @@ public static class AkgServiceExtensions
         else
             services.AddSingleton<IDatasetPermissionService, Authorization.UnrestrictedDatasetPermissionService>();
 
+        // ADR-0014 Slice 2b: dataset-aware write gate. When enabled, an Editor grant on a rule's dataset
+        // permits mutation; otherwise it delegates to the sync RuleAuthorizer. Disabled → pass-through only.
+        if (datasetsEnabled)
+            services.AddSingleton<IDatasetWriteAuthorizer>(sp => new Authorization.DatasetWriteAuthorizer(
+                sp.GetRequiredService<IRuleAuthorizer>(),
+                sp.GetRequiredService<IDatasetGrantStore>(),
+                sp.GetService<IIdentityContext>()));
+        else
+            services.AddSingleton<IDatasetWriteAuthorizer>(sp => new Authorization.PassThroughDatasetWriteAuthorizer(
+                sp.GetRequiredService<IRuleAuthorizer>()));
+
         // ADR-0013: pluggable vector store (semantic ANN search + chunk embeddings) for the semantic phase.
         services.AddSingleton<IVectorStore>(sp => new CypherVectorStore(
             sp.GetRequiredService<ICypherExecutor>()));
@@ -187,7 +198,9 @@ public static class AkgServiceExtensions
             // C2: central role matrix for delete/subtree mutations.
             sp.GetRequiredService<IRuleAuthorizer>(),
             // ADR-0013: the pluggable graph read store.
-            sp.GetRequiredService<IGraphStore>()));
+            sp.GetRequiredService<IGraphStore>(),
+            // ADR-0014 Slice 2b: dataset-aware write gate (pass-through when datasets disabled).
+            sp.GetRequiredService<IDatasetWriteAuthorizer>()));
 
         // F48 — retrieval benchmark runner (measures CompileContextAsync quality)
         services.AddSingleton<IBenchmarkRunner>(sp => new AkgBenchmarkRunner(
@@ -265,7 +278,8 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<IKnowledgeGraph>(),
             sp.GetRequiredService<IAuditLog>(),
             sp.GetRequiredService<ILogger<Rules.RuleBatchService>>(),
-            sp.GetRequiredService<IRuleAuthorizer>()));
+            sp.GetRequiredService<IRuleAuthorizer>(),
+            sp.GetRequiredService<IDatasetWriteAuthorizer>()));
 
         // F32 — Rule Feedback Loop (SQLite-backed, optional — disabled if path not set)
         var feedbackDbPath = configuration?["Feedback:DbPath"]
@@ -326,7 +340,9 @@ public static class AkgServiceExtensions
             sp.GetRequiredService<ILogger<RuleRecycleBin>>(),
             sp.GetService<IIdentityContext>(),
             // C2: central role matrix for restore/purge.
-            sp.GetRequiredService<IRuleAuthorizer>()));
+            sp.GetRequiredService<IRuleAuthorizer>(),
+            // ADR-0014 Slice 2b: dataset-aware write gate (pass-through when datasets disabled).
+            sp.GetRequiredService<IDatasetWriteAuthorizer>()));
 
         return services;
     }

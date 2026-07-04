@@ -20,6 +20,7 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     private readonly ILogger<RuleRecycleBin> _logger;
     private readonly IIdentityContext? _identity;
     private readonly IRuleAuthorizer _authorizer;
+    private readonly IDatasetWriteAuthorizer _writeAuthorizer;
 
     /// <summary>Initializes a new <see cref="RuleRecycleBin"/>.</summary>
     /// <param name="cypher">Cypher executor for graph access.</param>
@@ -31,15 +32,22 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     /// <see cref="RuleAuthorizer"/> over <paramref name="identity"/> — without an identity that is
     /// the legacy owner/admin check.
     /// </param>
+    /// <param name="writeAuthorizer">
+    /// ADR-0014: dataset-aware write gate; null falls back to a pass-through over
+    /// <paramref name="authorizer"/>, keeping the pre-dataset C2 behaviour.
+    /// </param>
     public RuleRecycleBin(
         ICypherExecutor cypher, IAuditLog auditLog, ILogger<RuleRecycleBin> logger,
-        IIdentityContext? identity = null, IRuleAuthorizer? authorizer = null)
+        IIdentityContext? identity = null, IRuleAuthorizer? authorizer = null,
+        IDatasetWriteAuthorizer? writeAuthorizer = null)
     {
         _cypher = cypher;
         _auditLog = auditLog;
         _logger = logger;
         _identity = identity;
         _authorizer = authorizer ?? new RuleAuthorizer(identity);
+        // ADR-0014 Slice 2b: dataset-aware write gate; the pass-through keeps the pre-dataset C2 behaviour.
+        _writeAuthorizer = writeAuthorizer ?? new PassThroughDatasetWriteAuthorizer(_authorizer);
     }
 
     /// <summary>C1: the ambient tenant of the current context (read per call, never cached).</summary>
@@ -74,7 +82,8 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     {
         var deleted = await FindDeletedAsync(ruleId, cancellationToken).ConfigureAwait(false);
         if (deleted is null) return false;
-        _authorizer.EnsureCanMutate(OwnerOf(deleted), userId, isAdmin);
+        await _writeAuthorizer.EnsureCanMutateAsync(ruleId, OwnerOf(deleted), userId, isAdmin, cancellationToken)
+            .ConfigureAwait(false);
 
         // The CASE only clears validUntil when it came from the delete — an earlier supersede
         // timestamp survives the restore.
@@ -102,7 +111,8 @@ internal sealed class RuleRecycleBin : IRuleRecycleBin
     {
         var deleted = await FindDeletedAsync(ruleId, cancellationToken).ConfigureAwait(false);
         if (deleted is null) return false;
-        _authorizer.EnsureCanMutate(OwnerOf(deleted), userId, isAdmin);
+        await _writeAuthorizer.EnsureCanMutateAsync(ruleId, OwnerOf(deleted), userId, isAdmin, cancellationToken)
+            .ConfigureAwait(false);
 
         // The pre-E10 hard delete: remove the rule and its chunks for good.
         await _cypher.ExecuteAsync(
