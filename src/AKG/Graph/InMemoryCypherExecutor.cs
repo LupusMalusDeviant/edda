@@ -32,9 +32,10 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     private readonly Dictionary<string, Dictionary<string, object?>> _domains = new(StringComparer.Ordinal);
     private readonly List<(string Parent, string Child)> _domainEdges = [];
 
-    // Entity layer (F49). Keyed by "ownerId\0normalizedName"; RELATES_TO edges are treated as undirected.
+    // Entity layer (F49). Keyed by "ownerId tenantId normalizedName" (C1 tenant isolation); RELATES_TO edges
+    // are treated as undirected.
     private readonly Dictionary<string, Dictionary<string, object?>> _entities = new(StringComparer.Ordinal);
-    private readonly List<(string SourceNorm, string TargetNorm, string? OwnerId)> _entityEdges = [];
+    private readonly List<(string SourceNorm, string TargetNorm, string? OwnerId, string? TenantId)> _entityEdges = [];
 
     /// <inheritdoc />
     public Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> QueryAsync(
@@ -249,7 +250,8 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
         // Entity layer writes (F49) + embedding/head writes (Stage 3; embedding-gated → no-ops in memory mode).
         if (q.Contains("MERGE (e:Entity {ownerId: $ownerId")) { IngestEntities(p); return true; }
         if (q.Contains("MERGE (s)-[r:RELATES_TO]->(t)")) { IngestRelations(p); return true; }
-        if (q.Contains("CREATE CONSTRAINT entity_owner_name_unique")) return true;
+        if (q.Contains("DROP CONSTRAINT entity_owner_name_unique")) return true;
+        if (q.Contains("CREATE CONSTRAINT entity_owner")) return true;   // old + tenant-inclusive constraint
         if (q.Contains("CREATE INDEX entity_name_index")) return true;
         if (q.Contains("CREATE (r)-[:HAS_CHUNK]->(:RuleChunk")) return true;
         if (q.Contains("SET r.embedAttempts = coalesce")) return true;
@@ -684,9 +686,10 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     {
         var terms = AsStrings(p.GetValueOrDefault("terms")).Select(t => t.ToLowerInvariant()).ToList();
         var userId = AsString(p, "userId");
+        var tenantId = AsString(p, "tenantId");
         var limit = ToIntOr(p.GetValueOrDefault("limit"), int.MaxValue);
         return _entities.Values
-            .Where(e => InEntityScope(e, userId))
+            .Where(e => InEntityScope(e, userId, tenantId))
             .Where(e => terms.Any(t =>
                 (AsString(e, "name") ?? string.Empty).ToLowerInvariant().Contains(t, StringComparison.Ordinal)))
             .Take(limit)
@@ -699,6 +702,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     {
         var nname = AsString(p, "nname");
         var userId = AsString(p, "userId");
+        var tenantId = AsString(p, "tenantId");
         var limit = ToIntOr(p.GetValueOrDefault("limit"), int.MaxValue);
         if (nname is null) return [];
 
@@ -716,8 +720,13 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
             .ToList();
     }
 
-    private static bool InEntityScope(IReadOnlyDictionary<string, object?> e, string? userId)
-        => userId is null || AsString(e, "ownerId") == userId;
+    private static bool InEntityScope(IReadOnlyDictionary<string, object?> e, string? userId, string? tenantId = null)
+    {
+        if (userId is not null && AsString(e, "ownerId") != userId)
+            return false;
+        // C1: a missing tenantId counts as the default tenant; a null tenant parameter skips the check.
+        return tenantId is null || (AsString(e, "tenantId") ?? Tenants.DefaultTenantId) == tenantId;
+    }
 
     private static IReadOnlyDictionary<string, object?> EntityRow(IReadOnlyDictionary<string, object?> e)
         => new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -763,13 +772,14 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     private void IngestEntities(IReadOnlyDictionary<string, object?> p)
     {
         var ownerId = AsString(p, "ownerId");
+        var tenantId = AsString(p, "tenantId") ?? Tenants.DefaultTenantId;
         var now = p.GetValueOrDefault("now");
         var sourceType = p.GetValueOrDefault("sourceType");
         foreach (var ent in AsDictList(p.GetValueOrDefault("entities")))
         {
             var norm = AsString(ent, "normalizedName");
             if (norm is null) continue;
-            var key = (ownerId ?? string.Empty) + " " + norm;
+            var key = (ownerId ?? string.Empty) + " " + tenantId + " " + norm;
             if (!_entities.TryGetValue(key, out var e))
             {
                 e = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -780,6 +790,7 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
                     ["type"] = ent.GetValueOrDefault("type"),
                     ["description"] = ent.GetValueOrDefault("description"),
                     ["ownerId"] = ownerId,
+                    ["tenantId"] = tenantId,
                     ["sourceType"] = sourceType,
                     ["mentions"] = 0,
                     ["createdAt"] = now,
@@ -794,13 +805,15 @@ internal sealed class InMemoryCypherExecutor : Core.Abstractions.ICypherExecutor
     private void IngestRelations(IReadOnlyDictionary<string, object?> p)
     {
         var ownerId = AsString(p, "ownerId");
+        var tenantId = AsString(p, "tenantId") ?? Tenants.DefaultTenantId;
         foreach (var rel in AsDictList(p.GetValueOrDefault("relations")))
         {
             var source = AsString(rel, "sourceNorm");
             var target = AsString(rel, "targetNorm");
             if (source is null || target is null) continue;
-            if (!_entityEdges.Any(e => e.SourceNorm == source && e.TargetNorm == target && e.OwnerId == ownerId))
-                _entityEdges.Add((source, target, ownerId));
+            if (!_entityEdges.Any(e => e.SourceNorm == source && e.TargetNorm == target
+                                       && e.OwnerId == ownerId && e.TenantId == tenantId))
+                _entityEdges.Add((source, target, ownerId, tenantId));
         }
     }
 

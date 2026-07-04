@@ -174,8 +174,11 @@ A) bleibt als spätere opt-in dritte Stufe offen.
 `IIdentityContext`, `tenantId` im MERGE-Key `(:Entity {ownerId, tenantId, normalizedName})` + Relation-Match,
 Read-Filter `coalesce(e.tenantId,'default')=$tenantId`, Constraint tenant-inklusiv (alter gedroppt).
 Single-Tenant/Default verhaltensneutral. Getestet via `FakeCypherExecutor` (um Param-Capture erweitert):
-Ambient-Tenant gestempelt, Reads gefiltert. **Offen (Folge-Scheiben):** In-Memory-Executor-Entity-Handler
-(Dev-Mode-e2e-Isolation, analog `TenantIsolationTests`), Feedback-Store-Filter, Dataset-Permissions, Admin-API.
+Ambient-Tenant gestempelt, Reads gefiltert. **Scheibe A-e2e (Dev-Mode):** der `InMemoryCypherExecutor`-Entity-
+Handler keyt/filtert jetzt ebenfalls per Tenant (tenant-inklusiver Key mit NUL-Separatoren + Read-Filter +
+Schema-Dispatch für den neuen Constraint) → e2e-Isolation im Dev-Mode (`EntityTenantIsolationTests`, analog
+`TenantIsolationTests`; Stage3-Bestand grün). **Offen (Folge-Scheiben):** Feedback-Store-Filter (SQLite-Migration
++ Composite-Key), Dataset-Permissions (neues Konzept, Design), Admin-API.
 
 ## Track 5 — Moat ausbauen: Differenzierung  *(laufend)*
 
