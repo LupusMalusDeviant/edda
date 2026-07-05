@@ -162,6 +162,24 @@ edda.example.com {
 Läuft der Proxy auf einem anderen Host, trägt man dessen IP(s) statt der Loopback-Adressen ein; bei einer
 Proxy-Kette müssen alle Hop-IPs aufgeführt werden.
 
+## Observability (OpenTelemetry, opt-in)
+
+Edda instrumentiert die Retrieval-/Kompilierungs-Pipeline mit BCL-Metriken und Trace-Spans (Meter/ActivitySource
+`Edda`). Ohne Konfiguration werden sie nur aufgezeichnet (lokal via `dotnet-counters`/`dotnet-trace` sichtbar) —
+**kein Exporter, kein Overhead** (local-first-Default).
+
+Der OpenTelemetry-Export (Metriken + Tracing über OTLP) ist **opt-in** und wird nur aktiv, wenn eine der beiden
+Variablen gesetzt ist:
+
+| Variable | Wirkung |
+|----------|---------|
+| `EDDA_OTEL_ENABLED=true` | Aktiviert den OTLP-Export (nutzt die Standard-`OTEL_*`-Variablen für Endpoint/Protokoll). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT=<url>` | Setzt den OTLP-Endpoint (z. B. `http://localhost:4317`) und aktiviert den Export implizit. |
+
+Aktiviert exportiert Edda die `Edda`-Signale plus ASP.NET-Core- und HttpClient-Instrumentierung (Request-Raten/
+-Latenzen, ausgehende LLM-/Embedding-Calls) an den OTLP-Endpoint — etwa an einen OpenTelemetry-Collector, Jaeger
+oder Grafana/Tempo. Weitere `OTEL_*`-Standardvariablen (Protokoll, Header, Service-Name) werden respektiert.
+
 ## Volumes & Verzeichnisse
 
 | Pfad | Inhalt |

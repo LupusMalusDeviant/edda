@@ -12,6 +12,12 @@
     <PackageReference Include="Markdig" Version="1.3.2" />
     <ProjectReference Include="..\Edda.Hosting\Edda.Hosting.csproj" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="1.4.0" />
+    <!-- D7: OpenTelemetry (metrics + tracing). Wired opt-in in Program.cs (default off).
+         1.16.0 — past the advisories affecting 1.11.x (NU1902 is treated as an error in this repo). -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.16.0" />
   </ItemGroup>
 
 </Project>

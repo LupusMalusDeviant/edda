@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
+using Edda.Core.Telemetry;
 using Edda.Gateway.Api;
 using Edda.Web.Components;
 using Edda.Web.Services;
@@ -10,6 +11,9 @@ using Edda.Hosting.Middleware;
 using Edda.Security.Authentication;
 using Edda.Security.Networking;
 using Microsoft.AspNetCore.HttpOverrides;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,6 +61,26 @@ builder.Services.AddSingleton<IMarkdownRenderer, MarkdigMarkdownRenderer>();
 // Connection-test + model-listing for the provider config UI (Ollama /api/tags, OpenAI-compatible /v1/models, …).
 builder.Services.AddSingleton<IProviderProbe, ProviderProbe>();
 builder.Services.AddHealthChecks();
+
+// D7: OpenTelemetry (metrics + tracing) — opt-in, default OFF to keep the local-first/zero-infra default. Active
+// only when EDDA_OTEL_ENABLED=true or an OTLP endpoint is configured; then it exports the "Edda" Meter/ActivitySource
+// plus ASP.NET Core + HttpClient signals to the OTLP endpoint (AddOtlpExporter reads the OTEL_EXPORTER_OTLP_* vars).
+if (OtelActivation.IsEnabled(
+        builder.Configuration["EDDA_OTEL_ENABLED"], builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+{
+    builder.Services.AddOpenTelemetry()
+        .ConfigureResource(resource => resource.AddService("edda"))
+        .WithMetrics(metrics => metrics
+            .AddMeter(EddaTelemetry.SourceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter())
+        .WithTracing(tracing => tracing
+            .AddSource(EddaTelemetry.SourceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter());
+}
 
 // MCP server over HTTP/SSE (opt-in via MCP_SERVER_ENABLED). Exposes only allow-listed tools.
 var mcpEnabled = string.Equals(
