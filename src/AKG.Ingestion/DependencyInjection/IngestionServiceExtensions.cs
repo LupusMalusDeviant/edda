@@ -70,6 +70,7 @@ public static class IngestionServiceExtensions
         services.AddSingleton<IKnowledgeConnector, GitLabGroupKnowledgeConnector>();
         services.AddSingleton<IKnowledgeConnector, CustomHttpKnowledgeConnector>();
         services.AddSingleton<IKnowledgeConnector, JiraKnowledgeConnector>();
+        services.AddSingleton<IKnowledgeConnector, ConfluenceKnowledgeConnector>();
         services.AddSingleton<IKnowledgeConnector, AworkKnowledgeConnector>();
         services.AddSingleton<IConnectorRegistry, ConnectorRegistry>();
 

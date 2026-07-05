@@ -18,7 +18,11 @@
 > `docs/erste-schritte.md` + `docs/glossar.md`, plus UI-Seiten (Knowledge/Quality/Embeddings/Import/Sources/Tdk).
 > **Kein klar offenes Item mehr gefunden** — vermeintliche Lücken (z. B. D8) waren False-Positives. Die zuvor als
 > optionale Politur notierten Punkte sind inzwischen umgesetzt: D7 (OpenTelemetry Metriken+Tracing, opt-in) und
-> E9 (dedizierte `/entities`-UI) — beide erledigt (2026-07-05). Der Härtungs-Loop wurde nach dem ursprünglichen
+> E9 (dedizierte `/entities`-UI) — beide erledigt (2026-07-05). Zusätzlich neuer Confluence-Cloud-Connector
+> (2026-07-05): dünnes Preset über `HttpApiSource` analog zum Jira-Connector (ADR-0005/0006), TypeId
+> `confluence`, CQL-Filter, Basic-Auth via server-seitigem Credential-Store, offset-Pagination; 9 Tests mit
+> Mock-Pipeline (ohne echtes Confluence). Slack wurde bewusst vertagt (bräuchte Cursor-Pagination, die
+> `HttpApiSource` nicht kann → separate Basis-Erweiterung). Der Härtungs-Loop wurde nach dem ursprünglichen
 > Befund gestoppt; die Blöcke A/B/C sind erledigt. Neue Items bitte oben datiert ergänzen.
 
 ---
