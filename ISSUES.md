@@ -339,8 +339,12 @@ Kein Testprojekt deckt `/api/akg/*`, Auth-Boundary oder MCP-HTTP ab — Regressi
 - **Fix:** Validierung im Handler (nicht leer, Länge ≤ `INGESTION_MAX_TEXT_CHARS`, Default 20000) → `ValidationProblem` bei Verstoß.
 - **Akzeptanz:** Tests: leer → 400, zu lang → 400, ok → 200.
 
-### D7 · Keine Metriken/Tracing, Health-Check ohne Tiefe
-**Niedrig · M · ⚠️**
+### D7 · Keine Metriken/Tracing, Health-Check ohne Tiefe — 🔶 SLICE 1 erledigt (2026-07-05)
+**Niedrig · M · ⚠️** — **Slice 1 (offline/BCL, kein NuGet):** Telemetrie-Fassade `IEddaTelemetry` (Core) über
+`Meter`/`ActivitySource` (Name „Edda") + `EddaTelemetry`/`NullEddaTelemetry`-Default; `ContextCompiler.CompileAsync`
+instrumentiert (Span + Dauer-Histogramm `edda.operation.duration`). 100% getestet via `MeterListener`/`ActivityListener`.
+**Slice 2 (offen, braucht NuGet-Restore):** OpenTelemetry-SDK + OTLP-Exporter + AspNetCore-Auto-Instrumentierung,
+env-gated (Default AUS). **Slice 3 (optional):** /health/ready mit echten Readiness-Checks (`GraphHealth`).
 `/health` existiert, prüft aber nichts; kein OpenTelemetry, keine Meter (Query-Latenz, Cache-Hits, Retrieval-Counts).
 - **Fix (Stufe 1):** ASP.NET-HealthChecks für Neo4j-Konnektivität + Embedding-Provider (degraded statt unhealthy); Stufe 2 (separat): `ActivitySource`/`Meter` + optionaler OTLP-Export.
 - **Akzeptanz:** `/health` meldet degraded bei abgeschaltetem Neo4j; Tests mit Fakes.

@@ -2,6 +2,7 @@ using Edda.AKG.Context;
 using Edda.AKG.Tests.TestUtilities;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
+using Edda.Core.Telemetry;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Neo4j.Driver;
@@ -23,13 +24,14 @@ public class ContextCompilerTests
             .Returns(Mock.Of<Microsoft.Extensions.Logging.ILogger>());
     }
 
-    private ContextCompiler CreateCompiler(RetrievalOptions? options = null) => new(
+    private ContextCompiler CreateCompiler(RetrievalOptions? options = null, IEddaTelemetry? telemetry = null) => new(
         _cypher,
         _embeddings.Object,
         _logger.Object,
         _loggerFactory.Object,
         TimeProvider.System,
-        options: options);
+        options: options,
+        telemetry: telemetry);
 
     private static IReadOnlyList<IReadOnlyDictionary<string, object?>> EmptyRows()
         => Array.Empty<IReadOnlyDictionary<string, object?>>();
@@ -60,6 +62,20 @@ public class ContextCompilerTests
 
     private static IReadOnlyList<IReadOnlyDictionary<string, object?>> RowsWithNode(string key, INode node)
         => [new Dictionary<string, object?> { [key] = node }];
+
+    [Fact]
+    public async Task CompileAsync_RecordsTelemetrySpanAndDuration()
+    {
+        _cypher.DefaultResult = EmptyRows();
+        var telemetry = new Mock<IEddaTelemetry>();
+        var compiler = CreateCompiler(telemetry: telemetry.Object);
+
+        await compiler.CompileAsync(new TaskContext { Task = "t", UserId = "u" }, CancellationToken.None);
+
+        telemetry.Verify(t => t.StartActivity(TelemetryOperations.ContextCompilation), Times.Once);
+        telemetry.Verify(
+            t => t.RecordDuration(TelemetryOperations.ContextCompilation, It.IsAny<double>(), true), Times.Once);
+    }
 
     [Fact]
     public async Task CompileAsync_EmptyGraph_ReturnsEmptyActiveRulesAndNoConflicts()

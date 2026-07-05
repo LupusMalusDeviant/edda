@@ -153,6 +153,9 @@ public static class AkgServiceExtensions
         services.AddSingleton<IVectorStore>(sp => new CypherVectorStore(
             sp.GetRequiredService<ICypherExecutor>()));
 
+        // D7: application telemetry (BCL Meter + ActivitySource; the OpenTelemetry exporter is opt-in in the host).
+        services.AddSingleton<IEddaTelemetry, Edda.Core.Telemetry.EddaTelemetry>();
+
         // Context compiler (orchestrates all 4 phases + F32 feedback multiplier)
         services.AddSingleton<IContextCompiler>(sp => new ContextCompiler(
             sp.GetRequiredService<ICypherExecutor>(),
@@ -169,7 +172,9 @@ public static class AkgServiceExtensions
             // ADR-0013: the pluggable graph read store (candidate load + neighbour expansion).
             sp.GetRequiredService<IGraphStore>(),
             // ADR-0013: the pluggable vector store for the semantic phase.
-            sp.GetRequiredService<IVectorStore>()));
+            sp.GetRequiredService<IVectorStore>(),
+            // D7: application telemetry (metrics + trace span around compilation).
+            sp.GetRequiredService<IEddaTelemetry>()));
 
         // ADR-0013: pluggable persistence seam — graph read operations behind IGraphStore. The
         // Cypher-backed default works over the provider-selected executor (Neo4j/Memgraph or the

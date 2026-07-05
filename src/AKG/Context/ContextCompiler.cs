@@ -2,6 +2,7 @@ using System.Text;
 using Edda.AKG.Graph;
 using Edda.Core.Abstractions;
 using Edda.Core.Models;
+using Edda.Core.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace Edda.AKG.Context;
@@ -45,6 +46,7 @@ internal sealed class ContextCompiler : IContextCompiler
     private readonly IEntityStore? _entityStore;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ContextCompiler> _logger;
+    private readonly IEddaTelemetry _telemetry;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ContextCompiler"/>.
@@ -83,6 +85,10 @@ internal sealed class ContextCompiler : IContextCompiler
     /// ADR-0013: the vector store for the semantic phase (ANN search + chunk embeddings). Null falls back to a
     /// <see cref="CypherVectorStore"/> over <paramref name="cypher"/> — the same Neo4j vector index as before.
     /// </param>
+    /// <param name="telemetry">
+    /// D7: application telemetry (metrics + trace spans). Null falls back to the no-op telemetry, so the
+    /// compiler behaves identically when no telemetry is wired.
+    /// </param>
     public ContextCompiler(
         ICypherExecutor cypher,
         IEmbeddingService embeddingService,
@@ -95,7 +101,8 @@ internal sealed class ContextCompiler : IContextCompiler
         RetrievalOptions? options = null,
         IIdentityContext? identity = null,
         IGraphStore? graphStore = null,
-        IVectorStore? vectorStore = null)
+        IVectorStore? vectorStore = null,
+        IEddaTelemetry? telemetry = null)
     {
         _embeddings = embeddingService;
         _headVectorStore = headVectorStore;
@@ -117,6 +124,8 @@ internal sealed class ContextCompiler : IContextCompiler
         _domainResolver = new DomainActivationResolver(cypher, timeProvider);
         _feedbackService = feedbackService;
         _logger = logger;
+        // D7: no-op telemetry unless a real one is injected — keeps behaviour identical.
+        _telemetry = telemetry ?? NullEddaTelemetry.Instance;
     }
 
     /// <summary>
@@ -129,6 +138,31 @@ internal sealed class ContextCompiler : IContextCompiler
     /// and a formatted Markdown block for the system prompt.
     /// </returns>
     public async Task<ContextResult> CompileAsync(TaskContext context, CancellationToken ct)
+    {
+        // D7: wrap the retrieval pipeline in a telemetry span + duration metric (recorded on success and failure).
+        using var span = _telemetry.StartActivity(TelemetryOperations.ContextCompilation);
+        var startTimestamp = _timeProvider.GetTimestamp();
+        var success = false;
+        try
+        {
+            var result = await CompileCoreAsync(context, ct).ConfigureAwait(false);
+            success = true;
+            return result;
+        }
+        finally
+        {
+            _telemetry.RecordDuration(
+                TelemetryOperations.ContextCompilation,
+                _timeProvider.GetElapsedTime(startTimestamp).TotalMilliseconds,
+                success);
+        }
+    }
+
+    /// <summary>Runs the full context-compilation pipeline (see <see cref="CompileAsync"/> for the contract).</summary>
+    /// <param name="context">Task context with user message, concepts, and user ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The compiled context result.</returns>
+    private async Task<ContextResult> CompileCoreAsync(TaskContext context, CancellationToken ct)
     {
         // Per-phase timing (TimeProvider-based, monotonic) — emitted as a debug line at the end so the
         // retrieval bottleneck can be measured instead of guessed.
