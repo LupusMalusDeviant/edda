@@ -16,10 +16,10 @@
 > (`.github/workflows/ci.yml`, build+test+Docker-Smoke), D1 gebündelte Edge-Upserts (`UNWIND`), D2
 > `IBackgroundWorkQueue`, Health-Checks (`GraphHealth`). **E:** E2 Feedback-Kanal (`RateMemoryTool`), E3
 > `docs/erste-schritte.md` + `docs/glossar.md`, plus UI-Seiten (Knowledge/Quality/Embeddings/Import/Sources/Tdk).
-> **Kein klar offenes Item mehr gefunden** — vermeintliche Lücken (z. B. D8) waren False-Positives. Verbleibende
-> optionale Politur (nicht „kaputt", nur evtl. ausbaubar): D7 Metriken/Tracing über Health-Checks hinaus,
-> E9 dedizierte Entity-UI. Der Härtungs-Loop wurde nach diesem Befund gestoppt. Neue Items bitte oben datiert
-> ergänzen und die Blöcke A/B/C sind erledigt.
+> **Kein klar offenes Item mehr gefunden** — vermeintliche Lücken (z. B. D8) waren False-Positives. Die zuvor als
+> optionale Politur notierten Punkte sind inzwischen umgesetzt: D7 (OpenTelemetry Metriken+Tracing, opt-in) und
+> E9 (dedizierte `/entities`-UI) — beide erledigt (2026-07-05). Der Härtungs-Loop wurde nach dem ursprünglichen
+> Befund gestoppt; die Blöcke A/B/C sind erledigt. Neue Items bitte oben datiert ergänzen.
 
 ---
 
@@ -415,10 +415,11 @@ Multi-Select-Löschen existiert; Batch-Tagging/-Priorität/-Domain-Änderung feh
 - **Fix:** Auf bestehender Mehrfach-Auswahl aufsetzen: Aktion „Tag hinzufügen/entfernen", „Priorität setzen" für Auswahl; ein Batch-Endpoint (`POST /api/akg/rules/batch`) mit ProblemDetails-Fehlern.
 - **Akzeptanz:** Handler-Tests; Audit-Log-Eintrag pro Batch.
 
-### E9 · Entity-Layer hat keine UI
-**Mittel · M · ⚠️**
+### E9 · Entity-Layer hat keine UI — ✅ ERLEDIGT (2026-07-05)
+**Mittel · M · ✅**
 Entity-Extraktion (LightRAG-Stil) läuft, aber Nutzer können Entitäten/Relationen nirgends browsen oder korrigieren — Qualitätskontrolle unmöglich. Erst nach C8 (Dedup) sinnvoll.
 - **Fix:** Read-only-Ansicht zuerst (Liste + Nachbarschaft), Editieren später.
+- **Erledigt:** Dedizierte `/entities`-Blazor-Seite (Suche → Trefferliste → 1-Hop-`RELATES_TO`-Nachbarn je Entität), Nav-Eintrag „Entities" (self-hosted Icon-Maske, keine CDN). Die testbare Logik liegt in `IEntityBrowser`/`EntityBrowser` (Web/Services): userId aus dem ambient `IIdentityContext` (Regel 7, nie aus UI), leere Query → leer, fehlender Entity-Store (Layer aus) → leer (degradiert statt DI-Fehler). 16 Unit-Tests (SplitTerms + Such-/Relations-Delegation mit Fakes, ohne Infra); Editieren bleibt späteres Item.
 
 ### E10 · Keine sichtbare Änderungshistorie/Undo
 **Niedrig · M · ❌**

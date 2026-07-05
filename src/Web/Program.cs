@@ -60,6 +60,12 @@ builder.Services.AddScoped<ILocalizationService, LocalizationService>();
 builder.Services.AddSingleton<IMarkdownRenderer, MarkdigMarkdownRenderer>();
 // Connection-test + model-listing for the provider config UI (Ollama /api/tags, OpenAI-compatible /v1/models, …).
 builder.Services.AddSingleton<IProviderProbe, ProviderProbe>();
+// E9: entity-layer browser for the /entities page (search + 1-hop relations). Scoped so it flows the ambient
+// identity; the entity store is optional (null when the entity layer is disabled), in which case the page shows
+// an empty result rather than failing DI resolution.
+builder.Services.AddScoped<IEntityBrowser>(sp => new EntityBrowser(
+    sp.GetService<Edda.Core.Abstractions.IEntityStore>(),
+    sp.GetService<Edda.Core.Abstractions.IIdentityContext>()));
 builder.Services.AddHealthChecks();
 
 // D7: OpenTelemetry (metrics + tracing) — opt-in, default OFF to keep the local-first/zero-infra default. Active

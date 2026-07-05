@@ -1,0 +1,136 @@
+@page "/entities"
+@rendermode InteractiveServer
+@using Edda.Core.Models
+@inject IEntityBrowser Browser
+
+<PageTitle>Entities</PageTitle>
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="mb-0">Entities</h3>
+</div>
+
+<p class="text-secondary">
+    Search the entities extracted from your knowledge sources and inspect their direct relations. The entity
+    layer is optional; if it is disabled or empty, no results are shown.
+</p>
+
+<div class="input-group mb-3" style="max-width: 40rem;">
+    <input type="text" class="form-control" placeholder="Search entities…"
+           @bind="_query" @bind:event="oninput" @onkeyup="OnKeyUpAsync" aria-label="Search entities" />
+    <button class="btn btn-primary" @onclick="SearchAsync" disabled="@_busy">Search</button>
+</div>
+
+@if (_busy)
+{
+    <p class="text-secondary">Searching…</p>
+}
+else if (_searched && _results.Count == 0)
+{
+    <p class="text-secondary">No entities found.</p>
+}
+else if (_results.Count > 0)
+{
+    <div class="row g-3">
+        <div class="col-md-6">
+            <ul class="list-group">
+                @foreach (var entity in _results)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-start @(IsSelected(entity) ? "active" : "")"
+                        role="button" @onclick="() => SelectAsync(entity)">
+                        <div>
+                            <div class="fw-semibold">@entity.Name</div>
+                            <small class="text-secondary">@entity.Type</small>
+                        </div>
+                        <span class="badge bg-secondary rounded-pill" title="Mentions">@entity.Mentions</span>
+                    </li>
+                }
+            </ul>
+        </div>
+        <div class="col-md-6">
+            @if (_selected is not null)
+            {
+                <h5 class="mb-3">@_selected.Name <small class="text-secondary">— relations</small></h5>
+                @if (_relatedBusy)
+                {
+                    <p class="text-secondary">Loading relations…</p>
+                }
+                else if (_related.Count == 0)
+                {
+                    <p class="text-secondary">No related entities.</p>
+                }
+                else
+                {
+                    <ul class="list-group">
+                        @foreach (var related in _related)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-start"
+                                role="button" @onclick="() => SelectAsync(related)">
+                                <div>
+                                    <div class="fw-semibold">@related.Name</div>
+                                    <small class="text-secondary">@related.Type</small>
+                                </div>
+                                <span class="badge bg-secondary rounded-pill" title="Mentions">@related.Mentions</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string _query = "";
+    private IReadOnlyList<GraphEntity> _results = [];
+    private IReadOnlyList<GraphEntity> _related = [];
+    private GraphEntity? _selected;
+    private bool _busy;
+    private bool _relatedBusy;
+    private bool _searched;
+
+    /// <summary>True when the given entity is the currently selected one (drives the active-row highlight).</summary>
+    private bool IsSelected(GraphEntity entity)
+        => _selected is not null && string.Equals(_selected.Name, entity.Name, StringComparison.Ordinal);
+
+    /// <summary>Triggers a search when the user presses Enter in the query box.</summary>
+    private async Task OnKeyUpAsync(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await SearchAsync();
+        }
+    }
+
+    /// <summary>Runs the entity search for the current query and clears any prior selection.</summary>
+    private async Task SearchAsync()
+    {
+        _busy = true;
+        _selected = null;
+        _related = [];
+        try
+        {
+            _results = await Browser.SearchAsync(_query);
+        }
+        finally
+        {
+            _busy = false;
+            _searched = true;
+        }
+    }
+
+    /// <summary>Selects an entity and loads its 1-hop relations.</summary>
+    private async Task SelectAsync(GraphEntity entity)
+    {
+        _selected = entity;
+        _relatedBusy = true;
+        _related = [];
+        try
+        {
+            _related = await Browser.GetRelatedAsync(entity.Name);
+        }
+        finally
+        {
+            _relatedBusy = false;
+        }
+    }
+}
