@@ -154,3 +154,15 @@ Vollständige Vorlage mit allen Variablen: **`.env.example`**.
 ```bash
 dotnet test Edda.slnx     # Unit-Tests, ohne Infrastruktur
 ```
+
+---
+
+## Mitwirken
+
+Beiträge sind willkommen! Bitte lies vorab **[CONTRIBUTING.md](CONTRIBUTING.md)** (Setup, Build/Test,
+Projektregeln) und den **[Verhaltenskodex](CODE_OF_CONDUCT.md)**. Sicherheitslücken bitte vertraulich
+über **[SECURITY.md](SECURITY.md)** melden — nicht über öffentliche Issues.
+
+## Lizenz
+
+Edda steht unter der **[Apache-2.0-Lizenz](LICENSE)**. © 2026 LupusMalus.

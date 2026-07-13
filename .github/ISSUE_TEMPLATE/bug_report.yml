@@ -1,0 +1,66 @@
+name: "🐛 Bug melden"
+description: "Ein reproduzierbares Fehlverhalten in Edda melden"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für den Report! **Keine Sicherheitslücken hier melden** — dafür bitte den
+        privaten Kanal nutzen (siehe [SECURITY.md](https://github.com/LupusMalusDeviant/edda/blob/main/SECURITY.md)).
+  - type: textarea
+    id: description
+    attributes:
+      label: Beschreibung
+      description: Was passiert, und was hast du stattdessen erwartet?
+      placeholder: Klare, knappe Beschreibung des Fehlers.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Schritte zur Reproduktion
+      description: So genau wie möglich — idealerweise ein minimales Beispiel.
+      placeholder: |
+        1. Edda mit '…' konfigurieren
+        2. MCP-Tool '…' aufrufen / UI-Seite '…' öffnen
+        3. Fehler tritt auf bei '…'
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / Commit
+      description: Release-Tag oder `git rev-parse --short HEAD`.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Betriebsart
+      options:
+        - Docker Compose (containerisiert)
+        - "dotnet run (lokal, ohne Container)"
+        - stdio-MCP-Host
+        - Sonstiges (im Text beschreiben)
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Relevante Konfiguration & Umgebung
+      description: >
+        Betriebssystem, .NET-/Docker-Version, Graph-DB (Neo4j/Memgraph), Embedding-Provider
+        und relevante `.env`-Werte — **Secrets/Keys redigieren**.
+      render: shell
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Fehlermeldung
+      description: Relevanter Auszug aus `docker compose logs -f edda` bzw. der Konsole — **redigiert**.
+      render: shell

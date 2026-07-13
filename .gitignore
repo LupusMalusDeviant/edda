@@ -24,3 +24,19 @@ knowledge/ingested/
 
 # Implementation-Pläne — lokale Arbeitsdokumente, bewusst nicht versioniert
 docs/plans/
+
+# Factory runtime / local-only state
+.claude/lessons-learned.md
+.claude/.lessons-queue
+.claude/.lessons-processed
+.claude/.auto-drive-state
+.claude/.locks/
+.claude/auto-drive.off
+.claude/gate-guard.off
+
+# Interne Arbeitsdokumente / Agent-Artefakte — nicht Teil des öffentlichen Produkts
+ISSUES.md
+docs/SkillUsed/
+docs/prd/
+.beans/
+.beans.yml

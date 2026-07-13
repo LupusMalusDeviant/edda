@@ -1,0 +1,36 @@
+name: "💡 Feature / Verbesserung vorschlagen"
+description: "Eine neue Funktion oder Verbesserung für Edda vorschlagen"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Edda ist bewusst schlank und **lokal-only / read-only per Default**. Chat-LLM-Runtime,
+        Multi-Agent-Loops, Scheduling und Web-/Browser-Tools sind bewusst **nicht** enthalten
+        (dafür gibt es das größere Edda-Monorepo). Bitte prüfe kurz, ob dein Vorschlag dazu passt.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: Welches Problem löst der Vorschlag? Welcher konkrete Anwendungsfall steckt dahinter?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Vorgeschlagene Lösung
+      description: Wie sollte es idealerweise funktionieren?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativen
+      description: Welche anderen Ansätze hast du erwogen?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Passung zum Projekt
+      options:
+        - label: "Der Vorschlag wahrt den lokal-only / read-only-default-Charakter von Edda."
+        - label: "Es geht nicht um eine Chat-/Agent-Runtime (die bewusst nicht Teil von Edda ist)."

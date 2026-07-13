@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "🔒 Sicherheitslücke melden"
+    url: https://github.com/LupusMalusDeviant/edda/security/advisories/new
+    about: "Schwachstellen bitte NICHT öffentlich, sondern über den privaten Kanal melden (siehe SECURITY.md)."
+  - name: "📖 Dokumentation"
+    url: https://github.com/LupusMalusDeviant/edda/tree/main/docs
+    about: "Erste Schritte, Architektur, MCP, TDK, Embeddings und Betrieb."
