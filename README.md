@@ -1,5 +1,7 @@
 # Edda
 
+**Deutsch** · [English](README.en.md)
+
 Eigenständiger **Agent Knowledge Graph (AKG)** + **Test-Driven Knowledge (TDK)** mit Embeddings,
 bereitgestellt als **MCP-Server** (HTTP/SSE und stdio) mit eigenem **Blazor-UI**. Lokal-only —
 jeder beliebige Agent/LLM kann den Wissensgraphen über MCP anbinden (**read-only**).
